@@ -12,6 +12,14 @@
 // Nothing here fixes anything, stores anything long-term, or touches
 // the site. It only looks and records -- exactly the "Crawl and render"
 // box in the architecture diagram.
+//
+// Fixes in this version:
+//   - Decode HTML entities (&amp; etc.) before comparing raw vs rendered
+//     titles, so encoding differences no longer look like real JS changes.
+//   - Wait for "domcontentloaded" instead of "networkidle" as the primary
+//     signal, then best-effort wait a little longer for network to settle.
+//     Pages with chat widgets, embeds, or constant background requests
+//     never go fully idle, which was causing false render failures.
 
 import { chromium } from "playwright";
 import { writeFile } from "node:fs/promises";
@@ -26,6 +34,17 @@ const origin = new URL(startUrl).origin;
 const visited = new Set();
 const report = [];
 
+function decodeEntities(str) {
+  if (!str) return str;
+  return str
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&apos;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">");
+}
+
 async function fetchRaw(url) {
   try {
     const res = await fetch(url, { redirect: "manual" });
@@ -34,7 +53,7 @@ async function fetchRaw(url) {
     return {
       status: res.status,
       redirectedTo: res.headers.get("location") || null,
-      title: titleMatch ? titleMatch[1].trim() : null,
+      title: titleMatch ? decodeEntities(titleMatch[1].trim()) : null,
       bodyLength: body.length,
     };
   } catch (err) {
@@ -55,8 +74,19 @@ async function fetchRendered(browser, url) {
 
   let status = null;
   try {
-    const res = await page.goto(url, { waitUntil: "networkidle", timeout: 15000 });
+    // Primary wait: DOM is parsed and ready. This is reliable even on
+    // pages that keep background connections open forever (chat widgets,
+    // analytics, live embeds) and would never satisfy "networkidle".
+    const res = await page.goto(url, {
+      waitUntil: "domcontentloaded",
+      timeout: 20000,
+    });
     status = res ? res.status() : null;
+
+    // Best-effort extra wait for things that finish loading shortly after
+    // DOM-ready (e.g. a script injecting content). Non-fatal if it times
+    // out -- we already have a usable page either way.
+    await page.waitForLoadState("networkidle", { timeout: 5000 }).catch(() => {});
   } catch (err) {
     await page.close();
     return { status: null, error: String(err), internalLinks: [], brokenLinks: [] };
