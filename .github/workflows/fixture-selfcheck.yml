@@ -1,0 +1,31 @@
+name: Fixture self-check
+
+on:
+  push:
+    paths:
+      - "fixture/**"
+      - ".github/workflows/fixture-selfcheck.yml"
+  workflow_dispatch:
+
+jobs:
+  selfcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Generate fixture pages
+        run: node fixture/generate-site.js
+
+      - name: Start fixture server
+        run: |
+          node fixture/server.js &
+          sleep 2
+
+      - name: Run fixture self-check
+        run: node fixture/selfcheck.js
