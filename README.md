@@ -8,7 +8,7 @@ This is **not** a website builder and **not** a CMS. It is a technical QA
 and error-rectification agent that sits on top of a site that already
 exists.
 
-**Status:** Phase 1, Day 1 of 12 complete. See [Current sprint](#10-current-sprint-oct-5-to-oct-17-2026).
+**Status:** Phase 1, Day 2 of 12 complete. See [Current sprint](#10-current-sprint-oct-5-to-oct-17-2026).
 
 ---
 
@@ -129,7 +129,7 @@ re-engineering, content strategy work, and heavy infrastructure
 | Layer | Tool | Status |
 |---|---|---|
 | Crawler and renderer | Node.js, Playwright (headless Chromium) | In use |
-| Test fixture | Node.js built-ins (`http`, `fetch`) | In use |
+| Test fixture and scoring | Node.js built-ins (`http`, `fetch`) | In use |
 | CI | GitHub Actions | In use |
 | Issue registry | JSON file now, PostgreSQL later | Planned |
 | AI reasoning | Claude API | Planned |
@@ -145,14 +145,15 @@ progrowth-sitefix-agent/
 │   ├── PULL_REQUEST_TEMPLATE.md      every PR must fill this in
 │   └── workflows/
 │       ├── crawl.yml                  run the crawler on any URL (manual)
-│       └── fixture-selfcheck.yml      verify the test fixture on every change
+│       └── fixture-selfcheck.yml      verify, crawl and score the fixture on every change
 ├── fixture/                           controlled test site with planted faults
 │   ├── generate-site.js               writes the 12 HTML pages into site/
 │   ├── server.js                      serves them with real HTTP redirects
 │   ├── selfcheck.js                   proves the fixture behaves as claimed
+│   ├── score.js                       scores crawler output against the planted issues
 │   ├── expected-issues.json           ground truth: the 10 planted issues
 │   └── site/                          generated pages
-├── crawl.js                           the crawler (raw fetch + rendered fetch)
+├── crawl.js                           the crawler (page crawl + direct link checks)
 ├── package.json
 ├── .gitignore
 └── README.md
@@ -168,7 +169,7 @@ Saturday. Fridays are a half day of build plus review preparation.
 | Day | Date | Aim | Status |
 |---|---|---|---|
 | 1 | Mon Oct 5 | Test fixture with planted faults and ground truth | **Done** |
-| 2 | Tue Oct 6 | Crawl coverage: configurable page cap, check every link directly, found-on map | Planned |
+| 2 | Tue Oct 6 | Crawl coverage: configurable page cap, check every link directly, found-on map | **Done** |
 | 3 | Wed Oct 7 | HTTP and redirect detector | Planned |
 | 4 | Thu Oct 8 | Metadata and canonical detector | Planned |
 | 5 | Fri Oct 9 | Soft-404 rule, then Week 1 review prep | Planned |
@@ -198,24 +199,32 @@ npx playwright install chromium
 ### Run the crawler
 
 ```bash
-node crawl.js https://your-site.com
+node crawl.js https://your-site.com --max-pages 100
 ```
 
-It crawls internal links and writes `report.json` with, per page: the raw
-HTML status and title, the JavaScript-rendered status, title and word
-count, any broken resources seen while loading, and whether rendering
-changed the title. It only reads; it never writes to the site.
+Options: `--max-pages N` (default 100) and `--delay-ms N` (pause between
+link checks, default 150). It writes two files:
+
+- `report.json`: one entry per crawled page (raw vs rendered status, title,
+  word count, broken resources).
+- `links.json`: a summary plus one entry per distinct link found, internal
+  and external, each checked directly (HEAD, falling back to GET on 405/501,
+  redirects not followed). Every link lists the pages it was **found on** and
+  is classed `ok`, `redirect`, `broken` (4xx/5xx), `unverified` (timeout, or
+  blocked with 401/403/429/999) or `unreachable` (network error).
+
+It only reads; it never writes to the site.
 
 Or run it with no local setup: GitHub, **Actions**, **Run Crawler**,
-**Run workflow**, choose the branch and enter a URL (the workflow must
-exist on `main` to appear in that list).
+**Run workflow**, choose the branch, enter a URL and a `max_pages` value
+(the workflow must exist on `main` to appear in that list).
 
-**Known limits of the current crawler (being closed this sprint):** a
-hard 25-page cap, links are only checked when a page is visited, external
-links are not checked, redirect hops are not counted, and there is no
-soft-404, canonical, duplicate-title or sitemap detection yet. The
-`jsChangedTitle` field also gives false flags on pages that have no body
-(redirects, 404s, missing titles).
+**Known limits of the current crawler:** only `<a href>` links in the
+rendered page are checked (not images, scripts or links added after user
+interaction); redirect chains and loops are not yet classified; and there is
+no soft-404, canonical, duplicate-title or sitemap detection yet. The
+`jsChangedTitle` field gives false flags on pages with no body (redirects,
+404s, missing titles).
 
 ### Run the test fixture
 
@@ -223,15 +232,17 @@ The fixture is a small site with a known set of planted faults, used to
 measure whether each detector finds everything and nothing extra.
 
 ```bash
-node fixture/generate-site.js     # write the pages (re-run after editing the generator)
-node fixture/server.js            # terminal 1: site on :4000, "external" site on :4001
-node fixture/selfcheck.js         # terminal 2: expects "All checks passed."
+node fixture/generate-site.js         # write the pages (re-run after editing the generator)
+node fixture/server.js                # terminal 1: site on :4000, "external" site on :4001
+node fixture/selfcheck.js             # terminal 2: expects "All checks passed."
 node crawl.js http://localhost:4000   # crawl the fixture
+node fixture/score.js                 # compare the crawl with the answer key
 ```
 
 It uses a local Node server rather than GitHub Pages because Pages cannot
 serve real HTTP 301/302 redirects, so a redirect chain or loop cannot be
-planted there. The same server runs in CI (`fixture-selfcheck.yml`).
+planted there. The same server runs in CI (`fixture-selfcheck.yml`), which
+also crawls and scores the fixture on every push.
 
 **The 10 planted issues** (`fixture/expected-issues.json`):
 
@@ -279,6 +290,23 @@ mismatches (Day 3), sitemap and robots faults and image alt text (Day 7).
 missed.** `jsChangedTitle` also gave 4 false flags. Days 2 to 5 close
 these gaps; every detector is measured against `expected-issues.json`.
 
+### Day 2: crawl coverage
+
+Page cap replaced by `--max-pages`; every link is now checked directly with
+found-on pages. On the fixture the score went from 0 to **2 of 10 planted
+issues found** (F-01 internal 404, F-02 external 404, both with the correct
+found-on page) with **0 false positives**. Redirecting links are listed (2 on
+the fixture) but chains and loops are classified on Day 3. CI now crawls and
+scores the fixture on every push (`--require 2`).
+Real-site check (sonagroup.ae, 40 pages crawled with 4,290 still queued, mostly
+`products.html` filter variants; 689 links checked): 0 broken, 97 redirecting.
+Of the redirects, 9 internal links redirect to `/404.html`, which returns 200
+with the title "404" and no H1 (a verified soft 404; `/faqs.html` alone is
+linked from every crawled page), 85 are `products.html/?...` filter links that
+301 because of a trailing slash, and 3 brand links redirect to the generic
+products page. The homepage rejects HEAD requests with 403, so link checks now
+retry with GET before judging.
+
 ## 13. Security principles
 
 - Every client site is its own isolated tenant: separate credentials,
@@ -303,5 +331,5 @@ merging. `main` is never pushed to directly.
 Every PR uses [`.github/PULL_REQUEST_TEMPLATE.md`](.github/PULL_REQUEST_TEMPLATE.md):
 what it does, which roadmap item it closes, how it was tested, the
 outcome, and any risk notes. A PR is done when its checks pass against the
-fixture and it is merged to `main`. Never commit tokens, `.env` files or
-`report.json`.
+fixture and it is merged to `main`. Never commit tokens, `.env` files,
+`report.json` or `links.json`.
