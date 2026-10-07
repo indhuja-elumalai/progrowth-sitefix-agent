@@ -51,6 +51,8 @@ const chain = await follow(base + "/redirect-chain-start");
 check("redirect chain has 3 hops and ends in 200", chain.hops === 3 && chain.final === 200 && !chain.loop, `hops=${chain.hops}`);
 const loop = await follow(base + "/loop-a");
 check("loop-a is a redirect loop", loop.loop === true);
+const toError = await follow(base + "/old-page");
+check("/old-page redirects once to a 404", toError.hops === 1 && toError.final === 404 && !toError.loop, `hops=${toError.hops} final=${toError.final}`);
 
 console.log("-- Page hygiene (so nothing unplanted gets flagged)");
 const files = (await readdir(path.join(dir, "site"))).filter((f) => f.endsWith(".html"));

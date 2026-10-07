@@ -1,11 +1,12 @@
 // Scores the crawler's output against the planted issues in expected-issues.json.
 // Run after:  node crawl.js http://localhost:4000
 //   node fixture/score.js              print the table
-//   node fixture/score.js --require 2  also exit 1 if fewer than 2 planted issues
+//   node fixture/score.js --require 5  also exit 1 if fewer than 5 planted issues
 //                                      are found, or if anything unplanted is flagged
 //
-// Today it reads links.json (broken links). Later days add more sources
-// (redirects, metadata, canonical, soft 404) to the same table.
+// Reads links.json: broken links, plus redirect loops, chains and
+// redirects that end in an error. Later days add more sources
+// (metadata, canonical, soft 404, images) to the same table.
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -25,20 +26,21 @@ const toPath = (u) => { const x = new URL(u); return x.pathname + x.search; };
 const norm = (u) => (new URL(u).origin === baseOrigin ? toPath(u) : u);
 
 // Detections available so far.
-const detections = links
-  .filter((l) => l.classification === "broken")
-  .map((l) => ({
-    type: l.type === "internal" ? "http-4xx-internal" : "http-4xx-external",
-    url: norm(l.url),
-    foundOn: l.foundOn.map(toPath),
-  }));
+const detections = [];
+for (const l of links) {
+  const base = { url: norm(l.url), foundOn: l.foundOn.map(toPath) };
+  if (l.classification === "broken") {
+    detections.push({ ...base, type: l.type === "internal" ? "http-4xx-internal" : "http-4xx-external" });
+  }
+  if (l.redirect?.issueType) detections.push({ ...base, type: l.redirect.issueType });
+}
 
 const matched = new Set();
 let found = 0;
 console.log("ID    Type                       Affected URL                      Result");
 console.log("----  -------------------------  --------------------------------  --------------------------");
 for (const issue of truth.issues) {
-  const d = detections.find((x, i) => x.type === issue.type && x.url === issue.affectedUrl);
+  const d = detections.find((x) => x.type === issue.type && x.url === issue.affectedUrl);
   let result = "MISSED";
   if (d) {
     matched.add(detections.indexOf(d));

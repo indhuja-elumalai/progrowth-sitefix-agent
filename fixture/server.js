@@ -21,6 +21,7 @@ const redirects = {
   "/redirect-chain-3": [301, "/final.html"],
   "/loop-a": [302, "/loop-b"],
   "/loop-b": [302, "/loop-a"],
+  "/old-page": [302, "/does-not-exist.html"],
 };
 const types = {
   ".html": "text/html; charset=utf-8",

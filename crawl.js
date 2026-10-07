@@ -1,4 +1,4 @@
-// Crawler, Day 2 version.
+// Crawler, Day 3 version.
 // Usage: node crawl.js https://your-site.com [--max-pages 100] [--delay-ms 150]
 //
 // What it does, on purpose and nothing more:
@@ -8,15 +8,19 @@
 //   3. Follows internal links up to --max-pages (default 100).
 //   4. Checks EVERY link found (internal and external) directly, once each,
 //      and records which pages link to it ("found on").
+//   5. Follows every redirecting link to its end and classifies it:
+//      loop, chain (2+ hops), or a redirect that ends in an error.
+//   6. Checks the start URL's host: http -> https, and the www / non-www twin.
 //
 // Writes two files:
 //   report.json  one entry per crawled page (raw vs rendered)
-//   links.json   summary plus one entry per checked link
+//   links.json   summary, site-level checks, redirect destinations, one entry per link
 //
 // Nothing here fixes anything or touches the site. It only looks and records.
 
 import { chromium } from "playwright";
 import { writeFile } from "node:fs/promises";
+import { followRedirects, classifyRedirect, redirectIssueType, siteLevelChecks } from "./lib/redirects.js";
 
 // ---------- command line ----------
 const args = process.argv.slice(2);
@@ -31,8 +35,9 @@ if (!startArg) {
 }
 const MAX_PAGES = opt("max-pages", 100);
 const DELAY_MS = opt("delay-ms", 150);
+const MAX_HOPS = 10;
 const LINK_TIMEOUT_MS = 10000;
-const UA = "progrowth-sitefix-agent/0.2 (site QA crawler)";
+const UA = "progrowth-sitefix-agent/0.3 (site QA crawler)";
 
 const startUrl = new URL(startArg).href; // normalises "https://x.com" to "https://x.com/"
 const origin = new URL(startUrl).origin;
@@ -54,7 +59,7 @@ function decodeEntities(str) {
     .replace(/&gt;/g, ">");
 }
 
-// ---------- page fetches (unchanged from Week 1) ----------
+// ---------- page fetches ----------
 async function fetchRaw(url) {
   try {
     const res = await fetch(url, { redirect: "manual", signal: AbortSignal.timeout(15000) });
@@ -108,7 +113,7 @@ async function fetchRendered(browser, url) {
 }
 
 // ---------- direct link check ----------
-// HEAD first; fall back to GET when the server rejects HEAD (405/501).
+// HEAD first; fall back to GET when the server rejects HEAD (403/405/501).
 // Redirects are NOT followed, so a 301 is reported as a 301.
 async function requestOnce(url, method) {
   return fetch(url, {
@@ -167,6 +172,10 @@ async function main() {
     const raw = await fetchRaw(url);
     const rendered = await fetchRendered(browser, url);
 
+    // Only compare titles when both sides produced a real page. A redirect, a 404
+    // or a failed render has no body to compare, and a missing title is "" on both sides.
+    const rawIsPage = raw.status >= 200 && raw.status < 300;
+    const renderedOk = rendered.status !== null;
     report.push({
       url,
       raw,
@@ -176,7 +185,7 @@ async function main() {
         wordCount: rendered.wordCount,
         brokenLinks: rendered.brokenLinks,
       },
-      jsChangedTitle: raw.title !== rendered.title,
+      jsChangedTitle: rawIsPage && renderedOk && (raw.title || "") !== (rendered.title || ""),
     });
 
     for (const link of rendered.links || []) {
@@ -203,7 +212,33 @@ async function main() {
     await sleep(DELAY_MS); // be polite to the server
   }
 
+  // Follow every redirecting link to its end.
+  const redirecting = links.filter((l) => l.classification === "redirect");
+  console.log(`Following ${redirecting.length} redirecting links to their destination...`);
+  for (const l of redirecting) {
+    const result = await followRedirects(l.url, checkLink, { maxHops: MAX_HOPS, delayMs: DELAY_MS });
+    const c = classifyRedirect(result);
+    l.redirect = { ...c, issueType: redirectIssueType(c) };
+  }
+
+  // Which destinations do many different redirecting links end up on?
+  const byDestination = new Map();
+  for (const l of redirecting) {
+    const dest = l.redirect.finalUrl;
+    if (!dest) continue;
+    if (!byDestination.has(dest)) byDestination.set(dest, { url: dest, status: l.redirect.finalStatus, sources: [] });
+    byDestination.get(dest).sources.push(l.url);
+  }
+  const redirectTargets = [...byDestination.values()]
+    .map((d) => ({ url: d.url, status: d.status, redirectingLinks: d.sources.length, examples: d.sources.slice(0, 3) }))
+    .filter((d) => d.redirectingLinks >= 2)
+    .sort((a, b) => b.redirectingLinks - a.redirectingLinks);
+
+  // http -> https and www / non-www checks on the start URL's host.
+  const siteChecks = await siteLevelChecks(startUrl, checkLink, { maxHops: MAX_HOPS, delayMs: DELAY_MS });
+
   const count = (c) => links.filter((l) => l.classification === c).length;
+  const kindCount = (t) => redirecting.filter((l) => l.redirect.issueType === t).length;
   const summary = {
     startUrl,
     maxPages: MAX_PAGES,
@@ -212,33 +247,56 @@ async function main() {
     pagesLeftInQueue: capReached ? queue.filter((u) => !visited.has(u)).length : 0,
     linksChecked: links.length,
     ok: count("ok"),
-    redirect: count("redirect"),
     broken: count("broken"),
     unverified: count("unverified"),
     unreachable: count("unreachable"),
+    redirecting: redirecting.length,
+    redirectLoops: kindCount("redirect-loop"),
+    redirectChains: kindCount("redirect-chain"),
+    redirectsToError: kindCount("redirect-to-error"),
+    singleRedirects: redirecting.filter((l) => !l.redirect.issueType).length,
+    siteChecks: siteChecks.skipped ? `skipped (${siteChecks.skipped})` : `${siteChecks.findings.length} finding(s)`,
   };
 
   await writeFile("report.json", JSON.stringify(report, null, 2));
-  await writeFile("links.json", JSON.stringify({ summary, links }, null, 2));
+  await writeFile("links.json", JSON.stringify({ summary, siteChecks, redirectTargets, links }, null, 2));
 
   // Readable result in the console (and the Actions log).
   console.log("\n=== Summary ===");
   console.log(JSON.stringify(summary, null, 2));
   if (capReached) console.log(`\nNOTE: stopped at ${MAX_PAGES} pages with pages still queued. Raise --max-pages to see more.`);
-  const show = (label, cls) => {
-    const list = links.filter((l) => l.classification === cls);
+
+  const foundLine = (l) => `      found on: ${l.foundOn.slice(0, 5).join(", ")}${l.foundOn.length > 5 ? ` (+${l.foundOn.length - 5} more)` : ""}`;
+  const show = (label, list, line) => {
     if (!list.length) return;
     console.log(`\n${label} (${list.length}):`);
-    for (const l of list.slice(0, 50)) {
-      console.log(`  ${l.status ?? l.error}  ${l.url}${l.location ? "  -> " + l.location : ""}`);
-      console.log(`      found on: ${l.foundOn.slice(0, 5).join(", ")}${l.foundOn.length > 5 ? ` (+${l.foundOn.length - 5} more)` : ""}`);
-    }
-    if (list.length > 50) console.log(`  ... and ${list.length - 50} more in links.json`);
+    for (const l of list.slice(0, 25)) { console.log(line(l)); console.log(foundLine(l)); }
+    if (list.length > 25) console.log(`  ... and ${list.length - 25} more in links.json`);
   };
-  show("Broken links", "broken");
-  show("Unreachable links", "unreachable");
-  show("Redirecting links", "redirect");
-  show("Unverified links (blocked or timed out)", "unverified");
+  const plain = (l) => `  ${l.status ?? l.error}  ${l.url}`;
+  const chainLine = (l) => `  ${l.redirect.hops} hop(s)  ${l.redirect.chain.join(" -> ")}${l.redirect.finalStatus ? `  [ends ${l.redirect.finalStatus}]` : ""}`;
+
+  show("Broken links", links.filter((l) => l.classification === "broken"), plain);
+  show("Unreachable links", links.filter((l) => l.classification === "unreachable"), plain);
+  show("Redirect loops", redirecting.filter((l) => l.redirect.issueType === "redirect-loop"), chainLine);
+  show("Redirect chains (2 or more hops)", redirecting.filter((l) => l.redirect.issueType === "redirect-chain"), chainLine);
+  show("Redirects that end in an error", redirecting.filter((l) => l.redirect.issueType === "redirect-to-error"), chainLine);
+  show("Unverified links (blocked or timed out)", links.filter((l) => l.classification === "unverified"), plain);
+
+  const single = redirecting.filter((l) => !l.redirect.issueType);
+  if (single.length) {
+    console.log(`\nSingle redirects to a working page (${single.length}): internal links that point at a redirect. First 5:`);
+    for (const l of single.slice(0, 5)) console.log(`  ${l.url}  ->  ${l.redirect.finalUrl}`);
+  }
+  if (redirectTargets.length) {
+    console.log("\nMost common redirect destinations (2 or more redirecting links end here):");
+    for (const d of redirectTargets.slice(0, 5)) console.log(`  ${d.redirectingLinks} links  ->  ${d.url}  [${d.status}]`);
+  }
+  console.log("\n=== Site-level checks (http -> https, www / non-www) ===");
+  if (siteChecks.skipped) console.log(`  skipped: ${siteChecks.skipped}`);
+  else if (!siteChecks.findings.length) console.log("  no findings");
+  else for (const f of siteChecks.findings) console.log(`  ${f.type}: ${f.detail}`);
+
   console.log("\nDone. See report.json and links.json");
 }
 
