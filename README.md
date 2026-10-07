@@ -8,7 +8,7 @@ This is **not** a website builder and **not** a CMS. It is a technical QA
 and error-rectification agent that sits on top of a site that already
 exists.
 
-**Status:** Phase 1, Day 2 of 12 complete. See [Current sprint](#10-current-sprint-oct-5-to-oct-17-2026).
+**Status:** Phase 1, Day 3 of 12 complete. See [Current sprint](#10-current-sprint-oct-5-to-oct-17-2026).
 
 ---
 
@@ -58,7 +58,7 @@ nothing in the pipeline can skip the human-approval step.
 
 | Category | What we check for |
 |---|---|
-| HTTP and URLs | 404 / 410 / 5xx pages, broken links, redirect chains and loops, HTTP/HTTPS and www mismatches |
+| HTTP and URLs | 404 / 410 / 5xx pages, broken links, redirect chains and loops, redirects that end in an error, HTTP/HTTPS and www mismatches |
 | Soft 404s | Pages that return 200 OK but read like an error page (not-found title or H1, near-empty body) |
 | SEO and metadata | Missing or duplicate titles and meta descriptions, missing H1, broken heading structure |
 | Canonical tags | Missing or duplicate canonical tag, canonical pointing to a 404 or to a redirect |
@@ -130,6 +130,7 @@ re-engineering, content strategy work, and heavy infrastructure
 |---|---|---|
 | Crawler and renderer | Node.js, Playwright (headless Chromium) | In use |
 | Test fixture and scoring | Node.js built-ins (`http`, `fetch`) | In use |
+| Unit tests | `node:test` (built in) | In use |
 | CI | GitHub Actions | In use |
 | Issue registry | JSON file now, PostgreSQL later | Planned |
 | AI reasoning | Claude API | Planned |
@@ -145,15 +146,19 @@ progrowth-sitefix-agent/
 │   ├── PULL_REQUEST_TEMPLATE.md      every PR must fill this in
 │   └── workflows/
 │       ├── crawl.yml                  run the crawler on any URL (manual)
-│       └── fixture-selfcheck.yml      verify, crawl and score the fixture on every change
+│       └── fixture-selfcheck.yml      unit tests, then crawl and score the fixture on every change
 ├── fixture/                           controlled test site with planted faults
 │   ├── generate-site.js               writes the 12 HTML pages into site/
 │   ├── server.js                      serves them with real HTTP redirects
 │   ├── selfcheck.js                   proves the fixture behaves as claimed
 │   ├── score.js                       scores crawler output against the planted issues
-│   ├── expected-issues.json           ground truth: the 10 planted issues
+│   ├── expected-issues.json           ground truth: the 11 planted issues
 │   └── site/                          generated pages
-├── crawl.js                           the crawler (page crawl + direct link checks)
+├── lib/
+│   └── redirects.js                   follow redirects hop by hop, classify them, site-level checks
+├── test/
+│   └── redirects.test.js              unit tests for lib/redirects.js (npm test)
+├── crawl.js                           the crawler (page crawl, link checks, redirect analysis)
 ├── package.json
 ├── .gitignore
 └── README.md
@@ -170,7 +175,7 @@ Saturday. Fridays are a half day of build plus review preparation.
 |---|---|---|---|
 | 1 | Mon Oct 5 | Test fixture with planted faults and ground truth | **Done** |
 | 2 | Tue Oct 6 | Crawl coverage: configurable page cap, check every link directly, found-on map | **Done** |
-| 3 | Wed Oct 7 | HTTP and redirect detector | Planned |
+| 3 | Wed Oct 7 | HTTP and redirect detector | **Done** |
 | 4 | Thu Oct 8 | Metadata and canonical detector | Planned |
 | 5 | Fri Oct 9 | Soft-404 rule, then Week 1 review prep | Planned |
 | 6 | Sat Oct 10 | Evidence capture and issue schema, registry v0 | Planned |
@@ -207,11 +212,19 @@ link checks, default 150). It writes two files:
 
 - `report.json`: one entry per crawled page (raw vs rendered status, title,
   word count, broken resources).
-- `links.json`: a summary plus one entry per distinct link found, internal
-  and external, each checked directly (HEAD, falling back to GET on 405/501,
-  redirects not followed). Every link lists the pages it was **found on** and
-  is classed `ok`, `redirect`, `broken` (4xx/5xx), `unverified` (timeout, or
-  blocked with 401/403/429/999) or `unreachable` (network error).
+- `links.json`: a summary, the site-level checks, the most common redirect
+  destinations, and one entry per distinct link found, each checked directly
+  (HEAD, falling back to GET on 403/405/501, redirects not followed). Every
+  link lists the pages it was **found on** and is classed `ok`, `redirect`,
+  `broken` (4xx/5xx), `unverified` (timeout, or blocked with 401/403/429/999)
+  or `unreachable` (network error). Every redirecting link is followed hop by
+  hop (up to 10) and typed as a `redirect-loop`, a `redirect-chain` (2 or more
+  hops) or a `redirect-to-error`; a single redirect to a working page is
+  recorded but not reported as an issue.
+
+Two site-level checks run on the start URL's host (skipped for localhost):
+the `http://` version should redirect to `https://`, and the `www` / non-`www`
+twin should redirect to the main host rather than serve the site itself.
 
 It only reads; it never writes to the site.
 
@@ -221,12 +234,17 @@ Or run it with no local setup: GitHub, **Actions**, **Run Crawler**,
 
 **Known limits of the current crawler:** only `<a href>` links in the
 rendered page are checked (not images, scripts or links added after user
-interaction); redirect chains and loops are not yet classified; and there is
-no soft-404, canonical, duplicate-title or sitemap detection yet. The
-`jsChangedTitle` field gives false flags on pages with no body (redirects,
-404s, missing titles).
+interaction); query-string variants of a page are crawled as separate pages;
+a link check that times out is reported as `unverified` without a second
+attempt (two sonagroup.ae pages timed out at 10 s although `curl` shows them
+answering in about 2 s); and there is no soft-404, canonical, duplicate-title
+or sitemap detection yet.
 
-### Run the test fixture
+### Run the unit tests and the test fixture
+
+```bash
+npm test                              # unit tests for the redirect logic (no server needed)
+```
 
 The fixture is a small site with a known set of planted faults, used to
 measure whether each detector finds everything and nothing extra.
@@ -242,9 +260,9 @@ node fixture/score.js                 # compare the crawl with the answer key
 It uses a local Node server rather than GitHub Pages because Pages cannot
 serve real HTTP 301/302 redirects, so a redirect chain or loop cannot be
 planted there. The same server runs in CI (`fixture-selfcheck.yml`), which
-also crawls and scores the fixture on every push.
+runs the unit tests, then crawls and scores the fixture on every push.
 
-**The 10 planted issues** (`fixture/expected-issues.json`):
+**The 11 planted issues** (`fixture/expected-issues.json`):
 
 | ID | Planted fault |
 |---|---|
@@ -257,11 +275,13 @@ also crawls and scores the fixture on every push.
 | F-07 | Missing title |
 | F-08, F-09 | Duplicate title (one entry per page) |
 | F-10 | Canonical pointing at a 404 |
+| F-11 | Redirect that ends in a 404 (`/old-page`) |
 
 Four control pages (`/`, `/about.html`, `/contact.html`, `/final.html`)
 must produce no issues; `/contact.html` is deliberately short but valid,
 to catch soft-404 false alarms. Not yet planted: http-to-https and www
-mismatches (Day 3), sitemap and robots faults and image alt text (Day 7).
+mismatches (they need real hostnames, so they are covered by unit tests with
+a fake server), and sitemap and robots faults and image alt text (Day 7).
 
 ## 12. Results so far
 
@@ -295,9 +315,8 @@ these gaps; every detector is measured against `expected-issues.json`.
 Page cap replaced by `--max-pages`; every link is now checked directly with
 found-on pages. On the fixture the score went from 0 to **2 of 10 planted
 issues found** (F-01 internal 404, F-02 external 404, both with the correct
-found-on page) with **0 false positives**. Redirecting links are listed (2 on
-the fixture) but chains and loops are classified on Day 3. CI now crawls and
-scores the fixture on every push (`--require 2`).
+found-on page) with **0 false positives**.
+
 Real-site check (sonagroup.ae, 40 pages crawled with 4,290 still queued, mostly
 `products.html` filter variants; 689 links checked): 0 broken, 97 redirecting.
 Of the redirects, 9 internal links redirect to `/404.html`, which returns 200
@@ -306,6 +325,27 @@ linked from every crawled page), 85 are `products.html/?...` filter links that
 301 because of a trailing slash, and 3 brand links redirect to the generic
 products page. The homepage rejects HEAD requests with 403, so link checks now
 retry with GET before judging.
+
+### Day 3: redirect detector
+
+Redirects are followed hop by hop and classified (loop, chain, ends in an
+error); the http-to-https and www / non-www checks are in place and
+unit-tested (13 tests). The fixture gained a planted fault, F-11 (a redirect
+to a 404), and the score went from 2 to **5 of 11 planted issues found**
+with **0 false positives** (F-04 chain, F-05 loop and F-11 redirect-to-error
+added to F-01 and F-02). `jsChangedTitle` now only compares real pages: 4
+false flags on the fixture became 0.
+
+Real-site check (sonagroup.ae, 40 pages, 689 links): 590 ok, 0 broken, 97
+redirecting, 2 unverified. All 97 redirects are single-hop: 0 loops, 0 chains,
+0 ending in an error. 9 end at `/404.html` and 3 at the generic products page;
+because `/404.html` returns 200, the redirect detector does not report them as
+an issue, and they appear under "most common redirect destinations" for the
+Day 5 soft-404 rule to flag. Site-level checks (http to https, www / non-www)
+found nothing; `curl` shows `http://www.sonagroup.ae/` and
+`https://sonagroup.ae/` both answering 301. The 2 unverified links were
+10-second timeouts on pages that `curl` shows answering 200 in about 2 seconds,
+so they are not broken.
 
 ## 13. Security principles
 
@@ -330,6 +370,6 @@ merging. `main` is never pushed to directly.
 
 Every PR uses [`.github/PULL_REQUEST_TEMPLATE.md`](.github/PULL_REQUEST_TEMPLATE.md):
 what it does, which roadmap item it closes, how it was tested, the
-outcome, and any risk notes. A PR is done when its checks pass against the
-fixture and it is merged to `main`. Never commit tokens, `.env` files,
-`report.json` or `links.json`.
+outcome, and any risk notes. A PR is done when its checks pass (unit tests
+and the fixture score) and it is merged to `main`. Never commit tokens,
+`.env` files, `report.json` or `links.json`.

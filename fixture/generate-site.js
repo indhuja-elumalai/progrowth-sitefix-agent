@@ -76,12 +76,13 @@ const pages = [
     body: long("Two images follow.") +
       '<img src="/img/missing.jpg" alt="Missing hero image" width="200" height="100">' +
       '<img src="/img/logo.svg" alt="Fixture logo" width="64" height="64">' },
-  { file: "redirects.html", title: "Redirect Page with a Chain and a Loop Planted",
-    desc: "Links to a three-hop redirect chain and to a two-URL redirect loop for testing redirect detection.",
+    { file: "redirects.html", title: "Redirect Page with a Chain and a Loop Planted",
+    desc: "Links to a three-hop redirect chain, a redirect loop and a redirect to a missing page for testing redirect detection.",
     h1: "Redirect tests",
-    body: long("Two redirect links follow.") +
+    body: long("Three redirect links follow.") +
       '<ul><li><a href="/redirect-chain-start">Old page, three hops to the new one</a></li>' +
-      '<li><a href="/loop-a">Page that redirects in a loop</a></li></ul>' },
+      '<li><a href="/loop-a">Page that redirects in a loop</a></li>' +
+      '<li><a href="/old-page">Old page that redirects to a missing page</a></li></ul>' },
   { file: "soft-404.html", title: "Page Not Found | Fixture Site",
     desc: "Sorry, we could not find the page you were looking for on this site.",
     h1: "Sorry, this page doesn't exist",

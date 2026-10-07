@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "crawl": "node crawl.js"
+    "crawl": "node crawl.js",
+    "test": "node --test"
   },
   "dependencies": {
     "playwright": "^1.47.0"
