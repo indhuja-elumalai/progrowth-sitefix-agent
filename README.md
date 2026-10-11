@@ -8,7 +8,7 @@ This is **not** a website builder and **not** a CMS. It is a technical QA
 and error-rectification agent that sits on top of a site that already
 exists.
 
-**Status:** Phase 1, Day 3 of 12 complete. See [Current sprint](#10-current-sprint-oct-5-to-oct-17-2026).
+**Status:** Phase 1, Day 4 of 12 complete. See [Current sprint](#10-current-sprint-oct-5-to-oct-17-2026).
 
 ---
 
@@ -73,10 +73,10 @@ categories used by established site-audit tools (Semrush, Ahrefs,
 Sitebulb), consolidated into a set sized for Phase 1 rather than a full
 clone of a mature enterprise crawler.
 
-**Coverage in the current sprint (to Oct 17):** HTTP/URLs, links, soft
-404s, canonical and metadata are built and tested; image and sitemap
-checks are basic; robots.txt parsing, structured data and accessibility
-follow in the next block.
+**Coverage in the current sprint (to Oct 17):** HTTP/URLs, links, redirects,
+metadata and canonical tags are built and tested; the soft-404 rule is next
+(Day 5); image and sitemap checks are basic (Day 7); robots.txt parsing,
+structured data and accessibility follow in the next block.
 
 ## 5. How a fix is classified
 
@@ -155,10 +155,12 @@ progrowth-sitefix-agent/
 │   ├── expected-issues.json           ground truth: the 11 planted issues
 │   └── site/                          generated pages
 ├── lib/
-│   └── redirects.js                   follow redirects hop by hop, classify them, site-level checks
+│   ├── redirects.js                   follow redirects hop by hop, classify them, site-level checks
+│   └── metadata.js                    read title / description / H1 / canonical, apply the metadata rules
 ├── test/
-│   └── redirects.test.js              unit tests for lib/redirects.js (npm test)
-├── crawl.js                           the crawler (page crawl, link checks, redirect analysis)
+│   ├── redirects.test.js              unit tests for lib/redirects.js
+│   └── metadata.test.js               unit tests for lib/metadata.js (npm test runs both)
+├── crawl.js                           the crawler (page crawl, link checks, redirect and metadata analysis)
 ├── package.json
 ├── .gitignore
 └── README.md
@@ -176,7 +178,7 @@ Saturday. Fridays are a half day of build plus review preparation.
 | 1 | Mon Oct 5 | Test fixture with planted faults and ground truth | **Done** |
 | 2 | Tue Oct 6 | Crawl coverage: configurable page cap, check every link directly, found-on map | **Done** |
 | 3 | Wed Oct 7 | HTTP and redirect detector | **Done** |
-| 4 | Thu Oct 8 | Metadata and canonical detector | Planned |
+| 4 | Thu Oct 8 | Metadata and canonical detector | **Done** |
 | 5 | Fri Oct 9 | Soft-404 rule, then Week 1 review prep | Planned |
 | 6 | Sat Oct 10 | Evidence capture and issue schema, registry v0 | Planned |
 | 7 | Mon Oct 12 | Registry across runs, image and sitemap checks | Planned |
@@ -208,10 +210,11 @@ node crawl.js https://your-site.com --max-pages 100
 ```
 
 Options: `--max-pages N` (default 100) and `--delay-ms N` (pause between
-link checks, default 150). It writes two files:
+link checks, default 150). It writes three files:
 
 - `report.json`: one entry per crawled page (raw vs rendered status, title,
-  word count, broken resources).
+  word count, broken resources, and the page's title, meta description, H1s,
+  canonical and robots tags as read from both the raw and the rendered HTML).
 - `links.json`: a summary, the site-level checks, the most common redirect
   destinations, and one entry per distinct link found, each checked directly
   (HEAD, falling back to GET on 403/405/501, redirects not followed). Every
@@ -221,6 +224,23 @@ link checks, default 150). It writes two files:
   hop (up to 10) and typed as a `redirect-loop`, a `redirect-chain` (2 or more
   hops) or a `redirect-to-error`; a single redirect to a working page is
   recorded but not reported as an issue.
+- `metadata.json`: for every page that loads (2xx), the metadata and canonical
+  issues found, each with a type, a severity and a one-line detail, plus a
+  summary count per type. The rules run on the **rendered** page (what a
+  browser and Google end up with); `metadata-js-only` marks a title,
+  description, H1 or canonical that is missing from the raw HTML and only
+  appears after JavaScript runs.
+
+**Metadata rules:** `title-missing`, `title-multiple`, `title-too-long` (over 60
+characters), `title-too-short` (under 10), `description-missing`,
+`description-multiple`, `description-too-long` (over 160), `description-too-short`
+(under 50), `h1-missing`, `h1-multiple`, `canonical-missing`, `canonical-multiple`,
+`canonical-broken-target` (the canonical URL returns 4xx/5xx or cannot be
+reached), `canonical-redirect`, `title-duplicate`, `description-duplicate` and
+`metadata-js-only`. The length limits are common SEO guidance, not facts about
+any one site; they live in one place (`LIMITS` in `lib/metadata.js`) and are
+severity `low`. A page whose canonical points to a different URL is treated as
+a declared copy and is left out of the duplicate checks.
 
 Two site-level checks run on the start URL's host (skipped for localhost):
 the `http://` version should redirect to `https://`, and the `www` / non-`www`
@@ -237,13 +257,15 @@ rendered page are checked (not images, scripts or links added after user
 interaction); query-string variants of a page are crawled as separate pages;
 a link check that times out is reported as `unverified` without a second
 attempt (two sonagroup.ae pages timed out at 10 s although `curl` shows them
-answering in about 2 s); and there is no soft-404, canonical, duplicate-title
-or sitemap detection yet.
+answering in about 2 s); metadata rules only judge pages the crawler visited
+(so a capped crawl does not check every page); a canonical that points to a
+redirecting URL is flagged but its final destination is not followed; and there
+is no soft-404, sitemap or image detection yet.
 
 ### Run the unit tests and the test fixture
 
 ```bash
-npm test                              # unit tests for the redirect logic (no server needed)
+npm test                              # unit tests for the redirect and metadata logic (no server needed)
 ```
 
 The fixture is a small site with a known set of planted faults, used to
@@ -262,6 +284,9 @@ serve real HTTP 301/302 redirects, so a redirect chain or loop cannot be
 planted there. The same server runs in CI (`fixture-selfcheck.yml`), which
 runs the unit tests, then crawls and scores the fixture on every push.
 
+**Detected so far: 9 of the 11 planted issues**; F-03 (broken image) is due on
+Day 7 and F-06 (soft 404) on Day 5.
+
 **The 11 planted issues** (`fixture/expected-issues.json`):
 
 | ID | Planted fault |
@@ -278,7 +303,8 @@ runs the unit tests, then crawls and scores the fixture on every push.
 | F-11 | Redirect that ends in a 404 (`/old-page`) |
 
 Four control pages (`/`, `/about.html`, `/contact.html`, `/final.html`)
-must produce no issues; `/contact.html` is deliberately short but valid,
+must produce no issues, and the self-check confirms every fixture title and
+description is inside the length limits so the length rules stay quiet; `/contact.html` is deliberately short but valid,
 to catch soft-404 false alarms. Not yet planted: http-to-https and www
 mismatches (they need real hostnames, so they are covered by unit tests with
 a fake server), and sitemap and robots faults and image alt text (Day 7).
@@ -347,6 +373,29 @@ found nothing; `curl` shows `http://www.sonagroup.ae/` and
 10-second timeouts on pages that `curl` shows answering 200 in about 2 seconds,
 so they are not broken.
 
+### Day 4: metadata and canonical detector
+
+Each page's title, meta description, H1s, canonical and robots tags are read
+from both the raw HTML and the rendered page. Rules cover missing, empty,
+multiple, too-long and too-short titles and descriptions, missing or multiple
+H1s, missing or conflicting canonicals, canonicals that point at an error or a
+redirect, duplicate titles and descriptions across pages, and tags that only
+exist after JavaScript runs (20 new unit tests, 33 in total). On the fixture
+the score went from 5 to **9 of 11 planted issues found** (F-07 missing title,
+F-08 and F-09 duplicate title, F-10 canonical to a 404) with **0 false
+positives**, and the CI gate was raised from 5 to 9. Only F-03 (image, Day 7)
+and F-06 (soft 404, Day 5) are still missed. A throwaway page that injects its
+title, description and canonical with JavaScript was correctly reported as
+`metadata-js-only`.
+Real-site check (sonagroup.ae, 40 pages crawled, 37 analysed; the other 3 were
+redirects or errors): no canonical tag on any of the 37 pages, 36 meta
+descriptions under 50 characters (some 8 to 31), 13 titles under 10 characters,
+and a homepage with a 142-character title, a 188-character description and two
+H1 tags. No duplicate titles, no canonical pointing at an error, and no
+JavaScript-only metadata. The length findings are low severity and numerous;
+the missing canonicals are the significant result, because the site generates
+thousands of query-string variants of its listing pages.
+
 ## 13. Security principles
 
 - Every client site is its own isolated tenant: separate credentials,
@@ -372,4 +421,4 @@ Every PR uses [`.github/PULL_REQUEST_TEMPLATE.md`](.github/PULL_REQUEST_TEMPLATE
 what it does, which roadmap item it closes, how it was tested, the
 outcome, and any risk notes. A PR is done when its checks pass (unit tests
 and the fixture score) and it is merged to `main`. Never commit tokens,
-`.env` files, `report.json` or `links.json`.
+`.env` files, `report.json`, `links.json` or `metadata.json`.

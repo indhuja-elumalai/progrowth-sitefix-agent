@@ -1,5 +1,6 @@
 // Checks that the fixture really behaves the way expected-issues.json claims.
 // Run with the fixture server already running:  node fixture/selfcheck.js
+import { LIMITS } from "../lib/metadata.js";
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -73,6 +74,12 @@ const dupTitles = titles.filter((t, i) => titles.indexOf(t) !== i);
 check("exactly one duplicated title (the planted pair)", new Set(dupTitles).size === 1 && dupTitles.length === 1);
 const descs = files.map((f) => info[f].desc);
 check("all descriptions are unique", new Set(descs).size === descs.length);
+check(
+  `titles are ${LIMITS.titleMin}-${LIMITS.titleMax} chars and descriptions ${LIMITS.descriptionMin}-${LIMITS.descriptionMax} chars (so length rules stay quiet)`,
+  files.every((f) => (!info[f].title || (info[f].title.length >= LIMITS.titleMin && info[f].title.length <= LIMITS.titleMax)) &&
+    info[f].desc.length >= LIMITS.descriptionMin && info[f].desc.length <= LIMITS.descriptionMax),
+  files.filter((f) => (info[f].title && (info[f].title.length < LIMITS.titleMin || info[f].title.length > LIMITS.titleMax)) || info[f].desc.length < LIMITS.descriptionMin || info[f].desc.length > LIMITS.descriptionMax).join()
+);
 check("only canonical-to-404.html has a non-self canonical", files.filter((f) => info[f].canonical !== `${base}/${f}`).join() === "canonical-to-404.html");
 
 console.log("-- Ground truth file");
