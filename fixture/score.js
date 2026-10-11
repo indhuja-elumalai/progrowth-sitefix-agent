@@ -4,9 +4,9 @@
 //   node fixture/score.js --require 5  also exit 1 if fewer than 5 planted issues
 //                                      are found, or if anything unplanted is flagged
 //
-// Reads links.json: broken links, plus redirect loops, chains and
-// redirects that end in an error. Later days add more sources
-// (metadata, canonical, soft 404, images) to the same table.
+// Reads links.json (broken links, redirect loops, chains, redirects that end in
+// an error) and metadata.json (titles, descriptions, H1s, canonicals).
+// Later days add more sources (soft 404, images) to the same table.
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -19,6 +19,7 @@ const required = reqIdx !== -1 ? Number(args[reqIdx + 1]) : null;
 
 const truth = JSON.parse(await readFile(path.join(dir, "expected-issues.json"), "utf8"));
 const { links } = JSON.parse(await readFile(path.join(root, "links.json"), "utf8"));
+const { pages: metaPages } = JSON.parse(await readFile(path.join(root, "metadata.json"), "utf8"));
 const baseOrigin = new URL(truth.baseUrl).origin;
 
 const toPath = (u) => { const x = new URL(u); return x.pathname + x.search; };
@@ -33,6 +34,10 @@ for (const l of links) {
     detections.push({ ...base, type: l.type === "internal" ? "http-4xx-internal" : "http-4xx-external" });
   }
   if (l.redirect?.issueType) detections.push({ ...base, type: l.redirect.issueType });
+}
+
+for (const m of metaPages) {
+  for (const i of m.issues) detections.push({ type: i.type, url: norm(m.url), foundOn: m.foundOn.map(toPath) });
 }
 
 const matched = new Set();

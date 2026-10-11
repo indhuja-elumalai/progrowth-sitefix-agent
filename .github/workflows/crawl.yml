@@ -44,3 +44,4 @@ jobs:
           path: |
             report.json
             links.json
+            metadata.json

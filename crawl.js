@@ -1,4 +1,4 @@
-// Crawler, Day 3 version.
+// Crawler, Day 4 version.
 // Usage: node crawl.js https://your-site.com [--max-pages 100] [--delay-ms 150]
 //
 // What it does, on purpose and nothing more:
@@ -11,15 +11,20 @@
 //   5. Follows every redirecting link to its end and classifies it:
 //      loop, chain (2+ hops), or a redirect that ends in an error.
 //   6. Checks the start URL's host: http -> https, and the www / non-www twin.
+//   7. Reads each page's title, meta description, H1s and canonical (raw and
+//      rendered) and flags missing, duplicate, too long / short, and canonicals
+//      that point at an error or a redirect.
 //
-// Writes two files:
-//   report.json  one entry per crawled page (raw vs rendered)
-//   links.json   summary, site-level checks, redirect destinations, one entry per link
+// Writes three files:
+//   report.json    one entry per crawled page (raw vs rendered, with head facts)
+//   links.json     summary, site-level checks, redirect destinations, one entry per link
+//   metadata.json  per-page metadata and canonical issues, with a summary
 //
 // Nothing here fixes anything or touches the site. It only looks and records.
 
 import { chromium } from "playwright";
 import { writeFile } from "node:fs/promises";
+import { extractHead, headIssues, findDuplicates, canonicalTargetIssue, jsDependence, sameUrl } from "./lib/metadata.js";
 import { followRedirects, classifyRedirect, redirectIssueType, siteLevelChecks } from "./lib/redirects.js";
 
 // ---------- command line ----------
@@ -37,7 +42,7 @@ const MAX_PAGES = opt("max-pages", 100);
 const DELAY_MS = opt("delay-ms", 150);
 const MAX_HOPS = 10;
 const LINK_TIMEOUT_MS = 10000;
-const UA = "progrowth-sitefix-agent/0.3 (site QA crawler)";
+const UA = "progrowth-sitefix-agent/0.4 (site QA crawler)";
 
 const startUrl = new URL(startArg).href; // normalises "https://x.com" to "https://x.com/"
 const origin = new URL(startUrl).origin;
@@ -70,6 +75,7 @@ async function fetchRaw(url) {
       redirectedTo: res.headers.get("location") || null,
       title: titleMatch ? decodeEntities(titleMatch[1].trim()) : null,
       bodyLength: body.length,
+      head: res.status < 400 ? extractHead(body) : null,
     };
   } catch (err) {
     return { status: null, error: String(err) };
@@ -91,13 +97,14 @@ async function fetchRendered(browser, url) {
   try {
     const res = await page.goto(url, { waitUntil: "domcontentloaded", timeout: 20000 });
     status = res ? res.status() : null;
-    await page.waitForLoadState("networkidle", { timeout: 5000 }).catch(() => {});
+    await page.waitForLoadState("networkidle", { timeout: 5000 }).catch(() => { });
   } catch (err) {
     await page.close();
     return { status: null, error: String(err), links: [], brokenLinks: [] };
   }
 
   const title = await page.title();
+  const head = extractHead(await page.content()); // the DOM after JavaScript has run
   const wordCount = await page.evaluate(() => document.body.innerText.trim().split(/\s+/).length);
   const hrefs = await page.$$eval("a[href]", (as) => as.map((a) => a.href));
   for (const href of hrefs) {
@@ -109,7 +116,7 @@ async function fetchRendered(browser, url) {
   }
 
   await page.close();
-  return { status, title, wordCount, links: [...links], brokenLinks };
+  return { status, title, head, wordCount, links: [...links], brokenLinks };
 }
 
 // ---------- direct link check ----------
@@ -136,10 +143,10 @@ async function checkLink(url) {
     let res = await requestOnce(url, "HEAD");
     // Some servers reject HEAD (405/501) or block it with 403. Retry with GET before judging.
     if ([403, 405, 501].includes(res.status)) {
-      res.body?.cancel().catch(() => {});
+      res.body?.cancel().catch(() => { });
       res = await requestOnce(url, "GET");
     }
-    res.body?.cancel().catch(() => {}); // we only need the status, not the page
+    res.body?.cancel().catch(() => { }); // we only need the status, not the page
     return {
       status: res.status,
       location: res.headers.get("location") || null,
@@ -183,6 +190,7 @@ async function main() {
         status: rendered.status,
         title: rendered.title,
         wordCount: rendered.wordCount,
+        head: rendered.head || null,
         brokenLinks: rendered.brokenLinks,
       },
       jsChangedTitle: rawIsPage && renderedOk && (raw.title || "") !== (rendered.title || ""),
@@ -237,6 +245,43 @@ async function main() {
   // http -> https and www / non-www checks on the start URL's host.
   const siteChecks = await siteLevelChecks(startUrl, checkLink, { maxHops: MAX_HOPS, delayMs: DELAY_MS });
 
+  // ---------- metadata and canonical ----------
+  // Rules run on the rendered page (what a browser, and Google, ends up with).
+  // Raw is compared so we can say when a tag exists only after JavaScript runs.
+  const linkByUrl = new Map(links.map((l) => [l.url, l]));
+  const canonicalChecks = new Map();
+  const targetResult = async (target) => {
+    if (linkByUrl.has(target)) return linkByUrl.get(target);
+    if (!canonicalChecks.has(target)) canonicalChecks.set(target, await checkLink(target));
+    return canonicalChecks.get(target);
+  };
+
+  const metaPages = [];
+  for (const p of report) {
+    const is2xx = (n) => n >= 200 && n < 300;
+    if (!is2xx(p.raw.status) || !is2xx(p.rendered.status) || !p.rendered.head) continue; // errors and redirects are reported elsewhere
+    let canonical = null;
+    try { canonical = p.rendered.head.canonicals[0] ? new URL(p.rendered.head.canonicals[0], p.url).href : null; } catch { /* bad href: headIssues flags it */ }
+    const issues = headIssues(p.rendered.head);
+    if (canonical && !sameUrl(canonical, p.url)) {
+      const target = await targetResult(canonical);
+      const found = canonicalTargetIssue(canonical, target);
+      if (found) issues.push(found);
+    }
+    const jsOnly = jsDependence(p.raw.head, p.rendered.head);
+    if (jsOnly.length) issues.push({ type: "metadata-js-only", severity: "medium", detail: `${jsOnly.join(", ")} exist only after JavaScript runs` });
+    metaPages.push({ url: p.url, foundOn: [...(foundOn.get(p.url) || [])], canonical, rawHead: p.raw.head, head: p.rendered.head, issues });
+  }
+  for (const [url, extra] of findDuplicates(metaPages)) metaPages.find((m) => m.url === url).issues.push(...extra);
+
+  const byType = {};
+  for (const m of metaPages) for (const i of m.issues) byType[i.type] = (byType[i.type] || 0) + 1;
+  const metadata = {
+    pagesAnalysed: metaPages.length,
+    pagesWithIssues: metaPages.filter((m) => m.issues.length).length,
+    issuesByType: Object.fromEntries(Object.entries(byType).sort((a, b) => b[1] - a[1])),
+  };
+
   const count = (c) => links.filter((l) => l.classification === c).length;
   const kindCount = (t) => redirecting.filter((l) => l.redirect.issueType === t).length;
   const summary = {
@@ -260,6 +305,7 @@ async function main() {
 
   await writeFile("report.json", JSON.stringify(report, null, 2));
   await writeFile("links.json", JSON.stringify({ summary, siteChecks, redirectTargets, links }, null, 2));
+  await writeFile("metadata.json", JSON.stringify({ summary: metadata, pages: metaPages }, null, 2));
 
   // Readable result in the console (and the Actions log).
   console.log("\n=== Summary ===");
@@ -297,7 +343,16 @@ async function main() {
   else if (!siteChecks.findings.length) console.log("  no findings");
   else for (const f of siteChecks.findings) console.log(`  ${f.type}: ${f.detail}`);
 
-  console.log("\nDone. See report.json and links.json");
+  console.log("\n=== Metadata and canonical ===");
+  console.log(`  ${metadata.pagesAnalysed} pages analysed, ${metadata.pagesWithIssues} with at least one issue`);
+  for (const [type, n] of Object.entries(metadata.issuesByType)) {
+    console.log(`\n${type} (${n}):`);
+    const examples = metaPages.filter((m) => m.issues.some((i) => i.type === type)).slice(0, 3);
+    for (const m of examples) console.log(`  ${m.url}  ${m.issues.find((i) => i.type === type).detail}`);
+    if (n > 3) console.log(`  ... and ${n - 3} more in metadata.json`);
+  }
+
+  console.log("\nDone. See report.json, links.json and metadata.json");
 }
 
 main();
