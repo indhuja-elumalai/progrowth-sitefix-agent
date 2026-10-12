@@ -45,3 +45,4 @@ jobs:
             report.json
             links.json
             metadata.json
+            soft404.json
