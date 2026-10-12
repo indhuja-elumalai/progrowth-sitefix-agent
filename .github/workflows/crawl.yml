@@ -46,3 +46,4 @@ jobs:
             links.json
             metadata.json
             soft404.json
+            issues.json
