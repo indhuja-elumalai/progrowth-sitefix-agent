@@ -1,4 +1,4 @@
-// Crawler, Day 4 version.
+// Crawler, Day 5 version.
 // Usage: node crawl.js https://your-site.com [--max-pages 100] [--delay-ms 150]
 //
 // What it does, on purpose and nothing more:
@@ -15,16 +15,23 @@
 //      rendered) and flags missing, duplicate, too long / short, and canonicals
 //      that point at an error or a redirect.
 //
-// Writes three files:
+//   8. Flags soft 404s: pages that answer 200 but say "not found", backed by a
+//      second signal (almost no text, no H1, noindex, or many links redirect
+//      into the page). Pages that are only reached through redirects are
+//      fetched and judged too.
+//
+// Writes four files:
 //   report.json    one entry per crawled page (raw vs rendered, with head facts)
 //   links.json     summary, site-level checks, redirect destinations, one entry per link
 //   metadata.json  per-page metadata and canonical issues, with a summary
+//   soft404.json   pages with soft-404 signals, flagged or not, with the evidence
 //
 // Nothing here fixes anything or touches the site. It only looks and records.
 
 import { chromium } from "playwright";
 import { writeFile } from "node:fs/promises";
 import { extractHead, headIssues, findDuplicates, canonicalTargetIssue, jsDependence, sameUrl } from "./lib/metadata.js";
+import { analyzeSoft404, visibleWordCount } from "./lib/soft404.js";
 import { followRedirects, classifyRedirect, redirectIssueType, siteLevelChecks } from "./lib/redirects.js";
 
 // ---------- command line ----------
@@ -42,7 +49,7 @@ const MAX_PAGES = opt("max-pages", 100);
 const DELAY_MS = opt("delay-ms", 150);
 const MAX_HOPS = 10;
 const LINK_TIMEOUT_MS = 10000;
-const UA = "progrowth-sitefix-agent/0.4 (site QA crawler)";
+const UA = "progrowth-sitefix-agent/0.5 (site QA crawler)";
 
 const startUrl = new URL(startArg).href; // normalises "https://x.com" to "https://x.com/"
 const origin = new URL(startUrl).origin;
@@ -76,6 +83,7 @@ async function fetchRaw(url) {
       title: titleMatch ? decodeEntities(titleMatch[1].trim()) : null,
       bodyLength: body.length,
       head: res.status < 400 ? extractHead(body) : null,
+      wordCount: res.status < 400 ? visibleWordCount(body) : null,
     };
   } catch (err) {
     return { status: null, error: String(err) };
@@ -282,6 +290,36 @@ async function main() {
     issuesByType: Object.fromEntries(Object.entries(byType).sort((a, b) => b[1] - a[1])),
   };
 
+  // ---------- soft 404 ----------
+  // Candidates: every crawled page that loaded, plus pages that are only ever
+  // reached through redirects (the crawler never lands on them directly, which
+  // is exactly how sonagroup.ae's /404.html hides). Capped at 20 extra fetches.
+  const redirectsIn = new Map([...byDestination].map(([dest, d]) => [dest, d.sources.length]));
+  const is2xx = (n) => n >= 200 && n < 300;
+  const soft = [];
+  const seenSoft = new Set();
+  for (const p of report) {
+    if (!is2xx(p.raw.status) || !is2xx(p.rendered.status) || !p.rendered.head) continue;
+    seenSoft.add(p.url);
+    const r = analyzeSoft404({ title: p.rendered.head.title, h1s: p.rendered.head.h1s, wordCount: p.rendered.wordCount, robots: p.rendered.head.robots, redirectsIn: redirectsIn.get(p.url) || 0 });
+    soft.push({ url: p.url, foundOn: [...(foundOn.get(p.url) || [])], via: "crawled", ...r });
+  }
+  const extra = [...byDestination.values()]
+    .filter((d) => d.sources.length >= 2 && is2xx(d.status) && new URL(d.url).origin === origin && !seenSoft.has(d.url))
+    .slice(0, 20);
+  for (const d of extra) {
+    const raw = await fetchRaw(d.url);
+    if (!is2xx(raw.status) || !raw.head) continue;
+    const r = analyzeSoft404({ title: raw.head.title, h1s: raw.head.h1s, wordCount: raw.wordCount, robots: raw.head.robots, redirectsIn: d.sources.length });
+    const pagesLinking = new Set(d.sources.flatMap((s) => [...(foundOn.get(s) || [])]));
+    soft.push({ url: d.url, foundOn: [...pagesLinking], via: "redirect-target", ...r });
+  }
+  const softFlagged = soft.filter((s) => s.flagged);
+  await writeFile("soft404.json", JSON.stringify({
+    summary: { pagesAnalysed: soft.length, flagged: softFlagged.length },
+    pages: soft.filter((s) => s.signals.length),
+  }, null, 2));
+
   const count = (c) => links.filter((l) => l.classification === c).length;
   const kindCount = (t) => redirecting.filter((l) => l.redirect.issueType === t).length;
   const summary = {
@@ -352,7 +390,15 @@ async function main() {
     if (n > 3) console.log(`  ... and ${n - 3} more in metadata.json`);
   }
 
-  console.log("\nDone. See report.json, links.json and metadata.json");
+  console.log("\n=== Soft 404 ===");
+  console.log(`  ${soft.length} pages analysed (${extra.length} reached only through redirects), ${softFlagged.length} flagged`);
+  for (const s of softFlagged.slice(0, 10)) {
+    console.log(`\n  ${s.url}${s.via === "redirect-target" ? "  (only reached through redirects)" : ""}`);
+    for (const sig of s.signals) console.log(`      ${sig.strength === "strong" ? "*" : "-"} ${sig.detail}`);
+  }
+  if (softFlagged.length > 10) console.log(`\n  ... and ${softFlagged.length - 10} more in soft404.json`);
+
+  console.log("\nDone. See report.json, links.json, metadata.json and soft404.json");
 }
 
 main();

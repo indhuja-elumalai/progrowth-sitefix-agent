@@ -8,7 +8,7 @@ This is **not** a website builder and **not** a CMS. It is a technical QA
 and error-rectification agent that sits on top of a site that already
 exists.
 
-**Status:** Phase 1, Day 4 of 12 complete. See [Current sprint](#10-current-sprint-oct-5-to-oct-17-2026).
+**Status:** Phase 1, Day 5 of 12 complete. See [Current sprint](#10-current-sprint-oct-5-to-oct-17-2026).
 
 ---
 
@@ -74,8 +74,8 @@ Sitebulb), consolidated into a set sized for Phase 1 rather than a full
 clone of a mature enterprise crawler.
 
 **Coverage in the current sprint (to Oct 17):** HTTP/URLs, links, redirects,
-metadata and canonical tags are built and tested; the soft-404 rule is next
-(Day 5); image and sitemap checks are basic (Day 7); robots.txt parsing,
+metadata, canonical tags and soft 404s are built and tested; image and sitemap
+checks are basic (Day 7); robots.txt parsing,
 structured data and accessibility follow in the next block.
 
 ## 5. How a fix is classified
@@ -148,19 +148,21 @@ progrowth-sitefix-agent/
 │       ├── crawl.yml                  run the crawler on any URL (manual)
 │       └── fixture-selfcheck.yml      unit tests, then crawl and score the fixture on every change
 ├── fixture/                           controlled test site with planted faults
-│   ├── generate-site.js               writes the 12 HTML pages into site/
+│   ├── generate-site.js               writes the 13 HTML pages into site/
 │   ├── server.js                      serves them with real HTTP redirects
 │   ├── selfcheck.js                   proves the fixture behaves as claimed
 │   ├── score.js                       scores crawler output against the planted issues
-│   ├── expected-issues.json           ground truth: the 11 planted issues
+│   ├── expected-issues.json           ground truth: the 12 planted issues
 │   └── site/                          generated pages
 ├── lib/
 │   ├── redirects.js                   follow redirects hop by hop, classify them, site-level checks
-│   └── metadata.js                    read title / description / H1 / canonical, apply the metadata rules
+│   ├── metadata.js                    read title / description / H1 / canonical, apply the metadata rules
+│   └── soft404.js                     soft-404 rule: says "not found" plus a second signal
 ├── test/
 │   ├── redirects.test.js              unit tests for lib/redirects.js
-│   └── metadata.test.js               unit tests for lib/metadata.js (npm test runs both)
-├── crawl.js                           the crawler (page crawl, link checks, redirect and metadata analysis)
+│   ├── metadata.test.js               unit tests for lib/metadata.js
+│   └── soft404.test.js                unit tests for lib/soft404.js (npm test runs all three)
+├── crawl.js                           the crawler (page crawl, link checks, redirect, metadata and soft-404 analysis)
 ├── package.json
 ├── .gitignore
 └── README.md
@@ -179,7 +181,7 @@ Saturday. Fridays are a half day of build plus review preparation.
 | 2 | Tue Oct 6 | Crawl coverage: configurable page cap, check every link directly, found-on map | **Done** |
 | 3 | Wed Oct 7 | HTTP and redirect detector | **Done** |
 | 4 | Thu Oct 8 | Metadata and canonical detector | **Done** |
-| 5 | Fri Oct 9 | Soft-404 rule, then Week 1 review prep | Planned |
+| 5 | Fri Oct 9 | Soft-404 rule, then Week 1 review prep | **Done** |
 | 6 | Sat Oct 10 | Evidence capture and issue schema, registry v0 | Planned |
 | 7 | Mon Oct 12 | Registry across runs, image and sitemap checks | Planned |
 | 8 | Tue Oct 13 | AI layer: input and output contract | Planned |
@@ -210,7 +212,7 @@ node crawl.js https://your-site.com --max-pages 100
 ```
 
 Options: `--max-pages N` (default 100) and `--delay-ms N` (pause between
-link checks, default 150). It writes three files:
+link checks, default 150). It writes four files:
 
 - `report.json`: one entry per crawled page (raw vs rendered status, title,
   word count, broken resources, and the page's title, meta description, H1s,
@@ -230,6 +232,18 @@ link checks, default 150). It writes three files:
   browser and Google end up with); `metadata-js-only` marks a title,
   description, H1 or canonical that is missing from the raw HTML and only
   appears after JavaScript runs.
+
+- `soft404.json`: every page that shows at least one soft-404 signal, with the
+  evidence and a `flagged` true/false. Candidates are every page that loaded
+  plus up to 20 pages that are only ever reached through redirects (the
+  crawler never lands on them directly).
+
+**Soft-404 rule:** a page that answers 200 is flagged only when it says it is an
+error page (a not-found phrase or "404" in the title or H1) **and** at least
+one other signal agrees: under 150 words, no H1, `noindex`, or 2 or more links
+redirect into it. Title and H1 together count as one piece of evidence, and
+supporting signals alone never flag a page, so an article about 404 errors or a
+short valid page is left alone.
 
 **Metadata rules:** `title-missing`, `title-multiple`, `title-too-long` (over 60
 characters), `title-too-short` (under 10), `description-missing`,
@@ -257,15 +271,16 @@ rendered page are checked (not images, scripts or links added after user
 interaction); query-string variants of a page are crawled as separate pages;
 a link check that times out is reported as `unverified` without a second
 attempt (two sonagroup.ae pages timed out at 10 s although `curl` shows them
-answering in about 2 s); metadata rules only judge pages the crawler visited
+answering in about 2 s); the soft-404 rule needs the page to say it is an error, so a soft 404 with a
+normal title and content is not caught; metadata rules only judge pages the crawler visited
 (so a capped crawl does not check every page); a canonical that points to a
 redirecting URL is flagged but its final destination is not followed; and there
-is no soft-404, sitemap or image detection yet.
+is no sitemap or image detection yet.
 
 ### Run the unit tests and the test fixture
 
 ```bash
-npm test                              # unit tests for the redirect and metadata logic (no server needed)
+npm test                              # unit tests for the redirect, metadata and soft-404 logic (no server needed)
 ```
 
 The fixture is a small site with a known set of planted faults, used to
@@ -284,10 +299,10 @@ serve real HTTP 301/302 redirects, so a redirect chain or loop cannot be
 planted there. The same server runs in CI (`fixture-selfcheck.yml`), which
 runs the unit tests, then crawls and scores the fixture on every push.
 
-**Detected so far: 9 of the 11 planted issues**; F-03 (broken image) is due on
-Day 7 and F-06 (soft 404) on Day 5.
+**Detected so far: 11 of the 12 planted issues**; only F-03 (broken image) is
+left, due on Day 7.
 
-**The 11 planted issues** (`fixture/expected-issues.json`):
+**The 12 planted issues** (`fixture/expected-issues.json`):
 
 | ID | Planted fault |
 |---|---|
@@ -301,6 +316,7 @@ Day 7 and F-06 (soft 404) on Day 5.
 | F-08, F-09 | Duplicate title (one entry per page) |
 | F-10 | Canonical pointing at a 404 |
 | F-11 | Redirect that ends in a 404 (`/old-page`) |
+| F-12 | Soft 404 reached only through redirects: 200 OK, title says 404, two old links redirect into it (the sonagroup.ae pattern) |
 
 Four control pages (`/`, `/about.html`, `/contact.html`, `/final.html`)
 must produce no issues, and the self-check confirms every fixture title and
@@ -387,14 +403,24 @@ positives**, and the CI gate was raised from 5 to 9. Only F-03 (image, Day 7)
 and F-06 (soft 404, Day 5) are still missed. A throwaway page that injects its
 title, description and canonical with JavaScript was correctly reported as
 `metadata-js-only`.
-Real-site check (sonagroup.ae, 40 pages crawled, 37 analysed; the other 3 were
-redirects or errors): no canonical tag on any of the 37 pages, 36 meta
-descriptions under 50 characters (some 8 to 31), 13 titles under 10 characters,
-and a homepage with a 142-character title, a 188-character description and two
-H1 tags. No duplicate titles, no canonical pointing at an error, and no
-JavaScript-only metadata. The length findings are low severity and numerous;
-the missing canonicals are the significant result, because the site generates
-thousands of query-string variants of its listing pages.
+
+### Day 5: soft-404 rule
+
+A page that answers 200 but says "not found" is flagged when a second signal
+agrees (almost no text, no H1, `noindex`, or several links redirecting into
+it). Pages reached only through redirects are fetched and judged too, because
+that is how sonagroup.ae's `/404.html` stays hidden: the crawler never lands on
+it directly. The fixture gained F-12, a page modelled on that case (13 pages
+now), and 9 new unit tests bring the total to 42. The score went from 9 to
+**11 of 12 planted issues found** with **0 false positives**, and the CI gate
+was raised from 9 to 11. Only F-03 (image, Day 7) is still missed.
+Real-site check (sonagroup.ae, 40 pages crawled, 42 judged including 2 reached
+only through redirects): exactly one soft 404 flagged, `/404.html`, which
+answers 200 with the title "404", no H1, and 9 internal links redirecting into
+it. The crawler never visits that page directly, so it was found through the
+redirect destinations. No other page was flagged. The earlier link checks
+could not catch this, because every redirect to it looks healthy (a single hop
+to a 200 page).
 
 ## 13. Security principles
 
@@ -421,4 +447,4 @@ Every PR uses [`.github/PULL_REQUEST_TEMPLATE.md`](.github/PULL_REQUEST_TEMPLATE
 what it does, which roadmap item it closes, how it was tested, the
 outcome, and any risk notes. A PR is done when its checks pass (unit tests
 and the fixture score) and it is merged to `main`. Never commit tokens,
-`.env` files, `report.json`, `links.json` or `metadata.json`.
+`.env` files, `report.json`, `links.json`, `metadata.json` or `soft404.json`.

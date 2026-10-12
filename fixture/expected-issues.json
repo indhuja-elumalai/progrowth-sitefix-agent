@@ -1,22 +1,136 @@
 {
-  "fixtureVersion": 2,
+  "fixtureVersion": 3,
   "baseUrl": "http://localhost:4000",
   "externalBaseUrl": "http://localhost:4001",
-  "plantedCount": 11,
+  "plantedCount": 12,
   "issues": [
-    { "id": "F-01", "category": "HTTP and URLs", "type": "http-4xx-internal", "affectedUrl": "/does-not-exist.html", "foundOn": ["/broken-links.html"], "detail": "Internal link returns 404" },
-    { "id": "F-02", "category": "HTTP and URLs", "type": "http-4xx-external", "affectedUrl": "http://localhost:4001/gone", "foundOn": ["/broken-links.html"], "detail": "External link returns 404" },
-    { "id": "F-03", "category": "Images", "type": "image-broken", "affectedUrl": "/img/missing.jpg", "foundOn": ["/broken-image.html"], "detail": "Image returns 404" },
-    { "id": "F-04", "category": "HTTP and URLs", "type": "redirect-chain", "affectedUrl": "/redirect-chain-start", "foundOn": ["/redirects.html"], "detail": "3 hops: /redirect-chain-start > /redirect-chain-2 > /redirect-chain-3 > /final.html" },
-    { "id": "F-05", "category": "HTTP and URLs", "type": "redirect-loop", "affectedUrl": "/loop-a", "foundOn": ["/redirects.html"], "detail": "/loop-a > /loop-b > /loop-a" },
-    { "id": "F-06", "category": "Soft 404s", "type": "soft-404", "affectedUrl": "/soft-404.html", "foundOn": ["/"], "detail": "200 OK, not-found title and H1, very short body" },
-    { "id": "F-07", "category": "SEO and metadata", "type": "title-missing", "affectedUrl": "/missing-title.html", "foundOn": ["/"], "detail": "No <title> element" },
-    { "id": "F-08", "category": "SEO and metadata", "type": "title-duplicate", "affectedUrl": "/dup-title-1.html", "foundOn": ["/"], "detail": "Same title as /dup-title-2.html" },
-    { "id": "F-09", "category": "SEO and metadata", "type": "title-duplicate", "affectedUrl": "/dup-title-2.html", "foundOn": ["/"], "detail": "Same title as /dup-title-1.html" },
-    { "id": "F-10", "category": "Canonical tags", "type": "canonical-broken-target", "affectedUrl": "/canonical-to-404.html", "foundOn": ["/"], "detail": "Canonical points at /gone-page.html, which returns 404" },
-    { "id": "F-11", "category": "HTTP and URLs", "type": "redirect-to-error", "affectedUrl": "/old-page", "foundOn": ["/redirects.html"], "detail": "302 to /does-not-exist.html, which returns 404" }
+    {
+      "id": "F-01",
+      "category": "HTTP and URLs",
+      "type": "http-4xx-internal",
+      "affectedUrl": "/does-not-exist.html",
+      "foundOn": [
+        "/broken-links.html"
+      ],
+      "detail": "Internal link returns 404"
+    },
+    {
+      "id": "F-02",
+      "category": "HTTP and URLs",
+      "type": "http-4xx-external",
+      "affectedUrl": "http://localhost:4001/gone",
+      "foundOn": [
+        "/broken-links.html"
+      ],
+      "detail": "External link returns 404"
+    },
+    {
+      "id": "F-03",
+      "category": "Images",
+      "type": "image-broken",
+      "affectedUrl": "/img/missing.jpg",
+      "foundOn": [
+        "/broken-image.html"
+      ],
+      "detail": "Image returns 404"
+    },
+    {
+      "id": "F-04",
+      "category": "HTTP and URLs",
+      "type": "redirect-chain",
+      "affectedUrl": "/redirect-chain-start",
+      "foundOn": [
+        "/redirects.html"
+      ],
+      "detail": "3 hops: /redirect-chain-start > /redirect-chain-2 > /redirect-chain-3 > /final.html"
+    },
+    {
+      "id": "F-05",
+      "category": "HTTP and URLs",
+      "type": "redirect-loop",
+      "affectedUrl": "/loop-a",
+      "foundOn": [
+        "/redirects.html"
+      ],
+      "detail": "/loop-a > /loop-b > /loop-a"
+    },
+    {
+      "id": "F-06",
+      "category": "Soft 404s",
+      "type": "soft-404",
+      "affectedUrl": "/soft-404.html",
+      "foundOn": [
+        "/"
+      ],
+      "detail": "200 OK, not-found title and H1, very short body"
+    },
+    {
+      "id": "F-07",
+      "category": "SEO and metadata",
+      "type": "title-missing",
+      "affectedUrl": "/missing-title.html",
+      "foundOn": [
+        "/"
+      ],
+      "detail": "No <title> element"
+    },
+    {
+      "id": "F-08",
+      "category": "SEO and metadata",
+      "type": "title-duplicate",
+      "affectedUrl": "/dup-title-1.html",
+      "foundOn": [
+        "/"
+      ],
+      "detail": "Same title as /dup-title-2.html"
+    },
+    {
+      "id": "F-09",
+      "category": "SEO and metadata",
+      "type": "title-duplicate",
+      "affectedUrl": "/dup-title-2.html",
+      "foundOn": [
+        "/"
+      ],
+      "detail": "Same title as /dup-title-1.html"
+    },
+    {
+      "id": "F-10",
+      "category": "Canonical tags",
+      "type": "canonical-broken-target",
+      "affectedUrl": "/canonical-to-404.html",
+      "foundOn": [
+        "/"
+      ],
+      "detail": "Canonical points at /gone-page.html, which returns 404"
+    },
+    {
+      "id": "F-11",
+      "category": "HTTP and URLs",
+      "type": "redirect-to-error",
+      "affectedUrl": "/old-page",
+      "foundOn": [
+        "/redirects.html"
+      ],
+      "detail": "302 to /does-not-exist.html, which returns 404"
+    },
+    {
+      "id": "F-12",
+      "category": "Soft 404s",
+      "type": "soft-404",
+      "affectedUrl": "/gone.html",
+      "foundOn": [
+        "/redirects.html"
+      ],
+      "detail": "200 OK, title says 404, never linked directly, two links redirect into it (the sonagroup.ae pattern)"
+    }
   ],
-  "controlPages": ["/", "/about.html", "/contact.html", "/final.html"],
+  "controlPages": [
+    "/",
+    "/about.html",
+    "/contact.html",
+    "/final.html"
+  ],
   "notYetPlanted": [
     "http-to-https and www mismatches (need real hostnames; covered by unit tests with a fake server)",
     "sitemap and robots faults (Day 7)",
