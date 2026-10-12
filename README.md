@@ -8,7 +8,7 @@ This is **not** a website builder and **not** a CMS. It is a technical QA
 and error-rectification agent that sits on top of a site that already
 exists.
 
-**Status:** Phase 1, Day 5 of 12 complete. See [Current sprint](#10-current-sprint-oct-5-to-oct-17-2026).
+**Status:** Phase 1, Day 6 of 12 complete. See [Current sprint](#10-current-sprint-oct-5-to-oct-17-2026).
 
 ---
 
@@ -132,7 +132,7 @@ re-engineering, content strategy work, and heavy infrastructure
 | Test fixture and scoring | Node.js built-ins (`http`, `fetch`) | In use |
 | Unit tests | `node:test` (built in) | In use |
 | CI | GitHub Actions | In use |
-| Issue registry | JSON file now, PostgreSQL later | Planned |
+| Issue registry | JSON file now (`issues.json`, one run), PostgreSQL later | In use (v0) |
 | AI reasoning | Claude API | Planned |
 | Fix adapter | GitHub REST API | Planned |
 | Secrets | GitHub Actions secrets now, a secrets manager later | Planned |
@@ -157,12 +157,14 @@ progrowth-sitefix-agent/
 ├── lib/
 │   ├── redirects.js                   follow redirects hop by hop, classify them, site-level checks
 │   ├── metadata.js                    read title / description / H1 / canonical, apply the metadata rules
-│   └── soft404.js                     soft-404 rule: says "not found" plus a second signal
+│   ├── soft404.js                     soft-404 rule: says "not found" plus a second signal
+│   └── issues.js                      issue schema, severity and fix-class catalog, registry builder and validator
 ├── test/
 │   ├── redirects.test.js              unit tests for lib/redirects.js
 │   ├── metadata.test.js               unit tests for lib/metadata.js
-│   └── soft404.test.js                unit tests for lib/soft404.js (npm test runs all three)
-├── crawl.js                           the crawler (page crawl, link checks, redirect, metadata and soft-404 analysis)
+│   ├── soft404.test.js                unit tests for lib/soft404.js
+│   └── issues.test.js                 unit tests for lib/issues.js (npm test runs all four)
+├── crawl.js                           the crawler (page crawl, link checks, redirect, metadata and soft-404 analysis, then builds the issue registry)
 ├── package.json
 ├── .gitignore
 └── README.md
@@ -182,7 +184,7 @@ Saturday. Fridays are a half day of build plus review preparation.
 | 3 | Wed Oct 7 | HTTP and redirect detector | **Done** |
 | 4 | Thu Oct 8 | Metadata and canonical detector | **Done** |
 | 5 | Fri Oct 9 | Soft-404 rule, then Week 1 review prep | **Done** |
-| 6 | Sat Oct 10 | Evidence capture and issue schema, registry v0 | Planned |
+| 6 | Sat Oct 10 | Evidence capture and issue schema, registry v0 | **Done** |
 | 7 | Mon Oct 12 | Registry across runs, image and sitemap checks | Planned |
 | 8 | Tue Oct 13 | AI layer: input and output contract | Planned |
 | 9 | Wed Oct 14 | AI layer: guardrails and evaluation | Planned |
@@ -212,7 +214,7 @@ node crawl.js https://your-site.com --max-pages 100
 ```
 
 Options: `--max-pages N` (default 100) and `--delay-ms N` (pause between
-link checks, default 150). It writes four files:
+link checks, default 150). It writes five files:
 
 - `report.json`: one entry per crawled page (raw vs rendered status, title,
   word count, broken resources, and the page's title, meta description, H1s,
@@ -233,10 +235,32 @@ link checks, default 150). It writes four files:
   description, H1 or canonical that is missing from the raw HTML and only
   appears after JavaScript runs.
 
+- `issues.json`: **the issue registry**, and the file everything downstream reads.
+  Every finding from every detector as one typed record, plus the run it came
+  from and counts by severity and type (see [Issue records](#issue-records)).
 - `soft404.json`: every page that shows at least one soft-404 signal, with the
   evidence and a `flagged` true/false. Candidates are every page that loaded
   plus up to 20 pages that are only ever reached through redirects (the
   crawler never lands on them directly).
+
+### Issue records
+
+Each entry in `issues.json` is a measured fact, never AI output:
+
+| Field | Meaning |
+|---|---|
+| `id` | Stable: the same type on the same URL always gets the same id (`ISS-` plus 10 hex characters), so a later run can recognise it |
+| `type`, `category` | e.g. `canonical-broken-target`, "Canonical tags" |
+| `severity` | `high`, `medium` or `low`, from a catalog in `lib/issues.js` (a rule may override it) |
+| `affectedUrl`, `foundOn` | The URL with the problem, and every page that links to it or, for page-level issues, the pages that lead to it |
+| `detail` | One plain sentence stating the fact |
+| `evidence` | The raw facts behind it: the HTTP status, the whole redirect chain, the page's title / description / H1 / canonical as read from the HTML (and the raw version if JavaScript changed it), the canonical's target status, or the soft-404 signals |
+| `fixClass` | `deterministic`, `ai-proposed` or `not-automatable`: how a fix would be handled, never whether it needs approval (every fix does) |
+| `status` | `open` for now; later days add acknowledged, fixed, verified and reopened |
+| `firstSeenRun`, `lastSeenRun` | Run ids; in v0 both are the current run |
+
+Every issue is validated when it is written, and `fixture/score.js` fails if any
+issue is malformed. A type that is not in the catalog is refused, not guessed.
 
 **Soft-404 rule:** a page that answers 200 is flagged only when it says it is an
 error page (a not-found phrase or "404" in the title or H1) **and** at least
@@ -275,12 +299,14 @@ answering in about 2 s); the soft-404 rule needs the page to say it is an error,
 normal title and content is not caught; metadata rules only judge pages the crawler visited
 (so a capped crawl does not check every page); a canonical that points to a
 redirecting URL is flagged but its final destination is not followed; and there
-is no sitemap or image detection yet.
+is no sitemap or image detection yet. Evidence is structured facts only; screenshots
+and raw DOM snippets are not captured yet. The registry is one run's snapshot:
+it does not yet compare with earlier runs.
 
 ### Run the unit tests and the test fixture
 
 ```bash
-npm test                              # unit tests for the redirect, metadata and soft-404 logic (no server needed)
+npm test                              # unit tests for the redirect, metadata, soft-404 and registry logic (no server needed)
 ```
 
 The fixture is a small site with a known set of planted faults, used to
@@ -414,13 +440,22 @@ it directly. The fixture gained F-12, a page modelled on that case (13 pages
 now), and 9 new unit tests bring the total to 42. The score went from 9 to
 **11 of 12 planted issues found** with **0 false positives**, and the CI gate
 was raised from 9 to 11. Only F-03 (image, Day 7) is still missed.
-Real-site check (sonagroup.ae, 40 pages crawled, 42 judged including 2 reached
-only through redirects): exactly one soft 404 flagged, `/404.html`, which
-answers 200 with the title "404", no H1, and 9 internal links redirecting into
-it. The crawler never visits that page directly, so it was found through the
-redirect destinations. No other page was flagged. The earlier link checks
-could not catch this, because every redirect to it looks healthy (a single hop
-to a 200 page).
+
+### Day 6: evidence and issue registry v0
+
+Everything the detectors find now lands in one registry, `issues.json`: a typed
+record per issue with severity, fix class, the pages it was found on and the
+evidence behind it (13 new unit tests, 55 in total). `fixture/score.js` now
+reads only the registry, so the same 11 of 12 planted issues found with 0 false
+positives also proves the registry carries every detector's output, and the
+score fails if any issue is malformed. The CI gate stays at 11.
+Real-site check (sonagroup.ae, 40 pages crawled): the registry holds 97 issues,
+all valid against the schema (1 high, 40 medium, 56 low). They are the one soft
+404 (`/404.html`, reached only through redirects), 40 missing canonical tags,
+39 meta descriptions under 50 characters, 14 titles under 10 characters, one
+over-long title, one over-long description and one page with two H1 tags.
+No broken links, loops or chains. The 97 redirects are all single hops and are
+not issues.
 
 ## 13. Security principles
 
@@ -447,4 +482,4 @@ Every PR uses [`.github/PULL_REQUEST_TEMPLATE.md`](.github/PULL_REQUEST_TEMPLATE
 what it does, which roadmap item it closes, how it was tested, the
 outcome, and any risk notes. A PR is done when its checks pass (unit tests
 and the fixture score) and it is merged to `main`. Never commit tokens,
-`.env` files, `report.json`, `links.json`, `metadata.json` or `soft404.json`.
+`.env` files, `report.json`, `links.json`, `metadata.json`, `soft404.json` or `issues.json`.

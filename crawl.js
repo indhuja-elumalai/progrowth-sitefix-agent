@@ -1,4 +1,4 @@
-// Crawler, Day 5 version.
+// Crawler, Day 6 version.
 // Usage: node crawl.js https://your-site.com [--max-pages 100] [--delay-ms 150]
 //
 // What it does, on purpose and nothing more:
@@ -20,17 +20,22 @@
 //      into the page). Pages that are only reached through redirects are
 //      fetched and judged too.
 //
-// Writes four files:
+//   9. Gathers every finding into one issue registry (issues.json): a typed
+//      issue with severity, the pages it was found on, and the evidence.
+//
+// Writes five files:
 //   report.json    one entry per crawled page (raw vs rendered, with head facts)
 //   links.json     summary, site-level checks, redirect destinations, one entry per link
 //   metadata.json  per-page metadata and canonical issues, with a summary
 //   soft404.json   pages with soft-404 signals, flagged or not, with the evidence
+//   issues.json    the issue registry: every finding as one typed record with evidence
 //
 // Nothing here fixes anything or touches the site. It only looks and records.
 
 import { chromium } from "playwright";
 import { writeFile } from "node:fs/promises";
 import { extractHead, headIssues, findDuplicates, canonicalTargetIssue, jsDependence, sameUrl } from "./lib/metadata.js";
+import { buildRegistry, validateRegistry } from "./lib/issues.js";
 import { analyzeSoft404, visibleWordCount } from "./lib/soft404.js";
 import { followRedirects, classifyRedirect, redirectIssueType, siteLevelChecks } from "./lib/redirects.js";
 
@@ -49,7 +54,7 @@ const MAX_PAGES = opt("max-pages", 100);
 const DELAY_MS = opt("delay-ms", 150);
 const MAX_HOPS = 10;
 const LINK_TIMEOUT_MS = 10000;
-const UA = "progrowth-sitefix-agent/0.5 (site QA crawler)";
+const UA = "progrowth-sitefix-agent/0.6 (site QA crawler)";
 
 const startUrl = new URL(startArg).href; // normalises "https://x.com" to "https://x.com/"
 const origin = new URL(startUrl).origin;
@@ -173,6 +178,7 @@ async function checkLink(url) {
 
 // ---------- main ----------
 async function main() {
+  const startedAt = new Date().toISOString();
   const browser = await chromium.launch();
   const queue = [startUrl];
   let capReached = false;
@@ -271,14 +277,16 @@ async function main() {
     let canonical = null;
     try { canonical = p.rendered.head.canonicals[0] ? new URL(p.rendered.head.canonicals[0], p.url).href : null; } catch { /* bad href: headIssues flags it */ }
     const issues = headIssues(p.rendered.head);
+    let canonicalCheck = null;
     if (canonical && !sameUrl(canonical, p.url)) {
       const target = await targetResult(canonical);
+      canonicalCheck = { status: target.status, classification: target.classification };
       const found = canonicalTargetIssue(canonical, target);
       if (found) issues.push(found);
     }
     const jsOnly = jsDependence(p.raw.head, p.rendered.head);
     if (jsOnly.length) issues.push({ type: "metadata-js-only", severity: "medium", detail: `${jsOnly.join(", ")} exist only after JavaScript runs` });
-    metaPages.push({ url: p.url, foundOn: [...(foundOn.get(p.url) || [])], canonical, rawHead: p.raw.head, head: p.rendered.head, issues });
+    metaPages.push({ url: p.url, foundOn: [...(foundOn.get(p.url) || [])], canonical, canonicalCheck, rawHead: p.raw.head, head: p.rendered.head, issues });
   }
   for (const [url, extra] of findDuplicates(metaPages)) metaPages.find((m) => m.url === url).issues.push(...extra);
 
@@ -302,7 +310,7 @@ async function main() {
     if (!is2xx(p.raw.status) || !is2xx(p.rendered.status) || !p.rendered.head) continue;
     seenSoft.add(p.url);
     const r = analyzeSoft404({ title: p.rendered.head.title, h1s: p.rendered.head.h1s, wordCount: p.rendered.wordCount, robots: p.rendered.head.robots, redirectsIn: redirectsIn.get(p.url) || 0 });
-    soft.push({ url: p.url, foundOn: [...(foundOn.get(p.url) || [])], via: "crawled", ...r });
+    soft.push({ url: p.url, foundOn: [...(foundOn.get(p.url) || [])], via: "crawled", title: p.rendered.head.title, h1s: p.rendered.head.h1s, wordCount: p.rendered.wordCount, ...r });
   }
   const extra = [...byDestination.values()]
     .filter((d) => d.sources.length >= 2 && is2xx(d.status) && new URL(d.url).origin === origin && !seenSoft.has(d.url))
@@ -312,13 +320,22 @@ async function main() {
     if (!is2xx(raw.status) || !raw.head) continue;
     const r = analyzeSoft404({ title: raw.head.title, h1s: raw.head.h1s, wordCount: raw.wordCount, robots: raw.head.robots, redirectsIn: d.sources.length });
     const pagesLinking = new Set(d.sources.flatMap((s) => [...(foundOn.get(s) || [])]));
-    soft.push({ url: d.url, foundOn: [...pagesLinking], via: "redirect-target", ...r });
+    soft.push({ url: d.url, foundOn: [...pagesLinking], via: "redirect-target", title: raw.head.title, h1s: raw.head.h1s, wordCount: raw.wordCount, ...r });
   }
   const softFlagged = soft.filter((s) => s.flagged);
   await writeFile("soft404.json", JSON.stringify({
     summary: { pagesAnalysed: soft.length, flagged: softFlagged.length },
     pages: soft.filter((s) => s.signals.length),
   }, null, 2));
+
+  // ---------- issue registry ----------
+  const runId = "run-" + startedAt.replace(/[-:]/g, "").slice(0, 15);
+  const registry = buildRegistry({
+    run: { id: runId, startedAt, finishedAt: new Date().toISOString(), startUrl, pagesCrawled: visited.size, capReached, toolVersion: "0.6" },
+    links, siteChecks, metaPages, softPages: soft,
+  });
+  const registryProblems = validateRegistry(registry);
+  await writeFile("issues.json", JSON.stringify(registry, null, 2));
 
   const count = (c) => links.filter((l) => l.classification === c).length;
   const kindCount = (t) => redirecting.filter((l) => l.redirect.issueType === t).length;
@@ -398,7 +415,17 @@ async function main() {
   }
   if (softFlagged.length > 10) console.log(`\n  ... and ${softFlagged.length - 10} more in soft404.json`);
 
-  console.log("\nDone. See report.json, links.json, metadata.json and soft404.json");
+  console.log("\n=== Issue registry ===");
+  const sev = registry.counts.bySeverity;
+  console.log(`  ${registry.counts.total} issues: ${sev.high || 0} high, ${sev.medium || 0} medium, ${sev.low || 0} low  (run ${runId})`);
+  for (const [type, n] of Object.entries(registry.counts.byType).sort((a, b) => b[1] - a[1]).slice(0, 8)) console.log(`  ${String(n).padStart(4)}  ${type}`);
+  if (registryProblems.length) {
+    console.log(`\nWARNING: ${registryProblems.length} registry problem(s):`);
+    for (const p of registryProblems.slice(0, 5)) console.log(`  ${p}`);
+    process.exitCode = 1;
+  }
+
+  console.log("\nDone. See issues.json (all findings) plus report.json, links.json, metadata.json and soft404.json");
 }
 
 main();
