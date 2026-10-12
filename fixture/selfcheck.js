@@ -37,7 +37,7 @@ async function follow(start, max = 10) {
 console.log("-- HTTP behaviour");
 for (const p of ["/", "/about.html", "/contact.html", "/final.html", "/broken-links.html", "/broken-image.html",
   "/redirects.html", "/soft-404.html", "/missing-title.html", "/dup-title-1.html", "/dup-title-2.html",
-  "/canonical-to-404.html", "/img/logo.svg"]) {
+  "/canonical-to-404.html", "/gone.html", "/img/logo.svg"]) {
   const { status } = await hit(base + p);
   check(`200 ${p}`, status === 200, `got ${status}`);
 }
@@ -47,6 +47,10 @@ for (const p of ["/does-not-exist.html", "/img/missing.jpg", "/gone-page.html"])
 }
 check("external /gone is 404", (await hit(ext + "/gone")).status === 404);
 check("external /ok is 200", (await hit(ext + "/ok")).status === 200);
+
+const help = await follow(base + "/old-help");
+const faq = await follow(base + "/old-faq");
+check("/old-help and /old-faq each redirect once to /gone.html (200)", help.hops === 1 && help.final === 200 && faq.hops === 1 && faq.final === 200, `help=${help.hops}/${help.final} faq=${faq.hops}/${faq.final}`);
 
 const chain = await follow(base + "/redirect-chain-start");
 check("redirect chain has 3 hops and ends in 200", chain.hops === 3 && chain.final === 200 && !chain.loop, `hops=${chain.hops}`);

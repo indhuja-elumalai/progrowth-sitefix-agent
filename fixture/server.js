@@ -22,6 +22,8 @@ const redirects = {
   "/loop-a": [302, "/loop-b"],
   "/loop-b": [302, "/loop-a"],
   "/old-page": [302, "/does-not-exist.html"],
+  "/old-help": [302, "/gone.html"],
+  "/old-faq": [302, "/gone.html"],
 };
 const types = {
   ".html": "text/html; charset=utf-8",
