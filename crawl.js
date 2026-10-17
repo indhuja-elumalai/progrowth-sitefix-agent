@@ -1,11 +1,16 @@
-// Crawler, Day 6 version.
-// Usage: node crawl.js https://your-site.com [--max-pages 100] [--delay-ms 150]
+// Crawler, Day 11 version.
+// Usage: node crawl.js https://your-site.com [--max-pages 0] [--concurrency 4]
+//          [--link-concurrency 8] [--settle-ms 1500] [--delay-ms 150] [--no-sitemap]
 //
 // What it does, on purpose and nothing more:
 //   1. Fetches the raw HTML of each page (no JavaScript executed).
 //   2. Opens the same page in headless Chromium and lets JS run, so we can
 //      compare "what the server sent" with "what a visitor sees".
-//   3. Follows internal links up to --max-pages (default 100).
+//   3. Follows every internal link it finds, plus every URL in the site's
+//      sitemap (robots.txt "Sitemap:" lines, else /sitemap.xml). No page cap
+//      by default; --max-pages N sets one. Pages are rendered --concurrency
+//      at a time (default 4) and links checked --link-concurrency at a time
+//      (default 8).
 //   4. Checks EVERY link found (internal and external) directly, once each,
 //      and records which pages link to it ("found on").
 //   5. Follows every redirecting link to its end and classifies it:
@@ -47,11 +52,15 @@ const opt = (name, fallback) => {
   return i !== -1 && args[i + 1] ? Number(args[i + 1]) : fallback;
 };
 if (!startArg) {
-  console.error("Usage: node crawl.js https://your-site.com [--max-pages 100] [--delay-ms 150]");
+  console.error("Usage: node crawl.js https://your-site.com [--max-pages 0] [--concurrency 4] [--link-concurrency 8] [--settle-ms 1500] [--delay-ms 150] [--no-sitemap]");
   process.exit(1);
 }
-const MAX_PAGES = opt("max-pages", 100);
-const DELAY_MS = opt("delay-ms", 150);
+const MAX_PAGES = opt("max-pages", 0); // 0 = no cap: crawl every internal page found
+const DELAY_MS = opt("delay-ms", 150); // pause after each request, per worker
+const CONCURRENCY = Math.max(1, opt("concurrency", 4)); // pages rendered at the same time
+const LINK_CONCURRENCY = Math.max(1, opt("link-concurrency", 8)); // link checks at the same time
+const SETTLE_MS = opt("settle-ms", 1500); // max wait for late JavaScript after DOMContentLoaded
+const USE_SITEMAP = !args.includes("--no-sitemap");
 const MAX_HOPS = 10;
 const LINK_TIMEOUT_MS = 10000;
 const UA = "progrowth-sitefix-agent/0.6 (site QA crawler)";
@@ -64,6 +73,32 @@ const foundOn = new Map(); // target URL -> Set of pages that link to it
 const SKIP_CRAWL = /\.(pdf|jpe?g|png|gif|webp|svg|ico|zip|mp4|mp3|docx?|xlsx?|pptx?|css|js|xml|txt)$/i;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Run fn over items with at most n in flight; results keep the input order.
+async function mapPool(items, n, fn) {
+  const out = new Array(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const i = next++;
+      out[i] = await fn(items[i], i);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(n, items.length) }, worker));
+  return out;
+}
+
+// The key a page is crawled under: no #fragment, no tracking parameters
+// (utm_*, gclid, fbclid, ...), and absurdly long URLs (crawler traps) dropped.
+const TRACKING_PARAM = /^(utm_.+|gclid|fbclid|msclkid|mc_cid|mc_eid|_ga)$/i;
+function crawlKey(href) {
+  let u;
+  try { u = new URL(href); } catch { return null; }
+  u.hash = "";
+  const tracking = [...u.searchParams.keys()].filter((k) => TRACKING_PARAM.test(k));
+  for (const k of tracking) u.searchParams.delete(k);
+  return u.href.length > 500 ? null : u.href;
+}
 
 function decodeEntities(str) {
   if (!str) return str;
@@ -95,8 +130,8 @@ async function fetchRaw(url) {
   }
 }
 
-async function fetchRendered(browser, url) {
-  const page = await browser.newPage();
+async function fetchRendered(context, url) {
+  const page = await context.newPage();
   const brokenLinks = [];
   const links = new Set();
 
@@ -110,7 +145,9 @@ async function fetchRendered(browser, url) {
   try {
     const res = await page.goto(url, { waitUntil: "domcontentloaded", timeout: 20000 });
     status = res ? res.status() : null;
-    await page.waitForLoadState("networkidle", { timeout: 5000 }).catch(() => { });
+    // Give late JavaScript a short window. Many sites never go fully idle
+    // (analytics, chat widgets), so a long wait here costs time on every page.
+    if (SETTLE_MS > 0) await page.waitForLoadState("networkidle", { timeout: SETTLE_MS }).catch(() => { });
   } catch (err) {
     await page.close();
     return { status: null, error: String(err), links: [], brokenLinks: [] };
@@ -176,72 +213,142 @@ async function checkLink(url) {
   }
 }
 
+// ---------- sitemap ----------
+// URLs listed in the sitemap(s): robots.txt "Sitemap:" lines, else /sitemap.xml.
+// Follows sitemap index files (up to 50 sitemaps). Plain XML only, not .gz.
+async function sitemapUrls() {
+  const get = async (url) => {
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(15000), headers: { "user-agent": UA } });
+      return res.ok ? await res.text() : null;
+    } catch { return null; }
+  };
+  const sitemaps = new Set();
+  const robots = await get(origin + "/robots.txt");
+  for (const m of (robots || "").matchAll(/^\s*sitemap:\s*(\S+)/gim)) sitemaps.add(m[1]);
+  if (!sitemaps.size) sitemaps.add(origin + "/sitemap.xml");
+  const todo = [...sitemaps];
+  const pages = new Set();
+  let fetched = 0;
+  while (todo.length && fetched < 50) {
+    const xml = await get(todo.shift());
+    fetched++;
+    if (!xml) continue;
+    const locs = [...xml.matchAll(/<loc>\s*([^<\s]+)\s*<\/loc>/gi)].map((m) => decodeEntities(m[1]));
+    if (/<sitemapindex/i.test(xml)) {
+      for (const l of locs) if (!sitemaps.has(l)) { sitemaps.add(l); todo.push(l); }
+    } else {
+      for (const l of locs) pages.add(l);
+    }
+  }
+  return [...pages];
+}
+
 // ---------- main ----------
 async function main() {
   const startedAt = new Date().toISOString();
   const browser = await chromium.launch();
-  const queue = [startUrl];
+  const context = await browser.newContext(); // one context: pages share the HTTP cache
+  const queue = [];
+  const queued = new Set();
+  const enqueue = (href) => {
+    const key = crawlKey(href);
+    if (!key || queued.has(key) || SKIP_CRAWL.test(new URL(key).pathname)) return false;
+    queued.add(key);
+    queue.push(key);
+    return true;
+  };
+  enqueue(startUrl);
   let capReached = false;
 
-  while (queue.length) {
-    if (visited.size >= MAX_PAGES) { capReached = true; break; }
-    const url = queue.shift();
-    if (visited.has(url)) continue;
-    visited.add(url);
-
-    console.log(`Crawling (${visited.size}/${MAX_PAGES}): ${url}`);
-    const raw = await fetchRaw(url);
-    const rendered = await fetchRendered(browser, url);
-
-    // Only compare titles when both sides produced a real page. A redirect, a 404
-    // or a failed render has no body to compare, and a missing title is "" on both sides.
-    const rawIsPage = raw.status >= 200 && raw.status < 300;
-    const renderedOk = rendered.status !== null;
-    report.push({
-      url,
-      raw,
-      rendered: {
-        status: rendered.status,
-        title: rendered.title,
-        wordCount: rendered.wordCount,
-        head: rendered.head || null,
-        brokenLinks: rendered.brokenLinks,
-      },
-      jsChangedTitle: rawIsPage && renderedOk && (raw.title || "") !== (rendered.title || ""),
-    });
-
-    for (const link of rendered.links || []) {
-      if (!foundOn.has(link)) foundOn.set(link, new Set());
-      foundOn.get(link).add(url);
-      const internal = new URL(link).origin === origin;
-      if (internal && !visited.has(link) && !SKIP_CRAWL.test(new URL(link).pathname)) queue.push(link);
-    }
+  let sitemapListed = [];
+  if (USE_SITEMAP) {
+    const all = await sitemapUrls();
+    sitemapListed = all.filter((u) => { try { return new URL(u).origin === origin; } catch { return false; } });
+    const added = sitemapListed.filter((u) => enqueue(u)).length;
+    console.log(`Sitemap: ${all.length} URLs listed, ${sitemapListed.length} on ${origin}, ${added} added to the queue`);
   }
+
+  // Crawl with CONCURRENCY workers sharing one queue. A worker stops when the
+  // queue is empty and no other worker is still busy (and could add more).
+  const crawled = []; // { n, entry } in completion order; sorted by n afterwards
+  let active = 0;
+  const worker = async () => {
+    for (;;) {
+      if (MAX_PAGES && visited.size >= MAX_PAGES) { if (queue.length) capReached = true; return; }
+      const url = queue.shift();
+      if (!url) {
+        if (!active) return;
+        await sleep(50);
+        continue;
+      }
+      visited.add(url);
+      const n = visited.size;
+      active++;
+      try {
+        console.log(MAX_PAGES ? `Crawling (${n}/${MAX_PAGES}): ${url}` : `Crawling (${n}, ${queue.length} queued): ${url}`);
+        const [raw, rendered] = await Promise.all([fetchRaw(url), fetchRendered(context, url)]);
+
+        // Only compare titles when both sides produced a real page. A redirect, a 404
+        // or a failed render has no body to compare, and a missing title is "" on both sides.
+        const rawIsPage = raw.status >= 200 && raw.status < 300;
+        const renderedOk = rendered.status !== null;
+        crawled.push({
+          n,
+          entry: {
+            url,
+            raw,
+            rendered: {
+              status: rendered.status,
+              title: rendered.title,
+              wordCount: rendered.wordCount,
+              head: rendered.head || null,
+              brokenLinks: rendered.brokenLinks,
+            },
+            jsChangedTitle: rawIsPage && renderedOk && (raw.title || "") !== (rendered.title || ""),
+          },
+        });
+
+        for (const link of rendered.links || []) {
+          if (!foundOn.has(link)) foundOn.set(link, new Set());
+          foundOn.get(link).add(url);
+          if (new URL(link).origin === origin) enqueue(link);
+        }
+      } finally {
+        active--;
+      }
+      if (DELAY_MS) await sleep(DELAY_MS); // be polite to the server
+    }
+  };
+  await Promise.all(Array.from({ length: CONCURRENCY }, worker));
+  report.push(...crawled.sort((a, b) => a.n - b.n).map((c) => c.entry));
+  await context.close();
   await browser.close();
 
   // Check every distinct link target once.
   const targets = [...foundOn.keys()];
   console.log(`\nChecking ${targets.length} distinct links directly...`);
-  const links = [];
-  for (const target of targets) {
+  let checked = 0;
+  const links = await mapPool(targets, LINK_CONCURRENCY, async (target) => {
     const result = await checkLink(target);
-    links.push({
+    if (++checked % 100 === 0) console.log(`  ${checked}/${targets.length} links checked`);
+    if (DELAY_MS) await sleep(DELAY_MS); // be polite to the server
+    return {
       url: target,
       type: new URL(target).origin === origin ? "internal" : "external",
       ...result,
       foundOn: [...foundOn.get(target)],
-    });
-    await sleep(DELAY_MS); // be polite to the server
-  }
+    };
+  });
 
   // Follow every redirecting link to its end.
   const redirecting = links.filter((l) => l.classification === "redirect");
   console.log(`Following ${redirecting.length} redirecting links to their destination...`);
-  for (const l of redirecting) {
+  await mapPool(redirecting, LINK_CONCURRENCY, async (l) => {
     const result = await followRedirects(l.url, checkLink, { maxHops: MAX_HOPS, delayMs: DELAY_MS });
     const c = classifyRedirect(result);
     l.redirect = { ...c, issueType: redirectIssueType(c) };
-  }
+  });
 
   // Which destinations do many different redirecting links end up on?
   const byDestination = new Map();
@@ -341,10 +448,14 @@ async function main() {
   const kindCount = (t) => redirecting.filter((l) => l.redirect.issueType === t).length;
   const summary = {
     startUrl,
-    maxPages: MAX_PAGES,
+    maxPages: MAX_PAGES || "no cap",
+    concurrency: CONCURRENCY,
     pagesCrawled: visited.size,
     capReached,
-    pagesLeftInQueue: capReached ? queue.filter((u) => !visited.has(u)).length : 0,
+    pagesLeftInQueue: capReached ? queue.length : 0,
+    sitemapUrls: sitemapListed.length,
+    // Listed in the sitemap but no crawled page links to them (possible orphans).
+    sitemapOnly: sitemapListed.filter((u) => { const k = crawlKey(u); return k && visited.has(k) && !foundOn.has(u) && !foundOn.has(k); }).length,
     linksChecked: links.length,
     ok: count("ok"),
     broken: count("broken"),
@@ -365,7 +476,7 @@ async function main() {
   // Readable result in the console (and the Actions log).
   console.log("\n=== Summary ===");
   console.log(JSON.stringify(summary, null, 2));
-  if (capReached) console.log(`\nNOTE: stopped at ${MAX_PAGES} pages with pages still queued. Raise --max-pages to see more.`);
+  if (capReached) console.log(`\nNOTE: stopped at the --max-pages limit of ${MAX_PAGES} with ${queue.length} pages still queued. Drop --max-pages to crawl everything.`);
 
   const foundLine = (l) => `      found on: ${l.foundOn.slice(0, 5).join(", ")}${l.foundOn.length > 5 ? ` (+${l.foundOn.length - 5} more)` : ""}`;
   const show = (label, list, line) => {

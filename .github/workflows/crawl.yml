@@ -8,9 +8,9 @@ on:
         required: true
         default: "https://example.com"
       max_pages:
-        description: "Maximum pages to crawl (raise for large sites)"
+        description: "Maximum pages to crawl (0 = no cap, crawl the whole site)"
         required: true
-        default: "100"
+        default: "0"
 
 jobs:
   crawl:
