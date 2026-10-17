@@ -110,9 +110,12 @@ const server = createServer(async (req, res) => {
     runs.set(runId, entry);
 
     // Start the crawler as a child process
-    const maxPages = Math.min(Math.max(parseInt(body.maxPages, 10) || 40, 1), 500);
+    // No page cap unless the caller asks for one: the crawler covers the whole site.
+    const maxPages = parseInt(body.maxPages, 10);
+    const crawlArgs = ["crawl.js", siteUrl];
+    if (maxPages > 0) crawlArgs.push("--max-pages", String(maxPages));
     activeRunId = runId;
-    const child = spawn("node", ["crawl.js", siteUrl, "--max-pages", String(maxPages)], { cwd: ROOT, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn("node", crawlArgs, { cwd: ROOT, stdio: ["ignore", "pipe", "pipe"] });
 
     function broadcast(line) {
       entry.lines.push(line);
