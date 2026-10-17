@@ -194,7 +194,7 @@ Saturday. Fridays are a half day of build plus review preparation.
 | 8 | Tue Oct 13 | AI layer: input and output contract | Planned |
 | 9 | Wed Oct 14 | AI layer: guardrails and evaluation | Planned |
 | 10 | Thu Oct 15 | Readable report: chat-first audit UI (SiteFix) | **Done** |
-| 11 | Fri Oct 16 | Live-site runs, then Week 2 review prep | Planned |
+| 11 | Fri Oct 16 | Live-site runs (faster full-site crawl), then Week 2 review prep | In progress |
 | 12 | Sat Oct 17 | Validation and close-out | Planned |
 
 Beyond this sprint, the Phase 1 plan continues with the approval queue,
@@ -222,13 +222,16 @@ npm run ui                        # http://localhost:3000
 node ui/server.js --port 3001     # any other port
 ```
 
+The UI runs the crawler with no page cap, so a large site takes a while;
+the log shows how many pages are still queued.
+
 To try it on the fixture, start `node fixture/server.js` in a second
 terminal, then click the `localhost:4000` chip under the input box.
 
 What you get:
 
-1. **One input.** The URL box is focused on load. Press Enter (or click
-   **Inspect Site**) to start. Bare domains get `https://` added (`http://` for localhost).
+1. **One input.** The URL box is focused on load. Press Enter (or the round arrow button)
+   to send; the box clears like a sent message. Bare domains get `https://` added (`http://` for localhost).
 2. **Live progress.** `crawl.js` output streams into the chat over
    Server-Sent Events (`/api/stream/:runId`), with a pill per detector
    (links, redirects, metadata, soft 404, issue registry).
@@ -254,11 +257,27 @@ To change the page, edit `ui/build-index.js` and run
 ### Run the crawler via CLI
 
 ```bash
-node crawl.js https://your-site.com --max-pages 100
+node crawl.js https://your-site.com            # whole site, no page cap
+node crawl.js https://your-site.com --max-pages 50   # quick partial run
 ```
 
-Options: `--max-pages N` (default 100) and `--delay-ms N` (pause between
-link checks, default 150). It writes five files:
+By default it crawls every internal page it can reach: everything linked
+from the start page onwards, plus every URL in the site's sitemap
+(`Sitemap:` lines in `robots.txt`, else `/sitemap.xml`, following sitemap
+index files). Tracking parameters (`utm_*`, `gclid`, `fbclid`, ...) are
+ignored when deciding whether a page was already crawled.
+
+| Option | Default | What it does |
+|---|---|---|
+| `--max-pages N` | `0` (no cap) | Stop after N pages |
+| `--concurrency N` | `4` | Pages rendered in the browser at the same time |
+| `--link-concurrency N` | `8` | Link checks and redirect follows at the same time |
+| `--settle-ms N` | `1500` | Longest wait for late JavaScript after a page loads |
+| `--delay-ms N` | `150` | Pause after each request, per worker |
+| `--no-sitemap` | off | Only follow links, skip the sitemap |
+
+Lower `--concurrency` and `--link-concurrency` (or raise `--delay-ms`) for
+small or fragile servers. It writes five files:
 
 - `report.json`: one entry per crawled page (raw vs rendered status, title,
   word count, broken resources, and the page's title, meta description, H1s,
@@ -512,6 +531,35 @@ complete and the 11 issues in the registry render with their evidence.
 
 Not built yet: filtering by severity or category, a raw JSON view, and
 history that survives a page reload.
+
+### Day 11: faster crawl, whole site covered
+
+The crawler was spending most of its time waiting. It handled one page at a
+time, waited up to 5 seconds on every page for the network to go quiet (sites
+with analytics never do), opened a fresh browser context per page, and checked
+links one by one. It now renders 4 pages at a time in one shared context,
+waits at most 1.5 seconds for late JavaScript, and checks links and follows
+redirects 8 at a time (still pausing 150 ms per request). The page cap is gone
+by default, and the site's sitemap seeds the queue so pages nothing links to
+are still checked.
+
+Fixture: same 18 pages and same 11 issues as before (11 of 12 planted, 0 false
+positives), 15.7 s down to 5.7 s.
+
+Real-site check (progrowth.services, run on Oct 17):
+
+| | Before (Day 10) | After (Day 11) |
+|---|---|---|
+| Pages crawled | 40 (cap hit, 176 still queued) | 171 (whole site, 0 queued) |
+| Time | 8 min 33 s | 3 min 6 s |
+| Time per page | 12.8 s | 1.1 s |
+| Links checked | 169 | 265 |
+
+Sitemap: 121 URLs listed, all reachable through links as well (no orphan
+pages). The registry holds 36 issues (3 high, 7 medium, 26 low), mostly
+redirect chains (22), plus 4 external links returning 4xx, 4 over-long titles,
+2 redirects that end in an error, 2 duplicate descriptions, 1 broken internal
+link and 1 missing canonical.
 
 ## 13. Security principles
 

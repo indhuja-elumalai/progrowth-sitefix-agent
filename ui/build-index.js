@@ -315,7 +315,7 @@ const HTML = String.raw`<!DOCTYPE html>
       </div>
       <div class="inp-hint" id="inp-hint">
         <span id="inp-err" role="alert"></span>
-        <span id="inp-ok">Crawls up to 40 pages &middot; try the fixture:
+        <span id="inp-ok">Checks every page and link it can reach &middot; try the fixture:
           <span class="url-chip" id="fixture-chip" role="button" tabindex="0" title="Inspect the local fixture site">localhost:4000</span>
         </span>
       </div>
@@ -422,7 +422,7 @@ async function start(){
   chatIn.appendChild(prog);scroll();
   let runId;
   try{
-    const r=await fetch('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:siteUrl,maxPages:40})});
+    const r=await fetch('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:siteUrl})});
     const d=await r.json();
     if(!r.ok||!d.runId)throw new Error(d.error||'Failed to start crawl');
     runId=d.runId;
