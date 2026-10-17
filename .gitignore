@@ -3,6 +3,7 @@ report.json
 links.json
 .env
 metadata.json
-metadata.json
 soft404.json
 issues.json
+# local crawl logs and scratch files
+*-run.txt

@@ -1,0 +1,562 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SiteFix — Website Audit Agent</title>
+  <meta name="description" content="SiteFix is an internal website audit agent that inspects any client site, runs deterministic detectors, and presents findings in a clean, structured report." />
+  <style>
+  :root {
+    --bg:#ffffff; --surface-1:#f5f5f7; --surface-2:#efeff2; --surface-3:#e5e5ea;
+    --border:rgba(60,60,67,.12); --border-mid:rgba(60,60,67,.22);
+    --text-1:#1d1d1f; --text-2:#515154; --text-3:#8e8e93;
+    --bubble-in:#e9e9eb; --bubble-out:#1d1d1f; --bubble-out-text:#ffffff;
+    --accent:#b8ff00; --accent-dark:#1d1d1f;
+    --accent-dim:rgba(184,255,0,.16); --accent-border:rgba(132,184,0,.45);
+    --high:#d70015; --high-bg:rgba(215,0,21,.08);
+    --medium:#b25000; --medium-bg:rgba(178,80,0,.09);
+    --low:#0066cc; --low-bg:rgba(0,102,204,.08);
+    --success:#248a3d; --success-bg:rgba(36,138,61,.09);
+    --font-sans:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue","Segoe UI",Roboto,system-ui,sans-serif;
+    --font-mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    --radius-sm:8px; --radius:12px; --radius-lg:18px; --radius-xl:999px;
+    --sidebar-w:260px; --t:160ms ease;
+  }
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{font-family:var(--font-sans);background:var(--bg);color:var(--text-1);font-size:15px;line-height:1.4;-webkit-font-smoothing:antialiased;letter-spacing:-.01em}
+  a{color:inherit}
+  button{cursor:pointer;font-family:inherit}
+  input{font-family:inherit}
+  :focus-visible{outline:2px solid var(--accent-border);outline-offset:2px}
+  .sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+
+  #app{display:flex;height:100vh;overflow:hidden}
+
+  /* Sidebar (like the Messages conversation list) */
+  #sidebar{width:var(--sidebar-w);min-width:var(--sidebar-w);background:var(--surface-1);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;flex-shrink:0}
+  .sidebar-header{padding:18px 16px 12px}
+  .brand{display:flex;align-items:center;gap:10px}
+  .brand-icon{width:32px;height:32px;background:var(--accent);border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+  .brand-icon svg{width:16px;height:16px}
+  .brand-name{font-size:15px;font-weight:600;color:var(--text-1)}
+  .brand-sub{font-size:12px;color:var(--text-3);display:block;line-height:1.3}
+  .new-btn{margin:4px 12px 8px;padding:8px 12px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);color:var(--text-1);font-size:13px;font-weight:500;display:flex;align-items:center;gap:8px;transition:background var(--t);width:calc(100% - 24px)}
+  .new-btn:hover{background:var(--surface-3)}
+  .new-btn svg{width:14px;height:14px;flex-shrink:0;color:var(--text-2)}
+  .sidebar-section{padding:12px 18px 4px;font-size:12px;font-weight:600;color:var(--text-3)}
+  .history-list{flex:1;overflow-y:auto;padding:2px 8px 16px}
+  .history-item{padding:9px 10px;border-radius:var(--radius-sm);color:var(--text-1);font-size:13px;display:flex;align-items:center;gap:9px;transition:background var(--t);cursor:pointer;border:none;background:none;width:100%;text-align:left;line-height:1.3}
+  .history-item:hover{background:var(--surface-3)}
+  .h-dot{width:7px;height:7px;border-radius:50%;background:var(--success);flex-shrink:0}
+  .h-dot.bad{background:var(--high)}
+  .h-url{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .sidebar-footer{padding:12px 18px 16px;border-top:1px solid var(--border);font-size:11.5px;color:var(--text-3);line-height:1.6}
+  .ver-badge{display:inline-block;background:var(--surface-3);color:var(--text-2);border-radius:var(--radius-xl);padding:1px 8px;font-size:10.5px;font-weight:500;margin-top:4px}
+
+  /* Main + header (centered contact-style header) */
+  #main{flex:1;display:flex;flex-direction:column;overflow:hidden;background:var(--bg);position:relative}
+  #topbar{position:relative;padding:10px 56px 9px;border-bottom:1px solid var(--border);display:flex;justify-content:center;background:rgba(255,255,255,.85);-webkit-backdrop-filter:saturate(180%) blur(20px);backdrop-filter:saturate(180%) blur(20px);flex-shrink:0;z-index:2}
+  .tb-center{display:flex;flex-direction:column;align-items:center;min-width:0;max-width:100%}
+  .tb-av{width:28px;height:28px;border-radius:50%;background:var(--accent);display:flex;align-items:center;justify-content:center;margin-bottom:3px}
+  .tb-av svg{width:14px;height:14px}
+  .tb-name{font-size:12.5px;font-weight:600;color:var(--text-1);line-height:1.2}
+  #tb-title{font-size:11px;color:var(--text-3);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .icon-btn{position:absolute;right:16px;top:50%;transform:translateY(-50%);width:32px;height:32px;border-radius:50%;border:none;background:transparent;display:flex;align-items:center;justify-content:center;transition:background var(--t);color:var(--text-2)}
+  .icon-btn:hover{background:var(--surface-2);color:var(--text-1)}
+  .icon-btn svg{width:18px;height:18px}
+  #chat-area{flex:1;overflow-y:auto;padding:8px 0 24px;scroll-behavior:smooth}
+  .chat-inner{max-width:720px;margin:0 auto;padding:0 20px;display:flex;flex-direction:column}
+
+  /* Empty state */
+  #empty-state{display:flex;flex-direction:column;align-items:center;text-align:center;padding:72px 24px 32px;max-width:440px;margin:0 auto}
+  .empty-av{width:60px;height:60px;border-radius:50%;background:var(--accent);display:flex;align-items:center;justify-content:center;margin-bottom:14px}
+  .empty-av svg{width:26px;height:26px}
+  .empty-title{font-size:20px;font-weight:600;color:var(--text-1);margin-bottom:6px;letter-spacing:-.02em}
+  .empty-desc{font-size:14px;color:var(--text-2);line-height:1.5;margin-bottom:20px}
+  .cap-row{display:flex;flex-wrap:wrap;justify-content:center;gap:6px}
+  .cap-pill{padding:5px 11px;border-radius:var(--radius-xl);background:var(--surface-1);border:1px solid var(--border);font-size:12px;color:var(--text-2)}
+
+  /* Timestamp separator */
+  .ts-sep{text-align:center;font-size:11px;color:var(--text-3);margin:18px 0 8px}
+  .ts-sep b{font-weight:600}
+
+  /* Bubbles */
+  .chat-msg{display:flex;margin-top:10px}
+  .chat-msg.user{justify-content:flex-end}
+  .chat-msg.user + .chat-msg.user,.chat-msg.agent + .chat-msg.agent{margin-top:3px}
+  .msg-bbl{position:relative;max-width:75%;padding:8px 13px;border-radius:18px;font-size:15px;line-height:1.38;word-wrap:break-word;overflow-wrap:anywhere}
+  .chat-msg.agent .msg-bbl{background:var(--bubble-in);color:var(--text-1)}
+  .chat-msg.user .msg-bbl{background:var(--bubble-out);color:var(--bubble-out-text)}
+  .msg-bbl::before,.msg-bbl::after{content:"";position:absolute;bottom:0;height:20px}
+  .chat-msg.user .msg-bbl::before{right:-7px;width:20px;background:var(--bubble-out);border-bottom-left-radius:16px 14px}
+  .chat-msg.user .msg-bbl::after{right:-26px;width:26px;background:var(--bg);border-bottom-left-radius:10px}
+  .chat-msg.agent .msg-bbl::before{left:-7px;width:20px;background:var(--bubble-in);border-bottom-right-radius:16px 14px}
+  .chat-msg.agent .msg-bbl::after{left:-26px;width:26px;background:var(--bg);border-bottom-right-radius:10px}
+  .chat-msg.user:has(+ .chat-msg.user) .msg-bbl::before,.chat-msg.user:has(+ .chat-msg.user) .msg-bbl::after,
+  .chat-msg.agent:has(+ .chat-msg.agent) .msg-bbl::before,.chat-msg.agent:has(+ .chat-msg.agent) .msg-bbl::after{display:none}
+  .msg-bbl code{font-family:var(--font-mono);font-size:13px}
+
+  /* Rich cards sit in the agent column, like link previews */
+  .prog-card,.rpt-card,.issue-list{margin-top:10px}
+  .prog-card,.rpt-card,.issue-grp{background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden;box-shadow:0 1px 2px rgba(0,0,0,.04)}
+
+  /* Progress */
+  .prog-hdr{padding:12px 16px;display:flex;align-items:center;gap:12px}
+  .spin{width:16px;height:16px;border:2px solid var(--surface-3);border-top-color:var(--text-2);border-radius:50%;flex-shrink:0;animation:spin .8s linear infinite}
+  .spin.done{border-color:var(--success);animation:none}
+  .spin.err{border-color:var(--high);animation:none}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .prog-title{font-size:14px;font-weight:600;color:var(--text-1)}
+  .prog-sub{font-size:12px;color:var(--text-3);margin-top:1px;overflow-wrap:anywhere}
+  .prog-log{padding:10px 16px;max-height:180px;overflow-y:auto;font-family:var(--font-mono);font-size:11px;color:var(--text-3);line-height:1.65;background:var(--surface-1);border-top:1px solid var(--border)}
+  .log-line{white-space:pre-wrap;word-break:break-all}
+  .log-line.hl{color:var(--text-1);font-weight:600}
+  .log-line.ok{color:var(--text-2)}
+  .log-line.warn{color:var(--medium)}
+  .log-line.err2{color:var(--high)}
+  .det-list{padding:10px 16px 12px;display:flex;flex-wrap:wrap;gap:6px;border-top:1px solid var(--border)}
+  .det-pill{display:flex;align-items:center;gap:6px;padding:3px 10px 3px 8px;border-radius:var(--radius-xl);background:var(--surface-1);font-size:12px;color:var(--text-3);transition:background var(--t),color var(--t)}
+  .det-pill .pdot{width:6px;height:6px;border-radius:50%;background:var(--border-mid);transition:background var(--t)}
+  .det-pill.running{color:var(--text-2)}
+  .det-pill.running .pdot{background:var(--medium);animation:pulse 1s infinite}
+  .det-pill.done{background:var(--accent-dim);color:var(--text-1)}
+  .det-pill.done .pdot{background:var(--success)}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+
+  /* Summary card */
+  .rpt-hdr{padding:14px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px}
+  .rpt-sicon{width:36px;height:36px;background:var(--surface-1);border-radius:10px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+  .rpt-sicon svg{width:18px;height:18px}
+  .rpt-info{flex:1;min-width:0}
+  .rpt-url{font-size:14px;font-weight:600;color:var(--text-1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .rpt-meta{font-size:12px;color:var(--text-3);margin-top:1px}
+  .rpt-badge{padding:3px 10px;border-radius:var(--radius-xl);font-size:12px;font-weight:600;background:var(--surface-2);color:var(--text-1);flex-shrink:0;white-space:nowrap}
+  .rpt-counts{display:grid;grid-template-columns:repeat(4,1fr);border-bottom:1px solid var(--border)}
+  .cnt-cell{padding:12px 16px;border-right:1px solid var(--border)}
+  .cnt-cell:last-child{border-right:none}
+  .cnt-num{font-size:22px;font-weight:600;color:var(--text-1);letter-spacing:-.02em;line-height:1.15;font-variant-numeric:tabular-nums}
+  .cnt-num.high{color:var(--high)}
+  .cnt-num.medium{color:var(--medium)}
+  .cnt-num.low{color:var(--low)}
+  .cnt-lbl{font-size:11.5px;color:var(--text-3);margin-top:2px}
+  .rpt-dets{padding:10px 16px 12px;display:flex;gap:6px;flex-wrap:wrap}
+  .det-tag{display:flex;align-items:center;gap:5px;padding:3px 10px;border-radius:var(--radius-xl);background:var(--surface-1);font-size:12px;color:var(--text-2)}
+  .det-tag svg{width:10px;height:10px;color:var(--success)}
+
+  /* Issue groups */
+  .issue-list{display:flex;flex-direction:column;gap:8px}
+  .grp-hdr{padding:12px 16px;display:flex;align-items:center;gap:10px;cursor:pointer;user-select:none;transition:background var(--t)}
+  .grp-hdr:hover{background:var(--surface-1)}
+  .grp-lbl{flex:1;font-size:14px;font-weight:600;color:var(--text-1)}
+  .grp-cnt{font-size:12px;font-weight:500;color:var(--text-2);padding:1px 8px;background:var(--surface-2);border-radius:var(--radius-xl);font-variant-numeric:tabular-nums}
+  .grp-chv{color:var(--text-3);transition:transform var(--t)}
+  .grp-chv svg{width:14px;height:14px;display:block}
+  .issue-grp.collapsed .grp-chv{transform:rotate(-90deg)}
+  .grp-body{display:flex;flex-direction:column;border-top:1px solid var(--border)}
+  .issue-grp.collapsed .grp-body{display:none}
+
+  /* Issue items */
+  .iss-item{padding:12px 16px;border-bottom:1px solid var(--border);display:flex;gap:12px;align-items:flex-start;cursor:pointer;transition:background var(--t)}
+  .iss-item:last-child{border-bottom:none}
+  .iss-item:hover,.iss-item.open{background:var(--surface-1)}
+  .iss-bar{flex-shrink:0;width:8px;height:8px;border-radius:50%;margin-top:6px}
+  .iss-bar.high{background:var(--high)}
+  .iss-bar.medium{background:var(--medium)}
+  .iss-bar.low{background:var(--low)}
+  .iss-body{flex:1;min-width:0}
+  .iss-top{display:flex;align-items:baseline;gap:8px;margin-bottom:2px}
+  .iss-type{font-size:14px;font-weight:500;color:var(--text-1);flex:1}
+  .iss-sev{flex-shrink:0;font-size:11px;font-weight:600;padding:1px 8px;border-radius:var(--radius-xl);text-transform:capitalize}
+  .iss-sev.high{background:var(--high-bg);color:var(--high)}
+  .iss-sev.medium{background:var(--medium-bg);color:var(--medium)}
+  .iss-sev.low{background:var(--low-bg);color:var(--low)}
+  .iss-url{font-family:var(--font-mono);font-size:11.5px;color:var(--text-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-bottom:3px}
+  .iss-detail{font-size:13px;color:var(--text-2);line-height:1.45}
+  .iss-fix{display:inline-block;margin-top:6px;font-size:11px;font-weight:500;padding:1px 8px;border-radius:var(--radius-xl);background:var(--surface-2);color:var(--text-2)}
+  .iss-fix.deterministic{color:var(--success);background:var(--success-bg)}
+  .iss-fix.ai-proposed{color:var(--text-1);background:var(--accent-dim)}
+  .iss-chv{flex-shrink:0;color:var(--text-3);transition:transform var(--t);margin-top:3px}
+  .iss-chv svg{width:14px;height:14px;display:block}
+  .iss-item.open .iss-chv{transform:rotate(180deg)}
+
+  /* Evidence */
+  .iss-ev{display:none;padding:4px 16px 14px 36px;background:var(--surface-1);border-bottom:1px solid var(--border)}
+  .iss-item.open + .iss-ev{display:block}
+  .iss-ev:last-child{border-bottom:none}
+  .ev-title{font-size:11.5px;font-weight:600;color:var(--text-3);margin-bottom:6px}
+  .ev-pre{background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 12px;font-family:var(--font-mono);font-size:11.5px;color:var(--text-2);overflow-x:auto;white-space:pre-wrap;word-break:break-all;line-height:1.6}
+  .ev-row{display:flex;gap:12px;margin-bottom:5px;font-size:13px}
+  .ev-k{color:var(--text-3);min-width:96px;flex-shrink:0}
+  .ev-v{color:var(--text-1);flex:1;word-break:break-all}
+  .ev-chain{display:flex;flex-wrap:wrap;gap:4px;align-items:center}
+  .chain-u{font-family:var(--font-mono);font-size:11px;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:1px 7px;color:var(--text-2)}
+  .chain-a{color:var(--text-3);font-size:12px}
+  .found-on{margin-top:10px}
+  .fo-title{font-size:11.5px;font-weight:600;color:var(--text-3);margin-bottom:3px}
+  .fo-url{font-family:var(--font-mono);font-size:11.5px;color:var(--text-2);line-height:1.8}
+  .ai-ph{margin-top:10px;padding:8px 12px;border:1px dashed var(--border-mid);border-radius:var(--radius-sm);font-size:12px;color:var(--text-3);display:flex;align-items:center;gap:8px}
+  .ai-ph svg{width:13px;height:13px;flex-shrink:0;opacity:.6}
+
+  /* Input bar (pill field with a round send button inside) */
+  #input-area{flex-shrink:0;padding:10px 20px 14px;border-top:1px solid var(--border);background:rgba(255,255,255,.85);-webkit-backdrop-filter:saturate(180%) blur(20px);backdrop-filter:saturate(180%) blur(20px)}
+  .inp-wrap{position:relative;max-width:720px;margin:0 auto}
+  #url-input{width:100%;min-width:0;height:38px;background:var(--bg);border:1px solid var(--border-mid);border-radius:19px;color:var(--text-1);font-size:15px;padding:0 46px 0 15px;transition:border-color var(--t),box-shadow var(--t);outline:none}
+  #url-input::placeholder{color:var(--text-3)}
+  #url-input:focus{border-color:rgba(60,60,67,.35);box-shadow:0 0 0 3px var(--accent-dim)}
+  #url-input.invalid{border-color:var(--high);box-shadow:0 0 0 3px var(--high-bg)}
+  #inspect-btn{position:absolute;right:4px;top:4px;width:30px;height:30px;border-radius:50%;border:none;background:var(--accent);color:var(--accent-dark);display:flex;align-items:center;justify-content:center;transition:background var(--t),transform var(--t)}
+  #inspect-btn:hover:not(:disabled){transform:scale(1.06)}
+  #inspect-btn:disabled{background:var(--surface-3);color:#fff;cursor:default}
+  #inspect-btn svg{width:16px;height:16px}
+  .inp-hint{max-width:720px;margin:7px auto 0;font-size:11.5px;color:var(--text-3);display:flex;align-items:center;justify-content:center;gap:6px;flex-wrap:wrap;text-align:center}
+  #inp-err{color:var(--high);display:none}
+  .url-chip{display:inline-flex;align-items:center;padding:2px 9px;border-radius:var(--radius-xl);background:var(--surface-1);border:1px solid var(--border);font-size:11.5px;color:var(--text-2);cursor:pointer;transition:background var(--t)}
+  .url-chip:hover{background:var(--accent-dim);color:var(--text-1)}
+
+  ::-webkit-scrollbar{width:8px;height:8px}
+  ::-webkit-scrollbar-track{background:transparent}
+  ::-webkit-scrollbar-thumb{background:rgba(0,0,0,.15);border-radius:10px;border:2px solid transparent;background-clip:content-box}
+
+  @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
+  @media(max-width:720px){
+    #sidebar{display:none}
+    .rpt-counts{grid-template-columns:repeat(2,1fr)}
+    .cnt-cell:nth-child(2){border-right:none}
+    .cnt-cell:nth-child(-n+2){border-bottom:1px solid var(--border)}
+    .chat-inner{padding:0 14px}
+    #input-area{padding:8px 12px 12px}
+    .msg-bbl{max-width:85%}
+    #empty-state{padding-top:48px}
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <aside id="sidebar">
+    <div class="sidebar-header">
+      <div class="brand">
+        <div class="brand-icon">
+          <svg viewBox="0 0 20 20" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="8.5" cy="8.5" r="5"/>
+            <path d="M13 13l3.5 3.5"/>
+            <path d="M8.5 6v1m0 3v1m2-2.5h-4"/>
+          </svg>
+        </div>
+        <div>
+          <span class="brand-name">SiteFix</span>
+          <span class="brand-sub">Website Audit Agent</span>
+        </div>
+      </div>
+    </div>
+    <button class="new-btn" id="new-btn" aria-label="New inspection">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg>
+      New inspection
+    </button>
+    <div class="sidebar-section">Inspections</div>
+    <div class="history-list" id="hist" role="list" aria-label="Inspection history">
+      <div style="padding:6px 10px;font-size:12px;color:var(--text-3)">No inspections yet</div>
+    </div>
+    <div class="sidebar-footer">
+      Phase 1 &middot; Detection only<br/>
+      <span class="ver-badge">v0.6 &middot; Day 10/12</span>
+    </div>
+  </aside>
+
+  <main id="main">
+    <div id="topbar">
+      <div class="tb-center">
+        <div class="tb-av" aria-hidden="true"><svg viewBox="0 0 16 16" fill="none" stroke="#1d1d1f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5l3 3"/></svg></div>
+        <div class="tb-name">SiteFix</div>
+        <div id="tb-title">Website audit agent</div>
+      </div>
+      <button class="icon-btn" id="clear-btn" title="New inspection" aria-label="New inspection">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3.5H5.5a2 2 0 00-2 2v9a2 2 0 002 2h9a2 2 0 002-2V11"/><path d="M14.6 2.9a1.4 1.4 0 012 2L10 11.5 7.5 12.5l1-2.5z"/></svg>
+      </button>
+    </div>
+
+    <div id="chat-area" role="log" aria-live="polite" aria-label="Inspection conversation">
+      <div class="chat-inner" id="chat-inner">
+        <div id="empty-state">
+          <div class="empty-av" aria-hidden="true"><svg viewBox="0 0 16 16" fill="none" stroke="#1d1d1f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5l3 3"/></svg></div>
+          <h1 class="empty-title">SiteFix</h1>
+          <p class="empty-desc">Send a website URL and I&rsquo;ll crawl it, run the detectors and report every issue I find, with evidence.</p>
+          <div class="cap-row" aria-label="What gets checked">
+            <span class="cap-pill">Broken links &amp; HTTP</span>
+            <span class="cap-pill">Redirects</span>
+            <span class="cap-pill">Titles, meta &amp; canonical</span>
+            <span class="cap-pill">Soft 404s</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="input-area">
+      <div class="inp-wrap">
+        <input type="url" id="url-input" placeholder="Website URL"
+          autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" enterkeyhint="send"
+          aria-label="Website URL to inspect" aria-describedby="inp-hint" autofocus/>
+        <button id="inspect-btn" aria-label="Start inspection" title="Inspect">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13V3M3.5 7.5L8 3l4.5 4.5"/></svg>
+          <span class="sr-only">Inspect site</span>
+        </button>
+      </div>
+      <div class="inp-hint" id="inp-hint">
+        <span id="inp-err" role="alert"></span>
+        <span id="inp-ok">Crawls up to 40 pages &middot; try the fixture:
+          <span class="url-chip" id="fixture-chip" role="button" tabindex="0" title="Inspect the local fixture site">localhost:4000</span>
+        </span>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+"use strict";
+const S=(s,c=document)=>c.querySelector(s);
+const el=(t,c,h)=>{const e=document.createElement(t);if(c)e.className=c;if(h!==undefined)e.innerHTML=h;return e;};
+const esc=s=>String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+let running=false,history_=[],lastTs=0;
+const urlIn=S('#url-input'),inspBtn=S('#inspect-btn'),chatIn=S('#chat-inner'),
+      chatA=S('#chat-area'),empty=S('#empty-state'),hist=S('#hist'),
+      tbTitle=S('#tb-title'),inpErr=S('#inp-err'),inpOk=S('#inp-ok');
+
+S('#fixture-chip').addEventListener('click',()=>{if(running)return;urlIn.value='http://localhost:4000/';start();});
+
+function validateUrl(r){
+  const s=r.trim();
+  if(!s)return{ok:false,msg:'Please enter a URL.'};
+  const local=/^(localhost|127\.0\.0\.1|\[::1\])(:|\/|$)/i.test(s);
+  let u;try{u=new URL(/^https?:\/\//i.test(s)?s:(local?'http://':'https://')+s);}catch{return{ok:false,msg:'Not a valid URL.'};}
+  if(!['http:','https:'].includes(u.protocol))return{ok:false,msg:'Only http:// or https:// supported.'};
+  return{ok:true,url:u.href};
+}
+urlIn.addEventListener('keydown',e=>{if(e.key==='Enter'&&!running)start();});
+urlIn.addEventListener('input',()=>{urlIn.classList.remove('invalid');inpErr.style.display='none';inpOk.style.display='';syncBtn();});
+function syncBtn(){inspBtn.disabled=running||!urlIn.value.trim();}
+syncBtn();
+inspBtn.addEventListener('click',()=>{if(!running)start();});
+S('#clear-btn').addEventListener('click',clear);
+S('#new-btn').addEventListener('click',()=>{clear();urlIn.focus();});
+
+function clear(){chatIn.innerHTML='';chatIn.appendChild(empty);empty.style.display='';tbTitle.textContent='Website audit agent';lastTs=0;urlIn.value='';urlIn.classList.remove('invalid');inpErr.style.display='none';inpOk.style.display='';running=false;syncBtn();}
+
+function addMsg(role,html,ts){
+  if(empty.parentNode===chatIn)empty.style.display='none';
+  const now=ts?new Date(ts):new Date();
+  if(!lastTs||now-lastTs>5*60*1000){const sep=el('div','ts-sep');sep.innerHTML='<b>Today</b> '+esc(fmtTime(now));chatIn.appendChild(sep);}
+  lastTs=now;
+  const w=el('div','chat-msg '+role),bbl=el('div','msg-bbl');
+  bbl.innerHTML=html;w.appendChild(bbl);
+  chatIn.appendChild(w);scroll();return bbl;
+}
+function fmtTime(d){return(d instanceof Date?d:new Date(d)).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'});}
+function scroll(){requestAnimationFrame(()=>{chatA.scrollTop=chatA.scrollHeight;});}
+
+const DETS=[{id:'links',lbl:'Links & HTTP'},{id:'redirect',lbl:'Redirects'},{id:'metadata',lbl:'Metadata'},{id:'soft404',lbl:'Soft 404s'},{id:'registry',lbl:'Issue registry'}];
+
+function buildProg(url){
+  const c=el('div','prog-card');
+  c.innerHTML='<div class="prog-hdr"><div class="spin" id="ps"></div><div><div class="prog-title">Inspection running&hellip;</div><div class="prog-sub" id="psub">Crawling <span style="font-family:var(--font-mono);font-size:11px">'+esc(url)+'</span></div></div></div>'+'<div class="prog-log" id="plog" role="log"></div>'+'<div class="det-list">'+DETS.map(d=>'<div class="det-pill" id="pill-'+d.id+'"><span class="pdot"></span>'+esc(d.lbl)+'</div>').join('')+'</div>';
+  return c;
+}
+function logLine(c,line){
+  const log=S('#plog',c),d=el('div','log-line');
+  if(/^\s*(crawling|checking|following)\b/i.test(line))d.classList.add('ok');
+  else if(/summary|done\.|issue registry|===/i.test(line))d.classList.add('hl');
+  else if(/warning|error/i.test(line))d.classList.add('err2');
+  else if(/broken|404|loop|chain/i.test(line))d.classList.add('warn');
+  d.textContent=line;log.appendChild(d);log.scrollTop=log.scrollHeight;
+}
+function setPill(c,id,st){const p=S('#pill-'+id,c);if(p)p.className='det-pill '+st;}
+function progDone(c,reg){
+  const sp=S('#ps',c),sb=S('#psub',c);
+  if(sp)sp.classList.add('done');
+  if(sb)sb.innerHTML='Completed &middot; '+reg.counts.total+' issue'+(reg.counts.total!==1?'s':'')+' found';
+  DETS.forEach(d=>setPill(c,d.id,'done'));
+}
+function progErr(c,msg){const sp=S('#ps',c),sb=S('#psub',c);if(sp)sp.classList.add('err');if(sb)sb.innerHTML='<span style="color:var(--high)">Error: '+esc(msg)+'</span>';}
+
+async function streamSSE(runId,card){
+  return new Promise(res=>{
+    const es=new EventSource('/api/stream/'+runId);
+    es.addEventListener('message',e=>{
+      const{line}=JSON.parse(e.data);
+      if(line.startsWith('__DONE__:')){es.close();res(Number(line.slice(9)));return;}
+      logLine(card,line);
+      if(/checking \d+ distinct links/i.test(line))setPill(card,'links','running');
+      else if(/following \d+ redirect/i.test(line))setPill(card,'redirect','running');
+      else if(/metadata and canonical/i.test(line)){setPill(card,'links','done');setPill(card,'redirect','done');setPill(card,'metadata','running');}
+      else if(/soft 404/i.test(line)){setPill(card,'metadata','done');setPill(card,'soft404','running');}
+      else if(/issue registry/i.test(line)){setPill(card,'soft404','done');setPill(card,'registry','running');}
+      else if(/done\. see issues/i.test(line))setPill(card,'registry','done');
+      scroll();
+    });
+    es.addEventListener('error',()=>{es.close();res(-1);});
+  });
+}
+
+async function start(){
+  const v=validateUrl(urlIn.value);
+  if(!v.ok){urlIn.classList.add('invalid');inpErr.textContent=v.msg;inpErr.style.display='inline';inpOk.style.display='none';return;}
+  running=true;inspBtn.disabled=true;urlIn.classList.remove('invalid');inpErr.style.display='none';
+  const siteUrl=v.url;
+  urlIn.value='';syncBtn();
+  tbTitle.textContent=siteUrl;
+  addMsg('user',esc(siteUrl));
+  addMsg('agent','On it. I\'ll crawl the site, run the detectors and report what I find.');
+  const prog=buildProg(siteUrl);
+  if(empty.parentNode===chatIn)empty.style.display='none';
+  chatIn.appendChild(prog);scroll();
+  let runId;
+  try{
+    const r=await fetch('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:siteUrl,maxPages:40})});
+    const d=await r.json();
+    if(!r.ok||!d.runId)throw new Error(d.error||'Failed to start crawl');
+    runId=d.runId;
+  }catch(e){
+    progErr(prog,e.message);
+    addMsg('agent','<span style="color:var(--high)">&#9888; Could not start the crawler: '+esc(e.message)+'</span><br><span style="font-size:12.5px;color:var(--text-2)">Make sure the UI server is running (<code style="font-family:var(--font-mono)">node ui/server.js</code>) and Playwright is installed.</span>');
+    running=false;syncBtn();return;
+  }
+  const code=await streamSSE(runId,prog);
+  try{
+    if(code!==0)throw new Error('crawler exited with code '+code+' (see the log above)');
+    const r=await fetch('/api/results?runId='+encodeURIComponent(runId));
+    const reg=await r.json();
+    if(!r.ok)throw new Error(reg.error||'issues.json not found');
+    progDone(prog,reg);
+    renderResults(reg,siteUrl);
+    history_.unshift({url:siteUrl,n:reg.counts.total});
+    renderHist();
+  }catch(e){
+    progErr(prog,'Could not load results: '+e.message);
+    addMsg('agent','<span style="color:var(--high)">&#9888; Could not read results: '+esc(e.message)+'</span>');
+  }
+  running=false;syncBtn();
+}
+
+function renderResults(reg,siteUrl){
+  const issues=reg.issues||[],run=reg.run||{},counts=reg.counts||{},bySev=counts.bySeverity||{};
+  const cats=[...new Set(issues.map(i=>i.category))];
+  chatIn.appendChild(buildSummaryCard(siteUrl,run,counts,bySev,cats));scroll();
+  if(!issues.length){addMsg('agent','<span style="color:var(--success)">&#10003; No issues detected.</span> The site looks clean based on the detectors that ran.');return;}
+  addMsg('agent','Done. I found <strong>'+counts.total+' issue'+(counts.total!==1?'s':'')+'</strong> in '+cats.length+' categor'+(cats.length!==1?'ies':'y')+'. Tap any issue to see its evidence.');
+  const grouped=groupBy(issues,i=>i.category);
+  const order=['HTTP and URLs','Soft 404s','Canonical tags','SEO and metadata'];
+  const sorted=[...order.filter(c=>grouped[c]),...Object.keys(grouped).filter(c=>!order.includes(c))];
+  const wrap=el('div','issue-list');
+  sorted.forEach(cat=>wrap.appendChild(buildGrp(cat,grouped[cat])));
+  chatIn.appendChild(wrap);scroll();
+}
+
+function buildSummaryCard(siteUrl,run,counts,bySev,cats){
+  const card=el('div','rpt-card');
+  const sa=run.startedAt?new Date(run.startedAt):null,fa=run.finishedAt?new Date(run.finishedAt):null;
+  const dur=sa&&fa?Math.round((fa-sa)/1000):null;
+  const catMap={'HTTP and URLs':'Links & Redirects','Soft 404s':'Soft 404 detector','Canonical tags':'Canonical detector','SEO and metadata':'Metadata detector'};
+  card.innerHTML=
+    '<div class="rpt-hdr">'+
+      '<div class="rpt-sicon" aria-hidden="true"><svg viewBox="0 0 20 20" fill="none" stroke="#515154" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="16" height="14" rx="2"/><path d="M2 7h16"/><circle cx="5.5" cy="5" r=".8" fill="black" stroke="none"/><circle cx="8" cy="5" r=".8" fill="black" stroke="none"/></svg></div>'+
+      '<div class="rpt-info"><div class="rpt-url" title="'+esc(siteUrl)+'">'+esc(siteUrl)+'</div><div class="rpt-meta">'+(run.pagesCrawled?run.pagesCrawled+' pages crawled':'')+( run.pagesCrawled&&sa?' &middot; ':'')+( sa?sa.toLocaleString():'')+( dur?' &middot; '+dur+'s':'')+( run.capReached?' &middot; <span style="color:var(--medium)">page cap reached</span>':'')+' </div></div>'+
+      '<div class="rpt-badge">'+( counts.total>0?counts.total+' issue'+(counts.total!==1?'s':''):'Clean')+'</div>'+
+    '</div>'+
+    '<div class="rpt-counts">'+
+      '<div class="cnt-cell"><div class="cnt-num high">'+(bySev.high||0)+'</div><div class="cnt-lbl">High</div></div>'+
+      '<div class="cnt-cell"><div class="cnt-num medium">'+(bySev.medium||0)+'</div><div class="cnt-lbl">Medium</div></div>'+
+      '<div class="cnt-cell"><div class="cnt-num low">'+(bySev.low||0)+'</div><div class="cnt-lbl">Low</div></div>'+
+      '<div class="cnt-cell"><div class="cnt-num">'+(counts.total||0)+'</div><div class="cnt-lbl">Total</div></div>'+
+    '</div>'+
+    '<div class="rpt-dets">'+cats.map(c=>'<span class="det-tag"><svg viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="2,5 4.5,7.5 8.5,2"/></svg>'+esc(catMap[c]||c)+'</span>').join('')+'</div>';
+  return card;
+}
+
+function buildGrp(cat,issues){
+  const grp=el('div','issue-grp');
+  const worstSev=issues.reduce((s,i)=>{if(i.severity==='high')return 'high';if(i.severity==='medium'&&s!=='high')return 'medium';return s;},'low');
+  const col={high:'var(--high)',medium:'var(--medium)',low:'var(--low)'}[worstSev];
+  const hdr=el('div','grp-hdr');
+  hdr.setAttribute('role','button');hdr.setAttribute('aria-expanded','true');hdr.setAttribute('tabindex','0');
+  hdr.innerHTML='<svg style="width:15px;height:15px;flex-shrink:0;color:'+col+'" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">'+catIcon(cat)+'</svg><span class="grp-lbl">'+esc(cat)+'</span><span class="grp-cnt">'+issues.length+'</span><span class="grp-chv"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="3,5 7,9 11,5"/></svg></span>';
+  hdr.addEventListener('click',()=>toggleGrp(grp,hdr));
+  hdr.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();toggleGrp(grp,hdr);}});
+  const body=el('div','grp-body');
+  issues.forEach(iss=>{const{item,ev}=buildItem(iss);body.appendChild(item);body.appendChild(ev);});
+  grp.appendChild(hdr);grp.appendChild(body);
+  return grp;
+}
+function toggleGrp(grp,hdr){const x=!grp.classList.contains('collapsed');grp.classList.toggle('collapsed',x);hdr.setAttribute('aria-expanded',String(!x));}
+
+function buildItem(iss){
+  const item=el('div','iss-item');
+  item.setAttribute('role','button');item.setAttribute('tabindex','0');item.setAttribute('aria-expanded','false');
+  const fcLabel={deterministic:'Auto-fixable','ai-proposed':'AI-proposable','not-automatable':'Manual'}[iss.fixClass]||iss.fixClass;
+  item.innerHTML=
+    '<div class="iss-bar '+iss.severity+'" aria-hidden="true"></div>'+
+    '<div class="iss-body">'+
+      '<div class="iss-top"><div class="iss-type">'+esc(issueLabel(iss.type))+'</div><span class="iss-sev '+iss.severity+'">'+iss.severity+'</span></div>'+
+      '<div class="iss-url" title="'+esc(iss.affectedUrl)+'">'+esc(iss.affectedUrl)+'</div>'+
+      '<div class="iss-detail">'+esc(iss.detail)+'</div>'+
+      '<span class="iss-fix '+iss.fixClass+'">'+esc(fcLabel)+'</span>'+
+    '</div>'+
+    '<span class="iss-chv" aria-hidden="true"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="3,5 7,9 11,5"/></svg></span>';
+  const ev=buildEvidence(iss);
+  item.addEventListener('click',()=>toggleItem(item));
+  item.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();toggleItem(item);}});
+  return{item,ev};
+}
+function toggleItem(item){const x=item.classList.contains('open');item.classList.toggle('open',!x);item.setAttribute('aria-expanded',String(!x));}
+
+function buildEvidence(iss){
+  const div=el('div','iss-ev'),ev=iss.evidence||{};
+  let h='<div class="ev-title">Evidence</div>';
+  if(ev.kind==='http'){h+='<div class="ev-pre">HTTP status: '+esc(ev.status??'unknown')+'</div>';}
+  else if(ev.kind==='redirect'){
+    if(ev.hops!==undefined)h+='<div class="ev-row"><span class="ev-k">Hops</span><span class="ev-v">'+ev.hops+'</span></div>';
+    if(ev.finalUrl)h+='<div class="ev-row"><span class="ev-k">Final URL</span><span class="ev-v">'+esc(ev.finalUrl)+'</span></div>';
+    if(ev.finalStatus)h+='<div class="ev-row"><span class="ev-k">Final status</span><span class="ev-v">'+ev.finalStatus+'</span></div>';
+    if(ev.chain&&ev.chain.length){h+='<div class="ev-row"><span class="ev-k">Chain</span><div class="ev-chain">'+ev.chain.map((u,i)=>'<span class="chain-u">'+esc(u)+'</span>'+(i<ev.chain.length-1?'<span class="chain-a">&rarr;</span>':'')).join('')+'</div></div>';}
+  }else if(ev.kind==='head'){
+    const hd=ev.head||{};
+    if(hd.title!==undefined)h+='<div class="ev-row"><span class="ev-k">Title</span><span class="ev-v">'+(hd.title?esc(hd.title):'<em style="color:var(--text-3)">none</em>')+'</span></div>';
+    if(hd.description!==undefined)h+='<div class="ev-row"><span class="ev-k">Description</span><span class="ev-v">'+(hd.description?esc(hd.description):'<em style="color:var(--text-3)">none</em>')+'</span></div>';
+    if(hd.h1s&&hd.h1s.length)h+='<div class="ev-row"><span class="ev-k">H1</span><span class="ev-v">'+hd.h1s.map(esc).join(', ')+'</span></div>';
+    if(hd.canonicals&&hd.canonicals.length)h+='<div class="ev-row"><span class="ev-k">Canonical</span><span class="ev-v">'+hd.canonicals.map(esc).join(', ')+'</span></div>';
+    if(ev.canonicalCheck)h+='<div class="ev-row"><span class="ev-k">Canon. status</span><span class="ev-v">'+(ev.canonicalCheck.status??'unknown')+' ('+ev.canonicalCheck.classification+')</span></div>';
+    if(ev.rawHead&&!ev.rawSameAsRendered)h+='<div class="ev-row"><span class="ev-k">JS change</span><span class="ev-v" style="color:var(--medium)">Metadata differs in raw HTML vs rendered &mdash; JS-only</span></div>';
+    if(ev.rawSameAsRendered)h+='<div class="ev-row"><span class="ev-k">JS change</span><span class="ev-v" style="color:var(--text-3)">None (raw HTML matches rendered)</span></div>';
+  }else if(ev.kind==='soft-404'){
+    if(ev.title)h+='<div class="ev-row"><span class="ev-k">Title</span><span class="ev-v">'+esc(ev.title)+'</span></div>';
+    if(ev.wordCount!=null)h+='<div class="ev-row"><span class="ev-k">Word count</span><span class="ev-v">'+ev.wordCount+'</span></div>';
+    if(ev.reachedOnlyThroughRedirects)h+='<div class="ev-row"><span class="ev-k">Access</span><span class="ev-v" style="color:var(--medium)">Only reachable through redirects</span></div>';
+    if(ev.signals&&ev.signals.length){h+='<div class="ev-title" style="margin-top:10px">Signals</div><div class="ev-pre">'+ev.signals.map(s=>(s.strength==='strong'?'&#9733;':'&middot;')+' ['+s.strength+'] '+esc(s.detail)).join('\n')+'</div>';}
+  }else if(ev.kind==='site-check'){h+='<div class="ev-pre">'+esc(ev.detail)+'</div>';}
+  if(iss.foundOn&&iss.foundOn.length){h+='<div class="found-on"><div class="fo-title">Found on '+iss.foundOn.length+' page'+(iss.foundOn.length!==1?'s':'')+'</div>'+iss.foundOn.slice(0,5).map(u=>'<div class="fo-url">'+esc(u)+'</div>').join('')+(iss.foundOn.length>5?'<div class="fo-url" style="color:var(--text-3)">&hellip; and '+(iss.foundOn.length-5)+' more</div>':'')+' </div>';}
+  h+='<div class="ai-ph"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="7" cy="7" r="5.5"/><path d="M7 4.5v2.5l1.5 1.5"/></svg>AI explanation &amp; fix proposal &mdash; coming in a future phase</div>';
+  div.innerHTML=h;return div;
+}
+
+function issueLabel(t){
+  const m={'http-4xx-internal':'Internal link returns 4xx','http-4xx-external':'External link returns 4xx','link-unreachable':'Link unreachable','redirect-loop':'Redirect loop','redirect-chain':'Redirect chain','redirect-to-error':'Redirect ends in error','https-missing-redirect':'HTTP \u2192 HTTPS redirect missing','www-variant-not-redirected':'www/non-www not unified','soft-404':'Soft 404 (false 200 OK)','title-missing':'Missing <title> tag','title-multiple':'Multiple <title> tags','title-too-long':'Title too long','title-too-short':'Title too short','title-duplicate':'Duplicate title','description-missing':'Missing meta description','description-multiple':'Multiple meta descriptions','description-too-long':'Meta description too long','description-too-short':'Meta description too short','description-duplicate':'Duplicate meta description','h1-missing':'Missing H1','h1-multiple':'Multiple H1 tags','metadata-js-only':'Metadata only available after JS','canonical-missing':'Missing canonical tag','canonical-multiple':'Multiple canonical tags','canonical-broken-target':'Canonical points to broken URL','canonical-redirect':'Canonical points to redirect'};
+  return m[t]||t.replace(/-/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
+}
+function catIcon(c){
+  const m={'HTTP and URLs':'<circle cx="7" cy="7" r="5.5"/><path d="M7 4v3.5l2 2"/>','Soft 404s':'<circle cx="7" cy="7" r="5.5"/><path d="M7 4.5v3m0 1.5v.5"/>','Canonical tags':'<path d="M3 7h8m0 0l-3-3m3 3l-3 3"/><path d="M11 4h1a1 1 0 011 1v4a1 1 0 01-1 1h-1"/>','SEO and metadata':'<rect x="2" y="3" width="10" height="8" rx="1"/><path d="M5 6h4m-4 2h2"/>'};
+  return m[c]||'<circle cx="7" cy="7" r="5.5"/>';
+}
+function groupBy(arr,fn){return arr.reduce((a,x)=>{const k=fn(x);if(!a[k])a[k]=[];a[k].push(x);return a;},{});}
+function renderHist(){
+  if(!history_.length){hist.innerHTML='<div style="padding:6px 10px;font-size:12px;color:var(--text-3)">No inspections yet</div>';return;}
+  hist.innerHTML='';
+  history_.forEach(e=>{
+    const btn=el('button','history-item');
+    btn.setAttribute('role','listitem');
+    const host=(()=>{try{return new URL(e.url).hostname;}catch{return e.url;}})();
+    btn.innerHTML='<span class="h-dot'+(e.n>0?' bad':'')+'"></span><span class="h-url" title="'+esc(e.url)+'">'+esc(host)+'</span>';
+    btn.addEventListener('click',()=>{urlIn.value=e.url;urlIn.focus();});
+    hist.appendChild(btn);
+  });
+}
+</script>
+</body>
+</html>
