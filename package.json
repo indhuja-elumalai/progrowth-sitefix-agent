@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "crawl": "node crawl.js",
-    "test": "node --test"
+    "test": "node --test",
+    "ui": "node ui/server.js"
   },
   "dependencies": {
     "playwright": "^1.47.0"
