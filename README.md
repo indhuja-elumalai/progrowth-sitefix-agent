@@ -133,6 +133,7 @@ re-engineering, content strategy work, and heavy infrastructure
 | Unit tests | `node:test` (built in) | In use |
 | CI | GitHub Actions | In use |
 | Issue registry | JSON file now (`issues.json`, one run), PostgreSQL later | In use (v0) |
+| Chat-first UI | Vanilla HTML, CSS and JS (no framework), Node.js HTTP + SSE server, no new dependencies | In use (Day 10) |
 | AI reasoning | Claude API | Planned |
 | Fix adapter | GitHub REST API | Planned |
 | Secrets | GitHub Actions secrets now, a secrets manager later | Planned |
@@ -164,6 +165,10 @@ progrowth-sitefix-agent/
 │   ├── metadata.test.js               unit tests for lib/metadata.js
 │   ├── soft404.test.js                unit tests for lib/soft404.js
 │   └── issues.test.js                 unit tests for lib/issues.js (npm test runs all four)
+├── ui/                                chat-first internal website audit agent UI
+│   ├── build-index.js                 source of the page: edit this, then run it to regenerate index.html
+│   ├── index.html                     generated single-page chat interface (do not edit by hand)
+│   └── server.js                      Node.js HTTP server: runs crawl.js and streams its output over SSE
 ├── crawl.js                           the crawler (page crawl, link checks, redirect, metadata and soft-404 analysis, then builds the issue registry)
 ├── package.json
 ├── .gitignore
@@ -188,7 +193,7 @@ Saturday. Fridays are a half day of build plus review preparation.
 | 7 | Mon Oct 12 | Registry across runs, image and sitemap checks | Planned |
 | 8 | Tue Oct 13 | AI layer: input and output contract | Planned |
 | 9 | Wed Oct 14 | AI layer: guardrails and evaluation | Planned |
-| 10 | Thu Oct 15 | Readable report | Planned |
+| 10 | Thu Oct 15 | Readable report: chat-first audit UI (SiteFix) | **Done** |
 | 11 | Fri Oct 16 | Live-site runs, then Week 2 review prep | Planned |
 | 12 | Sat Oct 17 | Validation and close-out | Planned |
 
@@ -207,7 +212,46 @@ npm install
 npx playwright install chromium
 ```
 
-### Run the crawler
+### Run the chat-first UI (SiteFix)
+
+A chat-style front end for the crawler: paste a URL, watch the crawl stream
+in, then read the findings from `issues.json` as grouped, expandable cards.
+
+```bash
+npm run ui                        # http://localhost:3000
+node ui/server.js --port 3001     # any other port
+```
+
+To try it on the fixture, start `node fixture/server.js` in a second
+terminal, then click the `localhost:4000` chip under the input box.
+
+What you get:
+
+1. **One input.** The URL box is focused on load. Press Enter (or click
+   **Inspect Site**) to start. Bare domains get `https://` added (`http://` for localhost).
+2. **Live progress.** `crawl.js` output streams into the chat over
+   Server-Sent Events (`/api/stream/:runId`), with a pill per detector
+   (links, redirects, metadata, soft 404, issue registry).
+3. **Summary card.** Start URL, pages crawled, time taken, whether the page
+   cap was hit, and counts by severity.
+4. **Issue cards grouped by category.** Each shows the issue type, severity,
+   affected URL, detail and fix class. Click a card to see its evidence
+   (HTTP status, redirect chain, head tags, soft-404 signals) and the pages
+   that link to it (`foundOn`, first five).
+5. **AI slot.** Each card carries a placeholder for the AI explanation and
+   fix proposal (Days 8 and 9, not built yet). Everything shown today comes
+   from the deterministic detectors.
+
+Guardrails in `ui/server.js`: it listens on `127.0.0.1` only (set
+`SITEFIX_UI_HOST` to change that), runs one inspection at a time (every run
+writes `issues.json` in the project root), and only returns results for a
+run that exited cleanly, so a failed crawl never shows the previous site's
+issues.
+
+To change the page, edit `ui/build-index.js` and run
+`node ui/build-index.js` to regenerate `ui/index.html`. Commit both.
+
+### Run the crawler via CLI
 
 ```bash
 node crawl.js https://your-site.com --max-pages 100
@@ -456,6 +500,18 @@ all valid against the schema (1 high, 40 medium, 56 low). They are the one soft
 over-long title, one over-long description and one page with two H1 tags.
 No broken links, loops or chains. The 97 redirects are all single hops and are
 not issues.
+
+### Day 10: chat-first internal audit UI (SiteFix)
+
+Added `ui/`: a chat-style page and a small Node server (built-ins only, no
+new dependencies). The server runs `crawl.js` as a child process and streams
+its output to the page over SSE. When the run ends, the page reads
+`issues.json` (schema v0) and renders it as is: no invented severities or
+facts. Checked end to end against the fixture: all five detector stages
+complete and the 11 issues in the registry render with their evidence.
+
+Not built yet: filtering by severity or category, a raw JSON view, and
+history that survives a page reload.
 
 ## 13. Security principles
 
