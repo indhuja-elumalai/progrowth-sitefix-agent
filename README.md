@@ -227,8 +227,8 @@ terminal, then click the `localhost:4000` chip under the input box.
 
 What you get:
 
-1. **One input.** The URL box is focused on load. Press Enter (or click
-   **Inspect Site**) to start. Bare domains get `https://` added (`http://` for localhost).
+1. **One input.** The URL box is focused on load. Press Enter (or the round arrow button)
+   to send; the box clears like a sent message. Bare domains get `https://` added (`http://` for localhost).
 2. **Live progress.** `crawl.js` output streams into the chat over
    Server-Sent Events (`/api/stream/:runId`), with a pill per detector
    (links, redirects, metadata, soft 404, issue registry).
