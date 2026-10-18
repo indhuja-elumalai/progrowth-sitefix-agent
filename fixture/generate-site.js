@@ -11,11 +11,43 @@ const siteDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "site");
 mkdirSync(path.join(siteDir, "img"), { recursive: true });
 
 const BASE = "http://localhost:4000";
+// Shared body text, over 200 words so no clean page is "thin". Because it is on
+// most pages, the content rules treat it as boilerplate (like a menu or footer)
+// and ignore it when comparing pages for near-duplicates.
 const FILLER =
   "This page belongs to a controlled test site built to validate a website crawler. Every page here is written to be " +
   "technically clean unless a fault was planted on purpose, so that anything a detector reports can be compared against a " +
-  "known list. The body text is deliberately long enough that a short-content rule will never mistake this page for an empty one.";
-const long = (extra) => `<p>${FILLER} ${extra}</p>`;
+  "known list. The site is served by a small local server that answers with real status codes and real redirects, which " +
+  "is something a static hosting service cannot do. Each planted fault is described in a separate answer key, together " +
+  "with the page it lives on and the pages that link to it, and a scoring script compares every crawl with that key. " +
+  "A detector passes only when it finds every planted fault and reports nothing else, because a tool that cries wolf " +
+  "is as unhelpful as one that misses problems. Control pages carry no faults at all and must stay quiet in every run. " +
+  "The body text on each page is deliberately long, written in plain sentences, and checked by hand, so that rules about " +
+  "short pages, repeated words or leftover template text have a fair and realistic page to read. When a new detector " +
+  "is added, a new page with exactly one new fault is added beside it, the answer key grows by one entry, and the " +
+  "continuous integration job raises the number of faults it expects to find before any change can be merged. " +
+  "Nothing on this site is real: the offices, services and people named here exist only to give the detectors something " +
+  "believable to read, and no page collects any data from the people or tools that visit it. Anyone can run the whole " +
+  "site on a laptop in a few seconds, which keeps the feedback loop short for everyone working on the crawler.";
+// The page's own sentence first, then the shared filler as its own paragraph (so it is
+// recognised as boilerplate, like a repeated footer block).
+const long = (extra) => `<p>${extra}</p>\n<p>${FILLER}</p>`;
+const LOCATION = (city) =>
+  `Our ${city} office helps local law firms win more clients online. We build fast websites, write useful pages for every ` +
+  "practice area, run search campaigns and report every month on calls, forms and signed cases. Firms that work with us " +
+  "usually see more enquiries within the first quarter, and every plan includes a named strategist, monthly reviews and " +
+  `clear pricing with no long contracts. Book a free audit and we will show you exactly where your ${city} firm is losing ` +
+  "visitors and what to fix first. Our process starts with a technical review of your current site, then a competitor " +
+  "study, then a ninety day plan with weekly milestones. We handle hosting, security updates, page speed and " +
+  "accessibility, so your team can focus on clients instead of software. Every page we write is checked by an editor " +
+  "and by a licensed attorney before it goes live, and every claim links to a source. Clients range from solo " +
+  "practitioners to firms with forty lawyers, across personal injury, family law, immigration, estate planning and " +
+  "employment cases. We publish our results openly, including the campaigns that did not work and what we changed " +
+  `afterwards. If you run a practice in ${city} and want a second opinion on your marketing, our strategists are happy ` +
+  "to talk it through without any obligation. Most first calls last thirty minutes, cover your current traffic, your " +
+  "competitors and your goals for the year, and end with a short written summary you can share with your partners. " +
+  "There is no setup fee, reports arrive on the first working day of each month, and you can pause or cancel any plan " +
+  "with thirty days of notice if it is not delivering what we promised at the start.";
 const LONG_ALT =
   "Bar chart comparing quarterly visitor numbers for every page on the fixture site across four years, " +
   "with a separate line showing the average bounce rate for each quarter";
@@ -53,6 +85,7 @@ const navLinks = [
   ["large-image.html", "Large image page"], ["noindex.html", "Hidden from search page"],
   ["heading-skip.html", "Heading order page"], ["no-social.html", "No share tags page"],
   ["social-partial.html", "Partial share tags page"], ["page-setup.html", "Page setup page"],
+  ["location-austin.html", "Austin office"], ["location-denver.html", "Denver office"], ["draft-page.html", "Draft page"],
 ];
 const nav = navLinks.map(([f, l]) => `<li><a href="/${f}">${l}</a></li>`).join("");
 
@@ -199,6 +232,30 @@ const pages = [
     desc: "A page with no viewport meta tag and no lang attribute on the html element, used to test the page-setup rules.",
     h1: "Page setup test", body: long("This page has no viewport tag and no language attribute."),
     viewport: false, lang: false
+  },
+  // ---- Content ----
+  // F-26 and F-27: two location pages built from one template with only the city
+  // swapped, the classic near-duplicate pattern (no shared filler, all their own text).
+  {
+    file: "location-austin.html", title: "Austin Office for Law Firm Marketing",
+    desc: "Law firm marketing from our Austin office: websites, practice area pages, search campaigns and monthly reporting.",
+    h1: "Law firm marketing in Austin", body: `<p>${LOCATION("Austin")}</p>`
+  },
+  {
+    file: "location-denver.html", title: "Denver Office for Law Firm Marketing",
+    desc: "Law firm marketing from our Denver office: websites, practice area pages, search campaigns and monthly reporting.",
+    h1: "Law firm marketing in Denver", body: `<p>${LOCATION("Denver")}</p>`
+  },
+  {
+    // F-28: leftover placeholder text (lorem ipsum and an unfilled template tag)
+    // F-29: a word repeated twice in a row ("the the")
+    file: "draft-page.html", title: "Draft Page Published with Placeholder Text",
+    desc: "A page that went live before it was finished: it still has lorem ipsum, an unfilled template tag and a doubled word.",
+    h1: "Our services",
+    body: long("This page was published before its copy was finished.") +
+      "<p>Welcome to {{ company_name }}, your trusted partner.</p>" +
+      "<p>Lorem ipsum dolor sit amet, consectetur adipiscing elit.</p>" +
+      "<p>Contact the the team for a free consultation.</p>"
   },
   {
     file: "canonical-to-404.html", title: "Canonical Pointing at a Missing Page",

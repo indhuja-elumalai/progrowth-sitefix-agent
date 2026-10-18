@@ -39,6 +39,7 @@ for (const p of ["/", "/about.html", "/contact.html", "/final.html", "/broken-li
   "/redirects.html", "/soft-404.html", "/missing-title.html", "/dup-title-1.html", "/dup-title-2.html",
   "/canonical-to-404.html", "/gone.html", "/image-alt.html", "/large-image.html",
   "/noindex.html", "/heading-skip.html", "/no-social.html", "/social-partial.html", "/page-setup.html",
+  "/location-austin.html", "/location-denver.html", "/draft-page.html",
   "/img/logo.svg", "/img/office.svg", "/img/team-photo.svg", "/img/chart.svg", "/img/divider.svg", "/img/pattern.svg"]) {
   const { status } = await hit(base + p);
   check(`200 ${p}`, status === 200, `got ${status}`);
@@ -107,6 +108,14 @@ check("only social-partial.html has incomplete Open Graph tags (no og:descriptio
   only((h) => /property="og:/i.test(h) && !(/property="og:title"/.test(h) && /property="og:description"/.test(h) && /property="og:image"/.test(h))) === "social-partial.html");
 const skips = (h) => { const lv = [...h.matchAll(/<h([1-6])\b/gi)].map((m) => Number(m[1])); return lv.some((l, i) => i && l > lv[i - 1] + 1); };
 check("only heading-skip.html skips a heading level", only(skips) === "heading-skip.html");
+const text = (h) => h.replace(/<head>[\s\S]*<\/head>/i, " ").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+check("only draft-page.html has placeholder text (lorem ipsum, {{ }})", only((h) => /lorem ipsum|\{\{/i.test(text(h))) === "draft-page.html");
+// Line by line, like the browser's visible text: a heading and the next paragraph are separate lines.
+const lines = (h) => h.replace(/<head>[\s\S]*<\/head>/i, " ").split(/<\/?(?:p|li|ul|h[1-6]|div|br)\b[^>]*>/i).map((l) => l.replace(/<[^>]+>/g, " ").trim()).filter(Boolean);
+check("only draft-page.html has a doubled word", only((h) => lines(h).some((l) => /\b(\w{2,})\s+\1\b/i.test(l.replace(/\b(had|that) \1\b/gi, "")))) === "draft-page.html");
+const words = (h) => (text(h).match(/[A-Za-z0-9][A-Za-z0-9'-]*/g) || []).length;
+check("every page except contact.html and soft-404.html has at least 200 words",
+  only((h) => words(h) < 200) === "contact.html,soft-404.html", files.filter((f) => words(raw[f]) < 200).map((f) => `${f}=${words(raw[f])}`).join(" "));
 check("only canonical-to-404.html has a non-self canonical", files.filter((f) => info[f].canonical !== `${base}/${f}`).join() === "canonical-to-404.html");
 
 console.log("-- Ground truth file");

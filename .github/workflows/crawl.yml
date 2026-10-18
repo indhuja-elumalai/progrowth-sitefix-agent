@@ -47,4 +47,5 @@ jobs:
             metadata.json
             soft404.json
             images.json
+            content.json
             issues.json

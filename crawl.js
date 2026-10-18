@@ -1,4 +1,4 @@
-// Crawler, Day 13 version.
+// Crawler, Day 14 version.
 // Usage: node crawl.js https://your-site.com [--max-pages 0] [--concurrency 4]
 //          [--link-concurrency 8] [--settle-ms 1500] [--delay-ms 150] [--no-sitemap]
 //
@@ -33,15 +33,20 @@
 //      reading its size), and flags broken images, missing / unhelpful /
 //      too-long alt text, http images on https pages, and files over 300 KB.
 //
-//  10. Gathers every finding into one issue registry (issues.json): a typed
+//  10. Reads each page's visible text and flags thin pages (under 200 words),
+//      near-duplicate pages (85%+ the same text once menus and footers are
+//      removed), leftover placeholder text and repeated words ("the the").
+//
+//  11. Gathers every finding into one issue registry (issues.json): a typed
 //      issue with severity, the pages it was found on, and the evidence.
 //
-// Writes six files:
+// Writes seven files:
 //   report.json    one entry per crawled page (raw vs rendered, with head facts)
 //   links.json     summary, site-level checks, redirect destinations, one entry per link
 //   metadata.json  per page: everything read from the head and every SEO / social / page-setup issue
 //   soft404.json   pages with soft-404 signals, flagged or not, with the evidence
 //   images.json    one entry per distinct image: status, size, pages, alt problems
+//   content.json   per page: word counts, near-duplicates and content issues
 //   issues.json    the issue registry: every finding as one typed record with evidence
 //
 // Nothing here fixes anything or touches the site. It only looks and records.
@@ -52,6 +57,7 @@ import { extractHead, sameUrl } from "./lib/head.js";
 import { headIssues, robotsIssues, headingIssues, findDuplicates, canonicalTargetIssue, jsDependence } from "./lib/seo.js";
 import { socialIssues, ogImageUrl, ogImageFindings } from "./lib/social.js";
 import { pageSetupIssues } from "./lib/page-setup.js";
+import { contentFindings, CONTENT_LIMITS } from "./lib/content.js";
 import { buildRegistry, validateRegistry, CATALOG } from "./lib/issues.js";
 import { analyzeSoft404, visibleWordCount } from "./lib/soft404.js";
 import { followRedirects, classifyRedirect, redirectIssueType, siteLevelChecks } from "./lib/redirects.js";
@@ -164,12 +170,26 @@ async function fetchRendered(context, url) {
     if (SETTLE_MS > 0) await page.waitForLoadState("networkidle", { timeout: SETTLE_MS }).catch(() => { });
   } catch (err) {
     await page.close();
-    return { status: null, error: String(err), links: [], brokenLinks: [], images: [] };
+    return { status: null, error: String(err), links: [], brokenLinks: [], images: [], textLines: [] };
   }
 
   const title = await page.title();
   const head = extractHead(await page.content()); // the DOM after JavaScript has run
   const wordCount = await page.evaluate(() => document.body.innerText.trim().split(/\s+/).length);
+  // The visible text, one line per paragraph / heading / menu item (lib/content.js).
+  // Capped at 200,000 characters per page so a giant page cannot exhaust memory on
+  // a full-site crawl; a normal page (even one with very long paragraphs) is kept whole.
+  const textLines = await page.evaluate(() => {
+    const lines = (document.body?.innerText || "").split("\n").map((l) => l.trim()).filter(Boolean);
+    const out = [];
+    let total = 0;
+    for (const l of lines) {
+      if (total + l.length > 200000) break;
+      out.push(l);
+      total += l.length;
+    }
+    return out;
+  });
   const hrefs = await page.$$eval("a[href]", (as) => as.map((a) => a.href));
   for (const href of hrefs) {
     let u;
@@ -193,7 +213,7 @@ async function fetchRendered(context, url) {
   const images = rawImages.map((r) => ({ src: pickImageSrc(r, base), alt: r.alt, decorative: isDecorative(r) }));
 
   await page.close();
-  return { status, title, head, wordCount, links: [...links], brokenLinks, images };
+  return { status, title, head, wordCount, links: [...links], brokenLinks, images, textLines };
 }
 
 // ---------- direct link check ----------
@@ -319,6 +339,7 @@ async function main() {
   // queue is empty and no other worker is still busy (and could add more).
   const crawled = []; // { n, entry } in completion order; sorted by n afterwards
   const imageOccurrences = []; // one per <img> per page (pages that loaded with 2xx only)
+  const pageText = new Map(); // url -> visible text lines (2xx pages only); kept out of report.json
   let active = 0;
   const worker = async () => {
     for (;;) {
@@ -358,6 +379,7 @@ async function main() {
 
         if (rendered.status >= 200 && rendered.status < 300) {
           for (const img of rendered.images) imageOccurrences.push({ pageUrl: url, ...img });
+          pageText.set(url, rendered.textLines);
         }
 
         for (const link of rendered.links || []) {
@@ -548,11 +570,31 @@ async function main() {
     pages: soft.filter((s) => s.signals.length),
   }, null, 2));
 
+  // ---------- content ----------
+  // Pages that loaded (2xx, raw and rendered). A page already flagged as a soft 404
+  // is not also called thin: its real problem is that it is an error page.
+  const softUrls = new Set(softFlagged.map((s) => s.url));
+  const contentInput = report
+    .filter((p) => is2xx(p.raw.status) && is2xx(p.rendered.status) && pageText.has(p.url))
+    .map((p) => ({ url: p.url, foundOn: [...(foundOn.get(p.url) || [])], lines: pageText.get(p.url), skipThin: softUrls.has(p.url) }));
+  const contentResult = contentFindings(contentInput);
+  const cCount = (t) => contentResult.findings.filter((f) => f.type === t).length;
+  const content = {
+    pagesAnalysed: contentInput.length,
+    boilerplateLines: contentResult.boilerplateLines,
+    limits: { minWords: CONTENT_LIMITS.minWords, nearDuplicate: CONTENT_LIMITS.nearDuplicate },
+    thin: cCount("content-thin"),
+    nearDuplicate: cCount("content-duplicate"),
+    placeholder: cCount("content-placeholder"),
+    repeatedWord: cCount("content-repeated-word"),
+  };
+  await writeFile("content.json", JSON.stringify({ summary: content, pages: contentResult.pages }, null, 2));
+
   // ---------- issue registry ----------
   const runId = "run-" + startedAt.replace(/[-:]/g, "").slice(0, 15);
   const registry = buildRegistry({
     run: { id: runId, startedAt, finishedAt: new Date().toISOString(), startUrl, pagesCrawled: visited.size, capReached, toolVersion: "0.6" },
-    links, siteChecks, metaPages, softPages: soft, imageFindings: imgFindings, findings: ogFindings,
+    links, siteChecks, metaPages, softPages: soft, imageFindings: imgFindings, findings: [...ogFindings, ...contentResult.findings],
   });
   const registryProblems = validateRegistry(registry);
   await writeFile("issues.json", JSON.stringify(registry, null, 2));
@@ -646,6 +688,16 @@ async function main() {
     if (list.length > 5) console.log(`  ... and ${list.length - 5} more in images.json`);
   }
 
+  console.log("\n=== Content ===");
+  console.log(`  ${content.pagesAnalysed} pages analysed (${content.boilerplateLines} menu / footer lines ignored): ${content.thin} thin, ${content.nearDuplicate} near-duplicate, ${content.placeholder} with placeholder text, ${content.repeatedWord} with repeated words`);
+  for (const t of ["content-placeholder", "content-duplicate", "content-thin", "content-repeated-word"]) {
+    const list = contentResult.findings.filter((f) => f.type === t);
+    if (!list.length) continue;
+    console.log(`\n${t} (${list.length}):`);
+    for (const f of list.slice(0, 5)) console.log(`  ${f.affectedUrl}  ${f.detail}`);
+    if (list.length > 5) console.log(`  ... and ${list.length - 5} more in content.json`);
+  }
+
   console.log("\n=== Soft 404 ===");
   console.log(`  ${soft.length} pages analysed (${extra.length} reached only through redirects), ${softFlagged.length} flagged`);
   for (const s of softFlagged.slice(0, 10)) {
@@ -664,7 +716,7 @@ async function main() {
     process.exitCode = 1;
   }
 
-  console.log("\nDone. See issues.json (all findings) plus report.json, links.json, metadata.json, soft404.json and images.json");
+  console.log("\nDone. See issues.json (all findings) plus report.json, links.json, metadata.json, soft404.json, images.json and content.json");
 }
 
 main();
