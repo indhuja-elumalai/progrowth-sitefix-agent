@@ -200,6 +200,35 @@ const CSS = `
   .found-on{margin-top:10px}
   .fo-title{font-size:11.5px;font-weight:600;color:var(--text-3);margin-bottom:3px}
   .fo-url{font-family:var(--font-mono);font-size:11.5px;color:var(--text-2);line-height:1.8}
+  .chip{display:inline-flex;align-items:center;font-size:11px;font-weight:600;padding:1px 8px;border-radius:var(--radius-xl);background:var(--surface-2);color:var(--text-2);margin:6px 6px 0 0}
+  .chip.P1{background:var(--high-bg);color:var(--high)}.chip.P2{background:var(--medium-bg);color:var(--medium)}.chip.P3{background:var(--low-bg);color:var(--low)}
+  .chip.qw{background:var(--accent-dim);color:var(--text-1)}
+  .rpt-pri{display:flex;gap:6px;flex-wrap:wrap;align-items:center;padding:10px 16px;border-bottom:1px solid var(--border)}
+  .rpt-pri .lbl{font-size:12px;color:var(--text-3);margin-right:2px}
+  .rpt-actions{display:flex;gap:8px;flex-wrap:wrap;padding:10px 16px 12px;border-top:1px solid var(--border)}
+  .btn{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:var(--radius-xl);border:1px solid var(--border-mid);background:var(--bg);color:var(--text-1);font-size:12.5px;font-weight:500;text-decoration:none;cursor:pointer}
+  .btn:hover{background:var(--surface-1)}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-dark)}
+  .btn svg{width:14px;height:14px}
+  .btn[aria-disabled="true"]{opacity:.45;pointer-events:none}
+  .ai-box{margin:4px 0 12px;padding:10px 12px;border-radius:var(--radius-sm);background:var(--bg);border:1px solid var(--border)}
+  .ai-k{font-size:11.5px;font-weight:600;color:var(--text-3);margin:8px 0 3px}
+  .ai-k:first-child{margin-top:0}
+  .ai-v{font-size:13.5px;color:var(--text-1);line-height:1.5}
+  .ai-steps{margin:2px 0 0 18px;font-size:13px;line-height:1.55}
+  .ai-src{font-size:11px;color:var(--text-3);margin-top:8px}
+  .val-box{display:flex;gap:8px;align-items:flex-start;background:var(--accent-dim);border-radius:8px;padding:7px 10px;margin-top:3px}
+  .val-box .v{flex:1;font-size:13px;font-weight:500;overflow-wrap:anywhere}
+  .copy{border:none;background:var(--bg);border-radius:6px;font-size:11px;padding:2px 8px;cursor:pointer;color:var(--text-2)}
+  .ev-shot{display:block;max-width:360px;width:100%;border-radius:8px;border:1px solid var(--border);margin-top:4px}
+  .ans ul{margin:4px 0 0 18px}.ans li{margin:2px 0}
+  .cites{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+  .cite{border:1px solid var(--border-mid);background:var(--bg);border-radius:var(--radius-xl);font-size:11.5px;padding:2px 9px;cursor:pointer;color:var(--text-1)}
+  .cite:hover{background:var(--accent-dim)}
+  .typing{display:inline-flex;gap:4px}.typing i{width:6px;height:6px;border-radius:50%;background:var(--text-3);animation:pulse 1s infinite}
+  .typing i:nth-child(2){animation-delay:.2s}.typing i:nth-child(3){animation-delay:.4s}
+  .iss-item.flash{box-shadow:inset 3px 0 0 var(--accent)}
+  .ai-status{display:block;margin-top:6px}
   .ai-ph{margin-top:10px;padding:8px 12px;border:1px dashed var(--border-mid);border-radius:var(--radius-sm);font-size:12px;color:var(--text-3);display:flex;align-items:center;gap:8px}
   .ai-ph svg{width:13px;height:13px;flex-shrink:0;opacity:.6}
 
@@ -274,6 +303,7 @@ const HTML = String.raw`<!DOCTYPE html>
     </div>
     <div class="sidebar-footer">
       Phase 1 &middot; Detection only<br/>
+      <span class="ai-status" id="ai-status">AI: checking&hellip;</span>
       <span class="ver-badge">v0.6 &middot; Day 10/12</span>
     </div>
   </aside>
@@ -311,7 +341,7 @@ const HTML = String.raw`<!DOCTYPE html>
 
     <div id="input-area">
       <div class="inp-wrap">
-        <input type="url" id="url-input" placeholder="Website URL"
+        <input type="text" id="url-input" placeholder="Website URL"
           autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" enterkeyhint="send"
           aria-label="Website URL to inspect" aria-describedby="inp-hint" autofocus/>
         <button id="inspect-btn" aria-label="Start inspection" title="Inspect">
@@ -321,7 +351,7 @@ const HTML = String.raw`<!DOCTYPE html>
       </div>
       <div class="inp-hint" id="inp-hint">
         <span id="inp-err" role="alert"></span>
-        <span id="inp-ok">Checks every page and link it can reach &middot; try the fixture:
+        <span id="inp-ok">Paste a URL to inspect it, or ask about the last report &middot; try the fixture:
           <span class="url-chip" id="fixture-chip" role="button" tabindex="0" title="Inspect the local fixture site">localhost:4000</span>
         </span>
       </div>
@@ -334,7 +364,7 @@ const HTML = String.raw`<!DOCTYPE html>
 const S=(s,c=document)=>c.querySelector(s);
 const el=(t,c,h)=>{const e=document.createElement(t);if(c)e.className=c;if(h!==undefined)e.innerHTML=h;return e;};
 const esc=s=>String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
-let running=false,history_=[],lastTs=0;
+let running=false,history_=[],lastTs=0,current=null; // current = {byId, report} for the last inspection
 const urlIn=S('#url-input'),inspBtn=S('#inspect-btn'),chatIn=S('#chat-inner'),
       chatA=S('#chat-area'),empty=S('#empty-state'),hist=S('#hist'),
       tbTitle=S('#tb-title'),inpErr=S('#inp-err'),inpOk=S('#inp-ok');
@@ -349,15 +379,19 @@ function validateUrl(r){
   if(!['http:','https:'].includes(u.protocol))return{ok:false,msg:'Only http:// or https:// supported.'};
   return{ok:true,url:u.href};
 }
-urlIn.addEventListener('keydown',e=>{if(e.key==='Enter'&&!running)start();});
+urlIn.addEventListener('keydown',e=>{if(e.key==='Enter'&&!running)submit();});
 urlIn.addEventListener('input',()=>{urlIn.classList.remove('invalid');inpErr.style.display='none';inpOk.style.display='';syncBtn();});
 function syncBtn(){inspBtn.disabled=running||!urlIn.value.trim();}
 syncBtn();
-inspBtn.addEventListener('click',()=>{if(!running)start();});
+inspBtn.addEventListener('click',()=>{if(!running)submit();});
+// One box for both: a URL starts an inspection, anything else is a question about the last report.
+function looksLikeUrl(s){s=s.trim();return !/\s/.test(s)&&(/^https?:\/\//i.test(s)||/^(localhost|127\.0\.0\.1)(:|\/|$)/i.test(s)||/^[\w-]+(\.[\w-]+)+(:\d+)?(\/|$)/.test(s));}
+function submit(){const v=urlIn.value.trim();if(!v)return;if(looksLikeUrl(v))start();else ask(v);}
+fetch('/api/ai-status').then(r=>r.json()).then(a=>{S('#ai-status').textContent=a.enabled?'AI: on ('+a.model+')':'AI: off \u2014 add a key to .env';}).catch(()=>{S('#ai-status').textContent='AI: unknown';});
 S('#clear-btn').addEventListener('click',clear);
 S('#new-btn').addEventListener('click',()=>{clear();urlIn.focus();});
 
-function clear(){chatIn.innerHTML='';chatIn.appendChild(empty);empty.style.display='';tbTitle.textContent='Website audit agent';lastTs=0;urlIn.value='';urlIn.classList.remove('invalid');inpErr.style.display='none';inpOk.style.display='';running=false;syncBtn();}
+function clear(){current=null;urlIn.placeholder='Website URL';chatIn.innerHTML='';chatIn.appendChild(empty);empty.style.display='';tbTitle.textContent='Website audit agent';lastTs=0;urlIn.value='';urlIn.classList.remove('invalid');inpErr.style.display='none';inpOk.style.display='';running=false;syncBtn();}
 
 function addMsg(role,html,ts){
   if(empty.parentNode===chatIn)empty.style.display='none';
@@ -371,7 +405,7 @@ function addMsg(role,html,ts){
 function fmtTime(d){return(d instanceof Date?d:new Date(d)).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'});}
 function scroll(){requestAnimationFrame(()=>{chatA.scrollTop=chatA.scrollHeight;});}
 
-const DETS=[{id:'links',lbl:'Links & HTTP'},{id:'redirect',lbl:'Redirects'},{id:'images',lbl:'Images'},{id:'metadata',lbl:'SEO & tags'},{id:'content',lbl:'Content'},{id:'soft404',lbl:'Soft 404s'},{id:'registry',lbl:'Issue registry'}];
+const DETS=[{id:'links',lbl:'Links & HTTP'},{id:'redirect',lbl:'Redirects'},{id:'images',lbl:'Images'},{id:'metadata',lbl:'SEO & tags'},{id:'content',lbl:'Content'},{id:'soft404',lbl:'Soft 404s'},{id:'registry',lbl:'Issue registry'},{id:'ai',lbl:'Explanations'},{id:'pdf',lbl:'PDF report'}];
 
 function buildProg(url){
   const c=el('div','prog-card');
@@ -401,6 +435,7 @@ async function streamSSE(runId,card){
     es.addEventListener('message',e=>{
       const{line}=JSON.parse(e.data);
       if(line.startsWith('__DONE__:')){es.close();res(Number(line.slice(9)));return;}
+      if(line.startsWith('__REPORT__:')){card.dataset.report=line.slice(11);return;}
       logLine(card,line);
       if(/checking \d+ distinct links/i.test(line))setPill(card,'links','running');
       else if(/following \d+ redirect/i.test(line))setPill(card,'redirect','running');
@@ -410,6 +445,9 @@ async function streamSSE(runId,card){
       else if(/soft 404/i.test(line)){setPill(card,'metadata','done');setPill(card,'content','done');setPill(card,'soft404','running');}
       else if(/issue registry/i.test(line)){setPill(card,'soft404','done');setPill(card,'registry','running');}
       else if(/done\. see issues/i.test(line))setPill(card,'registry','done');
+      else if(/=== ai explanations/i.test(line)){setPill(card,'registry','done');setPill(card,'ai','running');}
+      else if(/=== screenshots/i.test(line)){setPill(card,'ai','done');setPill(card,'pdf','running');}
+      else if(/^report ready/i.test(line))setPill(card,'pdf','done');
       scroll();
     });
     es.addEventListener('error',()=>{es.close();res(-1);});
@@ -445,8 +483,11 @@ async function start(){
     const r=await fetch('/api/results?runId='+encodeURIComponent(runId));
     const reg=await r.json();
     if(!r.ok)throw new Error(reg.error||'issues.json not found');
+    let report=null;
+    if(prog.dataset.report==='0'){try{const rr=await fetch('/api/report');if(rr.ok)report=await rr.json();}catch{}}
     progDone(prog,reg);
-    renderResults(reg,siteUrl);
+    if(!report&&prog.dataset.report!==undefined)setPill(prog,'ai','err'),setPill(prog,'pdf','err');
+    renderResults(reg,siteUrl,report);
     history_.unshift({url:siteUrl,n:reg.counts.total});
     renderHist();
   }catch(e){
@@ -456,21 +497,29 @@ async function start(){
   running=false;syncBtn();
 }
 
-function renderResults(reg,siteUrl){
-  const issues=reg.issues||[],run=reg.run||{},counts=reg.counts||{},bySev=counts.bySeverity||{};
+const PRI={P1:0,P2:1,P3:2};
+function renderResults(reg,siteUrl,report){
+  // Merge the explained report (priority, explanation, fix) into each issue when it exists.
+  const extra=new Map(),typeInfo=new Map();
+  if(report)for(const t of report.types){typeInfo.set(t.type,t);for(const i of t.issues)extra.set(i.id,i);}
+  const issues=(reg.issues||[]).map(i=>({...i,...(extra.get(i.id)||{}),_type:typeInfo.get(i.type)||null}));
+  current={byId:new Map(issues.map(i=>[i.id,i])),report};
+  const run=reg.run||{},counts=reg.counts||{},bySev=counts.bySeverity||{};
   const cats=[...new Set(issues.map(i=>i.category))];
-  chatIn.appendChild(buildSummaryCard(siteUrl,run,counts,bySev,cats));scroll();
+  chatIn.appendChild(buildSummaryCard(siteUrl,run,counts,bySev,cats,report));scroll();
+  urlIn.placeholder='Ask about this report, or paste another URL';
   if(!issues.length){addMsg('agent','<span style="color:var(--success)">&#10003; No issues detected.</span> The site looks clean based on the detectors that ran.');return;}
-  addMsg('agent','Done. I found <strong>'+counts.total+' issue'+(counts.total!==1?'s':'')+'</strong> in '+cats.length+' categor'+(cats.length!==1?'ies':'y')+'. Tap any issue to see its evidence.');
+  const s=report&&report.summary;
+  addMsg('agent','Done. I found <strong>'+counts.total+' issue'+(counts.total!==1?'s':'')+'</strong> in '+cats.length+' categor'+(cats.length!==1?'ies':'y')+(s?' &middot; <strong>'+s.byPriority.P1+'</strong> to fix first, '+s.quickWins+' quick win'+(s.quickWins!==1?'s':''):'')+'. Open a category to see its issues, or ask me anything about this report.');
   const grouped=groupBy(issues,i=>i.category);
   const order=['HTTP and URLs','Images','Soft 404s','SEO: indexing','SEO: titles & descriptions','Content','Social sharing','Page setup'];
   const sorted=[...order.filter(c=>grouped[c]),...Object.keys(grouped).filter(c=>!order.includes(c))];
   const wrap=el('div','issue-list');
-  sorted.forEach(cat=>wrap.appendChild(buildGrp(cat,grouped[cat])));
+  sorted.forEach(cat=>wrap.appendChild(buildGrp(cat,grouped[cat].sort((a,b)=>(PRI[a.priority]??3)-(PRI[b.priority]??3)))));
   chatIn.appendChild(wrap);scroll();
 }
 
-function buildSummaryCard(siteUrl,run,counts,bySev,cats){
+function buildSummaryCard(siteUrl,run,counts,bySev,cats,report){
   const card=el('div','rpt-card');
   const sa=run.startedAt?new Date(run.startedAt):null,fa=run.finishedAt?new Date(run.finishedAt):null;
   const dur=sa&&fa?Math.round((fa-sa)/1000):null;
@@ -487,16 +536,21 @@ function buildSummaryCard(siteUrl,run,counts,bySev,cats){
       '<div class="cnt-cell"><div class="cnt-num low">'+(bySev.low||0)+'</div><div class="cnt-lbl">Low</div></div>'+
       '<div class="cnt-cell"><div class="cnt-num">'+(counts.total||0)+'</div><div class="cnt-lbl">Total</div></div>'+
     '</div>'+
-    '<div class="rpt-dets">'+cats.map(c=>'<span class="det-tag"><svg viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="2,5 4.5,7.5 8.5,2"/></svg>'+esc(catMap[c]||c)+'</span>').join('')+'</div>';
+    (report?'<div class="rpt-pri"><span class="lbl">Priority</span><span class="chip P1">P1 fix first &middot; '+report.summary.byPriority.P1+'</span><span class="chip P2">P2 fix soon &middot; '+report.summary.byPriority.P2+'</span><span class="chip P3">P3 when you can &middot; '+report.summary.byPriority.P3+'</span><span class="chip qw">Quick wins &middot; '+report.summary.quickWins+'</span></div>':'')+
+    '<div class="rpt-dets">'+cats.map(c=>'<span class="det-tag"><svg viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="2,5 4.5,7.5 8.5,2"/></svg>'+esc(catMap[c]||c)+'</span>').join('')+'</div>'+
+    '<div class="rpt-actions">'+
+      '<a class="btn primary" href="/api/report.pdf" target="_blank" rel="noopener"'+(report?'':' aria-disabled="true"')+'><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2H4.5A1.5 1.5 0 003 3.5v9A1.5 1.5 0 004.5 14h7a1.5 1.5 0 001.5-1.5V6z"/><path d="M9 2v4h4"/></svg>Open PDF report</a>'+
+      (report?'<span class="rpt-meta" style="align-self:center">'+(report.ai.provider!=='none'?'Explained by AI ('+esc(report.ai.model)+')':'Standard guidance (AI off)')+'</span>':'<span class="rpt-meta" style="align-self:center">PDF report not available for this run</span>')+
+    '</div>';
   return card;
 }
 
 function buildGrp(cat,issues){
-  const grp=el('div','issue-grp');
+  const grp=el('div','issue-grp collapsed'); // collapsed until the user opens it
   const worstSev=issues.reduce((s,i)=>{if(i.severity==='high')return 'high';if(i.severity==='medium'&&s!=='high')return 'medium';return s;},'low');
   const col={high:'var(--high)',medium:'var(--medium)',low:'var(--low)'}[worstSev];
   const hdr=el('div','grp-hdr');
-  hdr.setAttribute('role','button');hdr.setAttribute('aria-expanded','true');hdr.setAttribute('tabindex','0');
+  hdr.setAttribute('role','button');hdr.setAttribute('aria-expanded','false');hdr.setAttribute('tabindex','0');
   hdr.innerHTML='<svg style="width:15px;height:15px;flex-shrink:0;color:'+col+'" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">'+catIcon(cat)+'</svg><span class="grp-lbl">'+esc(cat)+'</span><span class="grp-cnt">'+issues.length+'</span><span class="grp-chv"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="3,5 7,9 11,5"/></svg></span>';
   hdr.addEventListener('click',()=>toggleGrp(grp,hdr));
   hdr.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();toggleGrp(grp,hdr);}});
@@ -509,6 +563,7 @@ function toggleGrp(grp,hdr){const x=!grp.classList.contains('collapsed');grp.cla
 
 function buildItem(iss){
   const item=el('div','iss-item');
+  item.dataset.id=iss.id;
   item.setAttribute('role','button');item.setAttribute('tabindex','0');item.setAttribute('aria-expanded','false');
   const fcLabel={deterministic:'Auto-fixable','ai-proposed':'AI-proposable','not-automatable':'Manual'}[iss.fixClass]||iss.fixClass;
   item.innerHTML=
@@ -517,7 +572,7 @@ function buildItem(iss){
       '<div class="iss-top"><div class="iss-type">'+esc(issueLabel(iss.type))+'</div><span class="iss-sev '+iss.severity+'">'+iss.severity+'</span></div>'+
       '<div class="iss-url" title="'+esc(iss.affectedUrl)+'">'+esc(iss.affectedUrl)+'</div>'+
       '<div class="iss-detail">'+esc(iss.detail)+'</div>'+
-      '<span class="iss-fix '+iss.fixClass+'">'+esc(fcLabel)+'</span>'+
+      (iss.priority?'<span class="chip '+iss.priority+'" title="'+esc(iss.priorityReason||'')+'">'+iss.priority+'</span><span class="chip">'+esc(iss.effort)+' fix</span><span class="chip">'+esc(iss.owner)+'</span>'+(iss.quickWin?'<span class="chip qw">Quick win</span>':''):'<span class="iss-fix '+iss.fixClass+'">'+esc(fcLabel)+'</span>')+
     '</div>'+
     '<span class="iss-chv" aria-hidden="true"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="3,5 7,9 11,5"/></svg></span>';
   const ev=buildEvidence(iss);
@@ -585,7 +640,18 @@ function buildEvidence(iss){
     h+=row('Used on',ev.pages+' page'+(ev.pages!==1?'s':''));
   }
   if(iss.foundOn&&iss.foundOn.length){h+='<div class="found-on"><div class="fo-title">Found on '+iss.foundOn.length+' page'+(iss.foundOn.length!==1?'s':'')+'</div>'+iss.foundOn.slice(0,5).map(u=>'<div class="fo-url">'+esc(u)+'</div>').join('')+(iss.foundOn.length>5?'<div class="fo-url" style="color:var(--text-3)">&hellip; and '+(iss.foundOn.length-5)+' more</div>':'')+' </div>';}
-  h+='<div class="ai-ph"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="7" cy="7" r="5.5"/><path d="M7 4.5v2.5l1.5 1.5"/></svg>AI explanation &amp; fix proposal &mdash; coming in a future phase</div>';
+  if(iss.explanation){
+    const t=iss._type||{};
+    let a='<div class="ai-box"><div class="ai-k">In plain words</div><div class="ai-v">'+esc(iss.explanation)+'</div>';
+    if(t.why)a+='<div class="ai-k">Why it matters</div><div class="ai-v">'+esc(t.why)+'</div>';
+    if(t.fixSteps&&t.fixSteps.length)a+='<div class="ai-k">How to fix</div><ol class="ai-steps">'+t.fixSteps.map(x=>'<li>'+esc(x)+'</li>').join('')+'</ol>';
+    if(iss.suggestedValue)a+='<div class="ai-k">'+esc(t.valueLabel||'Suggested value')+'</div><div class="val-box"><span class="v">'+esc(iss.suggestedValue)+'</span><button class="copy" type="button" data-copy="'+esc(iss.suggestedValue)+'">Copy</button></div>';
+    if(iss.screenshot)a+='<div class="ai-k">Screenshot</div><a href="/api/'+esc(iss.screenshot)+'" target="_blank" rel="noopener"><img class="ev-shot" src="/api/'+esc(iss.screenshot)+'" alt="" loading="lazy"></a>';
+    a+='<div class="ai-src">'+(iss.explanationSource==='ai'?'Written by AI from this evidence and checked automatically':'SiteFix standard guidance')+' &middot; priority: '+esc(iss.priorityReason||iss.priority)+'</div></div>';
+    h=a+h;
+  }else{
+    h+='<div class="ai-ph"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="7" cy="7" r="5.5"/><path d="M7 4.5v2.5l1.5 1.5"/></svg>Explanation and fix appear here once the report step has run</div>';
+  }
   div.innerHTML=h;return div;
 }
 
@@ -598,6 +664,49 @@ function catIcon(c){
   return m[c]||'<circle cx="7" cy="7" r="5.5"/>';
 }
 function groupBy(arr,fn){return arr.reduce((a,x)=>{const k=fn(x);if(!a[k])a[k]=[];a[k].push(x);return a;},{});}
+// ---------- chat about the report ----------
+function formatAnswer(t){
+  // Escape first, then allow only simple formatting: **bold**, "- " bullet lines, line breaks.
+  const lines=esc(t).replace(/\*\*(.+?)\*\*/g,'<b>$1</b>').split('\n');
+  let out='',inList=false;
+  for(const l of lines){
+    const m=l.match(/^\s*[-•]\s+(.*)/);
+    if(m){if(!inList){out+='<ul>';inList=true;}out+='<li>'+m[1]+'</li>';}
+    else{if(inList){out+='</ul>';inList=false;}out+=(out&&!out.endsWith('</ul>')?'<br>':'')+l;}
+  }
+  return out+(inList?'</ul>':'');
+}
+function shortPath(u){try{const x=new URL(u);return x.pathname+x.search;}catch{return u;}}
+async function ask(q){
+  urlIn.value='';syncBtn();
+  addMsg('user',esc(q));
+  const bbl=addMsg('agent','<span class="typing" aria-label="Thinking"><i></i><i></i><i></i></span>');
+  try{
+    const r=await fetch('/api/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:q})});
+    const d=await r.json();
+    let h='<div class="ans">'+formatAnswer(d.answer||'No answer.')+'</div>';
+    const ids=(d.issueIds||[]).filter(id=>current&&current.byId.has(id));
+    if(ids.length)h+='<div class="cites">'+ids.slice(0,8).map(id=>{const i=current.byId.get(id);return '<button class="cite" type="button" data-id="'+esc(id)+'">'+esc(issueLabel(i.type))+' &middot; '+esc(shortPath(i.affectedUrl))+'</button>';}).join('')+'</div>';
+    bbl.innerHTML=h;
+  }catch(e){bbl.innerHTML='<span style="color:var(--high)">Could not reach the SiteFix server: '+esc(e.message)+'</span>';}
+  scroll();
+}
+// Open the issue's category and the issue itself, then scroll to it.
+function reveal(id){
+  const item=[...document.querySelectorAll('.iss-item')].reverse().find(x=>x.dataset.id===id);
+  if(!item)return;
+  const grp=item.closest('.issue-grp'),hdr=grp&&grp.querySelector('.grp-hdr');
+  if(grp&&grp.classList.contains('collapsed'))toggleGrp(grp,hdr);
+  if(!item.classList.contains('open'))toggleItem(item);
+  item.scrollIntoView({behavior:'smooth',block:'center'});
+  item.classList.add('flash');setTimeout(()=>item.classList.remove('flash'),1600);
+}
+chatIn.addEventListener('click',e=>{
+  const c=e.target.closest('.cite');if(c){reveal(c.dataset.id);return;}
+  const b=e.target.closest('.copy');
+  if(b){e.stopPropagation();navigator.clipboard&&navigator.clipboard.writeText(b.dataset.copy).then(()=>{b.textContent='Copied';setTimeout(()=>b.textContent='Copy',1200);}).catch(()=>{});}
+});
+
 function renderHist(){
   if(!history_.length){hist.innerHTML='<div style="padding:6px 10px;font-size:12px;color:var(--text-3)">No inspections yet</div>';return;}
   hist.innerHTML='';

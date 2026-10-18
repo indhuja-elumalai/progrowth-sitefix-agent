@@ -7,18 +7,32 @@
 //   POST /api/run        → starts a crawl, returns { runId }
 //   GET  /api/stream/:id → SSE stream of crawl progress lines
 //   GET  /api/results    → reads issues.json from cwd and returns it
+//   GET  /api/report     → audit-report/explained.json (priorities, explanations, fixes)
+//   GET  /api/report.pdf → the PDF report
+//   GET  /api/shots/:id  → one screenshot from the report
+//   GET  /api/ai-status  → whether AI is on, which provider and model
+//   POST /api/ask        → { question } → an answer from the last report only
 //
-// The crawl writes issues.json (and the other files) to the project root.
-// The UI reads issues.json after the SSE stream ends.
+// A run is: crawl.js, then (if the crawl succeeded) report.js, both streamed over SSE.
+// The crawl writes issues.json (and the other files) to the project root; report.js
+// writes audit-report/. AI settings come from .env (see lib/ai-provider.js).
 
 import { createServer } from "node:http";
 import { readFile, access } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { loadEnv } from "../lib/env.js";
+import { aiConfig, providerFromConfig } from "../lib/ai-provider.js";
+import { answerQuestion } from "../lib/chat.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, ".."); // project root
+const REPORT_DIR = path.join(ROOT, "audit-report");
+
+loadEnv(path.join(ROOT, ".env"));
+const AI = aiConfig();
+const provider = await providerFromConfig(AI);
 
 const args = process.argv.slice(2);
 const portArg = args.indexOf("--port");
@@ -37,7 +51,7 @@ function makeRunId() {
 }
 
 function mime(ext) {
-  return { ".html": "text/html", ".css": "text/css", ".js": "application/javascript", ".json": "application/json", ".svg": "image/svg+xml" }[ext] || "text/plain";
+  return { ".html": "text/html", ".css": "text/css", ".js": "application/javascript", ".json": "application/json", ".svg": "image/svg+xml", ".pdf": "application/pdf", ".jpg": "image/jpeg" }[ext] || "text/plain";
 }
 
 async function serveFile(res, filePath) {
@@ -57,10 +71,10 @@ function json(res, status, obj) {
   res.end(body);
 }
 
-function parseBody(req) {
+function parseBody(req, limit = 20000) {
   return new Promise((resolve, reject) => {
     let buf = "";
-    req.on("data", (d) => (buf += d));
+    req.on("data", (d) => { buf += d; if (buf.length > limit) { buf = ""; req.destroy(); } });
     req.on("end", () => { try { resolve(JSON.parse(buf || "{}")); } catch { resolve({}); } });
     req.on("error", reject);
   });
@@ -131,9 +145,7 @@ const server = createServer(async (req, res) => {
       }
     }
 
-    child.stdout.on("data", onData);
-    child.stderr.on("data", onData);
-    child.on("close", (code) => {
+    function finish(code) {
       entry.done = true;
       entry.exitCode = code;
       if (activeRunId === runId) activeRunId = null;
@@ -142,6 +154,22 @@ const server = createServer(async (req, res) => {
         try { sub.end(); } catch { /* ignore */ }
       }
       entry.subscribers.clear();
+    }
+
+    child.stdout.on("data", onData);
+    child.stderr.on("data", onData);
+    child.on("close", (code) => {
+      if (code !== 0) return finish(code);
+      // The crawl worked: build the explained report and PDF. A report failure
+      // does not hide the crawl results; the UI shows them without the extras.
+      const report = spawn("node", ["report.js"], { cwd: ROOT, stdio: ["ignore", "pipe", "pipe"] });
+      report.stdout.on("data", onData);
+      report.stderr.on("data", onData);
+      report.on("close", (rcode) => {
+        entry.reportCode = rcode;
+        broadcast(`__REPORT__:${rcode}`);
+        finish(0);
+      });
     });
 
     return json(res, 200, { runId });
@@ -194,11 +222,61 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  // The explained report must belong to the crawl in issues.json, never an older one.
+  async function currentReport() {
+    try {
+      const [rep, reg] = await Promise.all([readFile(path.join(REPORT_DIR, "explained.json"), "utf-8"), readFile(path.join(ROOT, "issues.json"), "utf-8")]);
+      const report = JSON.parse(rep);
+      return report.run?.id && report.run.id === JSON.parse(reg).run?.id ? report : null;
+    } catch {
+      return null;
+    }
+  }
+
+  // API: explained report (priorities, plain-language explanations, fixes)
+  if (method === "GET" && pathname === "/api/report") {
+    const report = await currentReport();
+    if (!report) return json(res, 404, { error: "No report for the latest inspection yet" });
+    return json(res, 200, report);
+  }
+
+  // API: the PDF report, opened in the browser
+  if (method === "GET" && pathname === "/api/report.pdf") {
+    if (!(await currentReport())) return json(res, 404, { error: "No report for the latest inspection yet" });
+    try {
+      const data = await readFile(path.join(REPORT_DIR, "sitefix-report.pdf"));
+      res.writeHead(200, { "Content-Type": "application/pdf", "Content-Disposition": 'inline; filename="sitefix-report.pdf"' });
+      return res.end(data);
+    } catch {
+      return json(res, 404, { error: "The PDF was not created (see the run log)" });
+    }
+  }
+
+  // API: one screenshot (strict name check: no path tricks)
+  if (method === "GET" && pathname.startsWith("/api/shots/")) {
+    const name = pathname.slice("/api/shots/".length);
+    if (!/^ISS-[0-9a-f]{10}\.jpg$/.test(name)) return json(res, 400, { error: "Bad screenshot name" });
+    return serveFile(res, path.join(REPORT_DIR, "shots", name));
+  }
+
+  // API: is AI on?
+  if (method === "GET" && pathname === "/api/ai-status") {
+    return json(res, 200, { enabled: Boolean(provider), provider: provider ? provider.name : "none", model: provider ? provider.model : null, problem: provider ? null : AI.problem });
+  }
+
+  // API: ask a question about the latest report
+  if (method === "POST" && pathname === "/api/ask") {
+    const body = await parseBody(req);
+    const result = await answerQuestion({ question: body.question, report: await currentReport(), provider });
+    return json(res, 200, result);
+  }
+
   res.writeHead(404, { "Content-Type": "text/plain" });
   res.end("Not found");
 });
 
 server.listen(PORT, HOST, () => {
+  console.log(provider ? `AI: ${provider.name} (${provider.model})` : `AI: off (${AI.problem}). Reports use standard guidance; chat needs a key.`);
   console.log(`SiteFix UI  →  http://localhost:${PORT}`);
   console.log(`Project root: ${ROOT}`);
   console.log("Usage: node ui/server.js [--port 3000]");
