@@ -1,8 +1,8 @@
 {
-  "fixtureVersion": 3,
+  "fixtureVersion": 4,
   "baseUrl": "http://localhost:4000",
   "externalBaseUrl": "http://localhost:4001",
-  "plantedCount": 12,
+  "plantedCount": 16,
   "issues": [
     {
       "id": "F-01",
@@ -123,6 +123,46 @@
         "/redirects.html"
       ],
       "detail": "200 OK, title says 404, never linked directly, two links redirect into it (the sonagroup.ae pattern)"
+    },
+    {
+      "id": "F-13",
+      "category": "Images",
+      "type": "image-alt-missing",
+      "affectedUrl": "/img/office.svg",
+      "foundOn": [
+        "/image-alt.html"
+      ],
+      "detail": "Image has no alt attribute and is not marked decorative"
+    },
+    {
+      "id": "F-14",
+      "category": "Images",
+      "type": "image-alt-unhelpful",
+      "affectedUrl": "/img/team-photo.svg",
+      "foundOn": [
+        "/image-alt.html"
+      ],
+      "detail": "Alt text is a camera file name (IMG_0042.jpg)"
+    },
+    {
+      "id": "F-15",
+      "category": "Images",
+      "type": "image-alt-too-long",
+      "affectedUrl": "/img/chart.svg",
+      "foundOn": [
+        "/image-alt.html"
+      ],
+      "detail": "Alt text over 125 characters"
+    },
+    {
+      "id": "F-16",
+      "category": "Images",
+      "type": "image-oversized",
+      "affectedUrl": "/img/large-banner.svg",
+      "foundOn": [
+        "/large-image.html"
+      ],
+      "detail": "Image file over 300 KB"
     }
   ],
   "controlPages": [
@@ -133,7 +173,7 @@
   ],
   "notYetPlanted": [
     "http-to-https and www mismatches (need real hostnames; covered by unit tests with a fake server)",
-    "sitemap and robots faults (Day 7)",
-    "image alt-text and oversized files (Day 7)"
+    "sitemap and robots faults",
+    "image mixed content (an http image on an https page; the fixture runs on http, so this is covered by unit tests)"
   ]
 }
