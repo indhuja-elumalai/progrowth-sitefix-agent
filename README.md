@@ -60,12 +60,23 @@ nothing in the pipeline can skip the human-approval step.
 |---|---|
 | HTTP and URLs | 404 / 410 / 5xx pages, broken links, redirect chains and loops, redirects that end in an error, HTTP/HTTPS and www mismatches |
 | Soft 404s | Pages that return 200 OK but read like an error page (not-found title or H1, near-empty body) |
-| SEO and metadata | Missing or duplicate titles and meta descriptions, missing H1, broken heading structure |
-| Canonical tags | Missing or duplicate canonical tag, canonical pointing to a 404 or to a redirect |
+| SEO: titles & descriptions | Missing, duplicate, too long or too short titles and meta descriptions; missing or multiple H1; heading levels that skip; tags that only exist after JavaScript |
+| SEO: indexing | Missing or duplicate canonical tag, canonical pointing to a 404 or to a redirect; pages marked `noindex` / `nofollow` (meta tag or `X-Robots-Tag` header) |
+| Social sharing | No Open Graph tags, essential ones missing (title, description, image), share image that does not load |
+| Page setup | No viewport tag (not mobile-friendly), no `lang` on `<html>` |
 | Sitemap and robots | robots.txt errors, sitemap URLs that error, redirect, or are wrongly marked noindex |
 | Images | Broken images, missing / unhelpful / too-long alt text, oversized files, HTTP images on HTTPS pages |
 | Links | Broken or redirected internal/external links, plus every page that links to the broken one |
-| Structured data and accessibility | Invalid schema/Open Graph tags, missing form labels, heading structure, contrast signals |
+| Structured data and accessibility | Invalid schema (JSON-LD), missing form labels, contrast signals |
+
+**Why the head checks are split this way.** Almost everything in a page's
+`<head>` is "metadata", so that word is not a useful group. Checks are grouped
+by **who reads the tag**, because that decides the impact and who fixes it:
+Google's results page (titles & descriptions), Google's crawler (indexing),
+link previews on Facebook, LinkedIn, WhatsApp and X (social sharing), and
+browsers, phones and screen readers (page setup). The code follows the same
+split: `lib/head.js` only reads the page, and each group has its own rules
+file (`lib/seo.js`, `lib/social.js`, `lib/page-setup.js`).
 
 Every finding carries evidence (a status code, a screenshot, or a DOM
 snippet), never a guess. This list is adapted from the overlapping
@@ -149,24 +160,30 @@ progrowth-sitefix-agent/
 │       ├── crawl.yml                  run the crawler on any URL (manual)
 │       └── fixture-selfcheck.yml      unit tests, then crawl and score the fixture on every change
 ├── fixture/                           controlled test site with planted faults
-│   ├── generate-site.js               writes the 15 HTML pages and the small images into site/
+│   ├── generate-site.js               writes the 20 HTML pages and the small images into site/
 │   ├── server.js                      serves them with real HTTP redirects (and generates the oversized test image)
 │   ├── selfcheck.js                   proves the fixture behaves as claimed
 │   ├── score.js                       scores crawler output against the planted issues
-│   ├── expected-issues.json           ground truth: the 16 planted issues
+│   ├── expected-issues.json           ground truth: the 24 planted issues
 │   └── site/                          generated pages
 ├── lib/
 │   ├── redirects.js                   follow redirects hop by hop, classify them, site-level checks
-│   ├── metadata.js                    read title / description / H1 / canonical, apply the metadata rules
+│   ├── head.js                        read a page's head into facts: title, description, canonical, robots, Open Graph, viewport, lang, headings
+│   ├── seo.js                         SEO rules: titles, descriptions, H1, heading order, canonical, noindex / nofollow
+│   ├── social.js                      social sharing rules: Open Graph tags, broken share image
+│   ├── page-setup.js                  page setup rules: viewport, lang
 │   ├── soft404.js                     soft-404 rule: says "not found" plus a second signal
 │   ├── images.js                      image rules: pick the real src, decorative or not, alt text, size, mixed content
 │   └── issues.js                      issue schema, severity and fix-class catalog, registry builder and validator
 ├── test/
 │   ├── redirects.test.js              unit tests for lib/redirects.js
-│   ├── metadata.test.js               unit tests for lib/metadata.js
+│   ├── head.test.js                   unit tests for lib/head.js
+│   ├── seo.test.js                    unit tests for lib/seo.js
+│   ├── social.test.js                 unit tests for lib/social.js
+│   ├── page-setup.test.js             unit tests for lib/page-setup.js
 │   ├── soft404.test.js                unit tests for lib/soft404.js
 │   ├── images.test.js                 unit tests for lib/images.js
-│   └── issues.test.js                 unit tests for lib/issues.js (npm test runs all five)
+│   └── issues.test.js                 unit tests for lib/issues.js (npm test runs them all)
 ├── ui/                                chat-first internal website audit agent UI
 │   ├── build-index.js                 source of the page: edit this, then run it to regenerate index.html
 │   ├── index.html                     generated single-page chat interface (do not edit by hand)
@@ -293,9 +310,12 @@ small or fragile servers. It writes six files:
   hop (up to 10) and typed as a `redirect-loop`, a `redirect-chain` (2 or more
   hops) or a `redirect-to-error`; a single redirect to a working page is
   recorded but not reported as an issue.
-- `metadata.json`: for every page that loads (2xx), the metadata and canonical
-  issues found, each with a type, a severity and a one-line detail, plus a
-  summary count per type. The rules run on the **rendered** page (what a
+- `metadata.json`: for every page that loads (2xx), everything read from its
+  head (title, description, H1s and heading outline, canonical, robots, Open
+  Graph and Twitter tags, viewport, lang) and every SEO, social sharing and
+  page setup issue found on it, each with a type, a severity and a one-line
+  detail; a summary count per category and per type; and every distinct share
+  image (`og:image`) with its HTTP check. The rules run on the **rendered** page (what a
   browser and Google end up with); `metadata-js-only` marks a title,
   description, H1 or canonical that is missing from the raw HTML and only
   appears after JavaScript runs.
@@ -325,7 +345,7 @@ Each entry in `issues.json` is a measured fact, never AI output:
 | Field | Meaning |
 |---|---|
 | `id` | Stable: the same type on the same URL always gets the same id (`ISS-` plus 10 hex characters), so a later run can recognise it |
-| `type`, `category` | e.g. `canonical-broken-target`, "Canonical tags" |
+| `type`, `category` | e.g. `canonical-broken-target`, "SEO: indexing" |
 | `severity` | `high`, `medium` or `low`, from a catalog in `lib/issues.js` (a rule may override it) |
 | `affectedUrl`, `foundOn` | The URL with the problem, and every page that links to it or, for page-level issues, the pages that lead to it |
 | `detail` | One plain sentence stating the fact |
@@ -344,16 +364,32 @@ redirect into it. Title and H1 together count as one piece of evidence, and
 supporting signals alone never flag a page, so an article about 404 errors or a
 short valid page is left alone.
 
-**Metadata rules:** `title-missing`, `title-multiple`, `title-too-long` (over 60
+**SEO: titles & descriptions and SEO: indexing rules** (`lib/seo.js`): `title-missing`, `title-multiple`, `title-too-long` (over 60
 characters), `title-too-short` (under 10), `description-missing`,
 `description-multiple`, `description-too-long` (over 160), `description-too-short`
 (under 50), `h1-missing`, `h1-multiple`, `canonical-missing`, `canonical-multiple`,
 `canonical-broken-target` (the canonical URL returns 4xx/5xx or cannot be
 reached), `canonical-redirect`, `title-duplicate`, `description-duplicate` and
 `metadata-js-only`. The length limits are common SEO guidance, not facts about
-any one site; they live in one place (`LIMITS` in `lib/metadata.js`) and are
+any one site; they live in one place (`LIMITS` in `lib/seo.js`) and are
 severity `low`. A page whose canonical points to a different URL is treated as
 a declared copy and is left out of the duplicate checks.
+
+Also in `lib/seo.js`: `heading-skip` (a heading goes more than one level
+deeper than the one before, e.g. H2 then H4; going back up is fine; low),
+`robots-noindex` (medium) and `robots-nofollow` (low), read from the robots
+meta tag and the `X-Robots-Tag` header, including crawler-specific values
+like `googlebot: noindex`. noindex is often deliberate (thank-you pages,
+internal search), so these are detected only and a human decides.
+
+**Social sharing rules** (`lib/social.js`): `og-missing` (no Open Graph tags
+at all), `og-incomplete` (some, but `og:title`, `og:description` or
+`og:image` missing) and `og-image-broken` (the share image returns 4xx/5xx;
+each distinct image is checked once). Twitter/X falls back to Open Graph, so
+`twitter:*` tags are shown in the evidence but not required.
+
+**Page setup rules** (`lib/page-setup.js`): `viewport-missing` (medium) and
+`lang-missing` (low).
 
 Two site-level checks run on the start URL's host (skipped for localhost):
 the `http://` version should redirect to `https://`, and the `www` / non-`www`
@@ -381,7 +417,7 @@ it does not yet compare with earlier runs.
 ### Run the unit tests and the test fixture
 
 ```bash
-npm test                              # unit tests for the redirect, metadata, soft-404, image and registry logic (no server needed)
+npm test                              # unit tests for every rule file and the registry (no server needed)
 ```
 
 The fixture is a small site with a known set of planted faults, used to
@@ -400,10 +436,10 @@ serve real HTTP 301/302 redirects, so a redirect chain or loop cannot be
 planted there. The same server runs in CI (`fixture-selfcheck.yml`), which
 runs the unit tests, then crawls and scores the fixture on every push.
 
-**Detected so far: all 16 planted issues, with 0 false positives** (CI
-requires 16).
+**Detected so far: all 24 planted issues, with 0 false positives** (CI
+requires 24).
 
-**The 16 planted issues** (`fixture/expected-issues.json`):
+**The 24 planted issues** (`fixture/expected-issues.json`):
 
 | ID | Planted fault |
 |---|---|
@@ -422,6 +458,12 @@ requires 16).
 | F-14 | Image whose alt text is a camera file name (`IMG_0042.jpg`) |
 | F-15 | Image with alt text over 125 characters |
 | F-16 | Image file over 300 KB (`/img/large-banner.svg` on `/large-image.html`, generated by the server) |
+| F-17, F-18 | Page marked `noindex, nofollow` (`/noindex.html`) |
+| F-19 | Heading levels skip, H2 then H4 (`/heading-skip.html`) |
+| F-20 | No Open Graph tags (`/no-social.html`) |
+| F-21 | Open Graph tags without `og:description` (`/social-partial.html`) |
+| F-22 | Share image (`og:image`) that returns 404 |
+| F-23, F-24 | No viewport tag and no `lang` (`/page-setup.html`) |
 
 Four control pages (`/`, `/about.html`, `/contact.html`, `/final.html`)
 must produce no issues, and the self-check confirms every fixture title and
@@ -608,6 +650,28 @@ real file and sized there, a lazy-loaded image (`data:` placeholder plus
 Not covered yet: CSS background images, real compression analysis (only the
 reported file size), and whether the alt text actually describes the image
 (that needs the AI layer).
+
+### Day 13: SEO split by who reads the tag, plus social sharing and page setup
+
+Reorganised the head checks so they are no longer one "metadata" bucket.
+`lib/metadata.js` became `lib/head.js` (reading the page) and `lib/seo.js`
+(SEO rules), with git history kept. The two existing categories were renamed
+to **SEO: titles & descriptions** and **SEO: indexing**, and two new ones
+added: **Social sharing** and **Page setup**. Issue ids are built from the
+type and URL, so existing issues keep their ids.
+
+Eight new issue types: `heading-skip`, `robots-noindex`, `robots-nofollow`,
+`og-missing`, `og-incomplete`, `og-image-broken`, `viewport-missing` and
+`lang-missing`. Every fixture page now carries complete Open Graph tags, so
+only the planted pages are flagged. The UI shows one group per category, and
+each issue's evidence shows only the tags that matter for it (the Open Graph
+tags for a social issue, the heading outline for a skip).
+
+Fixture: score went from 16 of 16 to **24 of 24 planted issues found**, 0
+false positives. Unit tests: 78 to 101.
+
+Not covered yet: structured data (JSON-LD), `hreflang`, Twitter-specific
+tags, and whether titles and descriptions are well written (the AI layer).
 
 ## 13. Security principles
 

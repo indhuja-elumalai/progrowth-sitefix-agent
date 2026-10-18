@@ -1,6 +1,6 @@
 // Checks that the fixture really behaves the way expected-issues.json claims.
 // Run with the fixture server already running:  node fixture/selfcheck.js
-import { LIMITS } from "../lib/metadata.js";
+import { LIMITS } from "../lib/seo.js";
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -38,11 +38,12 @@ console.log("-- HTTP behaviour");
 for (const p of ["/", "/about.html", "/contact.html", "/final.html", "/broken-links.html", "/broken-image.html",
   "/redirects.html", "/soft-404.html", "/missing-title.html", "/dup-title-1.html", "/dup-title-2.html",
   "/canonical-to-404.html", "/gone.html", "/image-alt.html", "/large-image.html",
+  "/noindex.html", "/heading-skip.html", "/no-social.html", "/social-partial.html", "/page-setup.html",
   "/img/logo.svg", "/img/office.svg", "/img/team-photo.svg", "/img/chart.svg", "/img/divider.svg", "/img/pattern.svg"]) {
   const { status } = await hit(base + p);
   check(`200 ${p}`, status === 200, `got ${status}`);
 }
-for (const p of ["/does-not-exist.html", "/img/missing.jpg", "/gone-page.html"]) {
+for (const p of ["/does-not-exist.html", "/img/missing.jpg", "/gone-page.html", "/img/missing-share.png"]) {
   const { status } = await hit(base + p);
   check(`404 ${p}`, status === 404, `got ${status}`);
 }
@@ -95,6 +96,17 @@ check("only image-alt.html has an image without alt (the planted office.svg)",
   files.filter((f) => imgTags[f].some(lacksAlt)).join() === "image-alt.html" && imgTags["image-alt.html"].filter(lacksAlt).length === 1);
 check("image-alt.html keeps its two decorative controls (alt=\"\" and aria-hidden)",
   imgTags["image-alt.html"].some((t) => /alt=""/.test(t)) && imgTags["image-alt.html"].some((t) => /aria-hidden="true"/.test(t)));
+const raw = {};
+for (const f of files) raw[f] = await readFile(path.join(dir, "site", f), "utf8");
+const only = (pred) => files.filter((f) => pred(raw[f])).sort().join();
+check("only noindex.html has a robots meta tag", only((h) => /<meta name="robots"/i.test(h)) === "noindex.html");
+check("only page-setup.html lacks a viewport tag and a lang attribute",
+  only((h) => !/<meta name="viewport"/i.test(h)) === "page-setup.html" && only((h) => !/<html lang="/i.test(h)) === "page-setup.html");
+check("only no-social.html has no Open Graph tags", only((h) => !/property="og:/i.test(h)) === "no-social.html");
+check("only social-partial.html has incomplete Open Graph tags (no og:description)",
+  only((h) => /property="og:/i.test(h) && !(/property="og:title"/.test(h) && /property="og:description"/.test(h) && /property="og:image"/.test(h))) === "social-partial.html");
+const skips = (h) => { const lv = [...h.matchAll(/<h([1-6])\b/gi)].map((m) => Number(m[1])); return lv.some((l, i) => i && l > lv[i - 1] + 1); };
+check("only heading-skip.html skips a heading level", only(skips) === "heading-skip.html");
 check("only canonical-to-404.html has a non-self canonical", files.filter((f) => info[f].canonical !== `${base}/${f}`).join() === "canonical-to-404.html");
 
 console.log("-- Ground truth file");

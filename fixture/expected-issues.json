@@ -1,8 +1,8 @@
 {
-  "fixtureVersion": 4,
+  "fixtureVersion": 5,
   "baseUrl": "http://localhost:4000",
   "externalBaseUrl": "http://localhost:4001",
-  "plantedCount": 16,
+  "plantedCount": 24,
   "issues": [
     {
       "id": "F-01",
@@ -66,7 +66,7 @@
     },
     {
       "id": "F-07",
-      "category": "SEO and metadata",
+      "category": "SEO: titles & descriptions",
       "type": "title-missing",
       "affectedUrl": "/missing-title.html",
       "foundOn": [
@@ -76,7 +76,7 @@
     },
     {
       "id": "F-08",
-      "category": "SEO and metadata",
+      "category": "SEO: titles & descriptions",
       "type": "title-duplicate",
       "affectedUrl": "/dup-title-1.html",
       "foundOn": [
@@ -86,7 +86,7 @@
     },
     {
       "id": "F-09",
-      "category": "SEO and metadata",
+      "category": "SEO: titles & descriptions",
       "type": "title-duplicate",
       "affectedUrl": "/dup-title-2.html",
       "foundOn": [
@@ -96,7 +96,7 @@
     },
     {
       "id": "F-10",
-      "category": "Canonical tags",
+      "category": "SEO: indexing",
       "type": "canonical-broken-target",
       "affectedUrl": "/canonical-to-404.html",
       "foundOn": [
@@ -163,6 +163,86 @@
         "/large-image.html"
       ],
       "detail": "Image file over 300 KB"
+    },
+    {
+      "id": "F-17",
+      "category": "SEO: indexing",
+      "type": "robots-noindex",
+      "affectedUrl": "/noindex.html",
+      "foundOn": [
+        "/"
+      ],
+      "detail": "Robots meta says noindex"
+    },
+    {
+      "id": "F-18",
+      "category": "SEO: indexing",
+      "type": "robots-nofollow",
+      "affectedUrl": "/noindex.html",
+      "foundOn": [
+        "/"
+      ],
+      "detail": "Robots meta says nofollow"
+    },
+    {
+      "id": "F-19",
+      "category": "SEO: titles & descriptions",
+      "type": "heading-skip",
+      "affectedUrl": "/heading-skip.html",
+      "foundOn": [
+        "/"
+      ],
+      "detail": "Headings go from H2 straight to H4"
+    },
+    {
+      "id": "F-20",
+      "category": "Social sharing",
+      "type": "og-missing",
+      "affectedUrl": "/no-social.html",
+      "foundOn": [
+        "/"
+      ],
+      "detail": "No Open Graph tags"
+    },
+    {
+      "id": "F-21",
+      "category": "Social sharing",
+      "type": "og-incomplete",
+      "affectedUrl": "/social-partial.html",
+      "foundOn": [
+        "/"
+      ],
+      "detail": "og:description missing"
+    },
+    {
+      "id": "F-22",
+      "category": "Social sharing",
+      "type": "og-image-broken",
+      "affectedUrl": "/img/missing-share.png",
+      "foundOn": [
+        "/social-partial.html"
+      ],
+      "detail": "og:image returns 404"
+    },
+    {
+      "id": "F-23",
+      "category": "Page setup",
+      "type": "viewport-missing",
+      "affectedUrl": "/page-setup.html",
+      "foundOn": [
+        "/"
+      ],
+      "detail": "No viewport meta tag"
+    },
+    {
+      "id": "F-24",
+      "category": "Page setup",
+      "type": "lang-missing",
+      "affectedUrl": "/page-setup.html",
+      "foundOn": [
+        "/"
+      ],
+      "detail": "No lang attribute on <html>"
     }
   ],
   "controlPages": [

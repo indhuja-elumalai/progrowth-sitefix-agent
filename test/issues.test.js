@@ -127,3 +127,19 @@ test("every image type is in the catalog under Images", () => {
         assert.equal(CATALOG[t]?.category, "Images", t);
     }
 });
+
+test("categories are grouped by who reads the tag", () => {
+    const cat = (t) => CATALOG[t].category;
+    assert.equal(cat("title-missing"), "SEO: titles & descriptions");
+    assert.equal(cat("heading-skip"), "SEO: titles & descriptions");
+    assert.equal(cat("canonical-missing"), "SEO: indexing");
+    assert.equal(cat("robots-noindex"), "SEO: indexing");
+    assert.equal(cat("og-image-broken"), "Social sharing");
+    assert.equal(cat("viewport-missing"), "Page setup");
+});
+
+test("ready-made findings (e.g. a broken share image) go into the registry", () => {
+    const r = buildRegistry({ run, findings: [{ type: "og-image-broken", affectedUrl: "https://x.test/share.png", foundOn: ["https://x.test/"], detail: "Share image (og:image) returns 404", evidence: { kind: "image", src: "https://x.test/share.png", status: 404, usedAs: "og:image" } }] });
+    assert.deepEqual(validateRegistry(r), []);
+    assert.equal(r.issues[0].category, "Social sharing");
+});

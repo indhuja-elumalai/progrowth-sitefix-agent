@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { extractHead, headIssues, findDuplicates, canonicalTargetIssue, jsDependence, sameUrl, LIMITS } from "../lib/metadata.js";
+import { extractHead, sameUrl } from "../lib/head.js";
+import { headIssues, robotsIssues, headingIssues, findDuplicates, canonicalTargetIssue, jsDependence, LIMITS } from "../lib/seo.js";
 
 const goodDesc = "A description that is comfortably longer than fifty characters and shorter than the limit.";
 const page = (over = "") => `<!doctype html><html><head>
@@ -126,4 +127,47 @@ test("jsDependence: lists what only exists after JavaScript runs", () => {
 test("sameUrl ignores trailing slash and fragment", () => {
     assert.ok(sameUrl("https://x.test/a/", "https://x.test/a#top"));
     assert.ok(!sameUrl("https://x.test/a", "https://x.test/b"));
+});
+
+// ---------- robots ----------
+const withRobots = (content) => extractHead(`<head><meta name="robots" content="${content}"></head>`);
+const rtypes = (head, header) => robotsIssues(head, header).map((i) => i.type);
+
+test("noindex and nofollow from the robots meta tag", () => {
+    assert.deepEqual(rtypes(withRobots("noindex, nofollow")), ["robots-noindex", "robots-nofollow"]);
+    assert.deepEqual(rtypes(withRobots("NOINDEX")), ["robots-noindex"]);
+    assert.deepEqual(rtypes(withRobots("none")), ["robots-noindex", "robots-nofollow"]);
+});
+
+test("index, follow (or no robots tag) is fine", () => {
+    assert.deepEqual(rtypes(withRobots("index, follow")), []);
+    assert.deepEqual(rtypes(extractHead("<head></head>")), []);
+    assert.deepEqual(rtypes(withRobots("max-image-preview:large")), []);
+});
+
+test("noindex from the X-Robots-Tag header, and the detail says where it came from", () => {
+    const [i] = robotsIssues(extractHead("<head></head>"), "noindex");
+    assert.equal(i.type, "robots-noindex");
+    assert.match(i.detail, /X-Robots-Tag header/);
+    assert.deepEqual(rtypes(extractHead("<head></head>"), "googlebot: noindex"), ["robots-noindex"]);
+});
+
+// ---------- heading order ----------
+const outline = (...levels) => extractHead(levels.map((l, i) => `<h${l}>Heading ${i}</h${l}>`).join(""));
+
+test("headings that step down one level at a time, or jump back up, are fine", () => {
+    assert.deepEqual(headingIssues(outline(1, 2, 3, 2, 3, 1, 2)), []);
+    assert.deepEqual(headingIssues(outline(1, 2, 3, 4, 2)), []);
+});
+
+test("a skipped level is one issue that names the first skip and counts the rest", () => {
+    const [i, ...rest] = headingIssues(outline(1, 2, 4, 2, 5));
+    assert.equal(rest.length, 0);
+    assert.equal(i.type, "heading-skip");
+    assert.equal(i.detail, 'Heading levels skip: H2 "Heading 1" then H4 "Heading 2" (+1 more)');
+});
+
+test("H1 straight to H3 is a skip; a page with no H1 is left to h1-missing", () => {
+    assert.equal(headingIssues(outline(1, 3))[0].type, "heading-skip");
+    assert.deepEqual(headingIssues(outline(2, 4)), []);
 });

@@ -1,4 +1,4 @@
-// Crawler, Day 12 version.
+// Crawler, Day 13 version.
 // Usage: node crawl.js https://your-site.com [--max-pages 0] [--concurrency 4]
 //          [--link-concurrency 8] [--settle-ms 1500] [--delay-ms 150] [--no-sitemap]
 //
@@ -16,9 +16,12 @@
 //   5. Follows every redirecting link to its end and classifies it:
 //      loop, chain (2+ hops), or a redirect that ends in an error.
 //   6. Checks the start URL's host: http -> https, and the www / non-www twin.
-//   7. Reads each page's title, meta description, H1s and canonical (raw and
-//      rendered) and flags missing, duplicate, too long / short, and canonicals
-//      that point at an error or a redirect.
+//   7. Reads each page's head (raw and rendered, lib/head.js) and applies the
+//      rules by who reads the tags:
+//        SEO (lib/seo.js): title, meta description, H1 and heading order;
+//          canonical, robots noindex / nofollow (meta tag or X-Robots-Tag header)
+//        Social sharing (lib/social.js): Open Graph tags, broken og:image
+//        Page setup (lib/page-setup.js): viewport, <html lang>
 //
 //   8. Flags soft 404s: pages that answer 200 but say "not found", backed by a
 //      second signal (almost no text, no H1, noindex, or many links redirect
@@ -36,7 +39,7 @@
 // Writes six files:
 //   report.json    one entry per crawled page (raw vs rendered, with head facts)
 //   links.json     summary, site-level checks, redirect destinations, one entry per link
-//   metadata.json  per-page metadata and canonical issues, with a summary
+//   metadata.json  per page: everything read from the head and every SEO / social / page-setup issue
 //   soft404.json   pages with soft-404 signals, flagged or not, with the evidence
 //   images.json    one entry per distinct image: status, size, pages, alt problems
 //   issues.json    the issue registry: every finding as one typed record with evidence
@@ -45,8 +48,11 @@
 
 import { chromium } from "playwright";
 import { writeFile } from "node:fs/promises";
-import { extractHead, headIssues, findDuplicates, canonicalTargetIssue, jsDependence, sameUrl } from "./lib/metadata.js";
-import { buildRegistry, validateRegistry } from "./lib/issues.js";
+import { extractHead, sameUrl } from "./lib/head.js";
+import { headIssues, robotsIssues, headingIssues, findDuplicates, canonicalTargetIssue, jsDependence } from "./lib/seo.js";
+import { socialIssues, ogImageUrl, ogImageFindings } from "./lib/social.js";
+import { pageSetupIssues } from "./lib/page-setup.js";
+import { buildRegistry, validateRegistry, CATALOG } from "./lib/issues.js";
 import { analyzeSoft404, visibleWordCount } from "./lib/soft404.js";
 import { followRedirects, classifyRedirect, redirectIssueType, siteLevelChecks } from "./lib/redirects.js";
 import { pickImageSrc, isDecorative, summarizeImages, imageFindings, formatBytes, IMAGE_LIMITS } from "./lib/images.js";
@@ -127,6 +133,7 @@ async function fetchRaw(url) {
     return {
       status: res.status,
       redirectedTo: res.headers.get("location") || null,
+      xRobotsTag: res.headers.get("x-robots-tag") || null,
       title: titleMatch ? decodeEntities(titleMatch[1].trim()) : null,
       bodyLength: body.length,
       head: res.status < 400 ? extractHead(body) : null,
@@ -443,7 +450,7 @@ async function main() {
   // http -> https and www / non-www checks on the start URL's host.
   const siteChecks = await siteLevelChecks(startUrl, checkLink, { maxHops: MAX_HOPS, delayMs: DELAY_MS });
 
-  // ---------- metadata and canonical ----------
+  // ---------- SEO, social sharing and page setup (everything read from the head) ----------
   // Rules run on the rendered page (what a browser, and Google, ends up with).
   // Raw is compared so we can say when a tag exists only after JavaScript runs.
   const linkByUrl = new Map(links.map((l) => [l.url, l]));
@@ -460,7 +467,14 @@ async function main() {
     if (!is2xx(p.raw.status) || !is2xx(p.rendered.status) || !p.rendered.head) continue; // errors and redirects are reported elsewhere
     let canonical = null;
     try { canonical = p.rendered.head.canonicals[0] ? new URL(p.rendered.head.canonicals[0], p.url).href : null; } catch { /* bad href: headIssues flags it */ }
-    const issues = headIssues(p.rendered.head);
+    const head = p.rendered.head;
+    const issues = [
+      ...headIssues(head), // SEO: title, description, H1, canonical tag
+      ...robotsIssues(head, p.raw.xRobotsTag), // SEO: indexing
+      ...headingIssues(head), // SEO: heading order
+      ...socialIssues(head), // Social sharing
+      ...pageSetupIssues(head), // Page setup
+    ];
     let canonicalCheck = null;
     if (canonical && !sameUrl(canonical, p.url)) {
       const target = await targetResult(canonical);
@@ -470,16 +484,38 @@ async function main() {
     }
     const jsOnly = jsDependence(p.raw.head, p.rendered.head);
     if (jsOnly.length) issues.push({ type: "metadata-js-only", severity: "medium", detail: `${jsOnly.join(", ")} exist only after JavaScript runs` });
-    metaPages.push({ url: p.url, foundOn: [...(foundOn.get(p.url) || [])], canonical, canonicalCheck, rawHead: p.raw.head, head: p.rendered.head, issues });
+    const ogImage = ogImageUrl(head, p.url);
+    metaPages.push({ url: p.url, foundOn: [...(foundOn.get(p.url) || [])], canonical, canonicalCheck, ogImage, rawHead: p.raw.head, head, issues });
   }
   for (const [url, extra] of findDuplicates(metaPages)) metaPages.find((m) => m.url === url).issues.push(...extra);
 
+  // Share images (og:image): check each distinct one once, reusing the image check
+  // when the same file is also an <img> on the site.
+  const ogPages = new Map();
+  for (const m of metaPages) if (m.ogImage) ogPages.set(m.ogImage, [...(ogPages.get(m.ogImage) || []), m.url]);
+  const imageCheckByUrl = new Map(imageEntries.map((e) => [e.url, e]));
+  console.log(`Checking ${ogPages.size} distinct share images (og:image)...`);
+  const ogImages = await mapPool([...ogPages], LINK_CONCURRENCY, async ([url, pages]) => {
+    const check = imageCheckByUrl.get(url) || await checkImage(url);
+    if (!imageCheckByUrl.has(url) && DELAY_MS) await sleep(DELAY_MS);
+    return { url, pages, check: { status: check.status, classification: check.classification, finalUrl: check.finalUrl ?? null, error: check.error } };
+  });
+  const ogFindings = ogImageFindings(ogImages);
+
   const byType = {};
-  for (const m of metaPages) for (const i of m.issues) byType[i.type] = (byType[i.type] || 0) + 1;
+  const byCategory = {};
+  for (const m of metaPages) for (const i of m.issues) {
+    byType[i.type] = (byType[i.type] || 0) + 1;
+    const c = CATALOG[i.type]?.category || "other";
+    byCategory[c] = (byCategory[c] || 0) + 1;
+  }
+  for (const f of ogFindings) byCategory[CATALOG[f.type].category] = (byCategory[CATALOG[f.type].category] || 0) + 1;
   const metadata = {
     pagesAnalysed: metaPages.length,
     pagesWithIssues: metaPages.filter((m) => m.issues.length).length,
+    issuesByCategory: byCategory,
     issuesByType: Object.fromEntries(Object.entries(byType).sort((a, b) => b[1] - a[1])),
+    shareImages: { checked: ogImages.length, broken: ogFindings.length },
   };
 
   // ---------- soft 404 ----------
@@ -516,7 +552,7 @@ async function main() {
   const runId = "run-" + startedAt.replace(/[-:]/g, "").slice(0, 15);
   const registry = buildRegistry({
     run: { id: runId, startedAt, finishedAt: new Date().toISOString(), startUrl, pagesCrawled: visited.size, capReached, toolVersion: "0.6" },
-    links, siteChecks, metaPages, softPages: soft, imageFindings: imgFindings,
+    links, siteChecks, metaPages, softPages: soft, imageFindings: imgFindings, findings: ogFindings,
   });
   const registryProblems = validateRegistry(registry);
   await writeFile("issues.json", JSON.stringify(registry, null, 2));
@@ -548,7 +584,7 @@ async function main() {
 
   await writeFile("report.json", JSON.stringify(report, null, 2));
   await writeFile("links.json", JSON.stringify({ summary, siteChecks, redirectTargets, links }, null, 2));
-  await writeFile("metadata.json", JSON.stringify({ summary: metadata, pages: metaPages }, null, 2));
+  await writeFile("metadata.json", JSON.stringify({ summary: metadata, shareImages: ogImages, pages: metaPages }, null, 2));
 
   // Readable result in the console (and the Actions log).
   console.log("\n=== Summary ===");
@@ -586,8 +622,13 @@ async function main() {
   else if (!siteChecks.findings.length) console.log("  no findings");
   else for (const f of siteChecks.findings) console.log(`  ${f.type}: ${f.detail}`);
 
-  console.log("\n=== Metadata and canonical ===");
+  console.log("\n=== SEO, social sharing and page setup ===");
   console.log(`  ${metadata.pagesAnalysed} pages analysed, ${metadata.pagesWithIssues} with at least one issue`);
+  for (const [c, n] of Object.entries(metadata.issuesByCategory)) console.log(`  ${String(n).padStart(4)}  ${c}`);
+  if (ogFindings.length) {
+    console.log(`\nog-image-broken (${ogFindings.length}):`);
+    for (const f of ogFindings.slice(0, 3)) console.log(`  ${f.affectedUrl}  ${f.detail}  (on ${f.foundOn.length} page${f.foundOn.length === 1 ? "" : "s"})`);
+  }
   for (const [type, n] of Object.entries(metadata.issuesByType)) {
     console.log(`\n${type} (${n}):`);
     const examples = metaPages.filter((m) => m.issues.some((i) => i.type === type)).slice(0, 3);
