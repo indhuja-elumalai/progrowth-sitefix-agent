@@ -1,8 +1,8 @@
 {
-  "fixtureVersion": 5,
+  "fixtureVersion": 6,
   "baseUrl": "http://localhost:4000",
   "externalBaseUrl": "http://localhost:4001",
-  "plantedCount": 24,
+  "plantedCount": 29,
   "issues": [
     {
       "id": "F-01",
@@ -243,12 +243,61 @@
         "/"
       ],
       "detail": "No lang attribute on <html>"
+    },
+    {
+      "id": "F-25",
+      "category": "Content",
+      "type": "content-thin",
+      "affectedUrl": "/contact.html",
+      "foundOn": [
+        "/"
+      ],
+      "detail": "15 words of text (deliberately short; still a soft-404 negative control)"
+    },
+    {
+      "id": "F-26",
+      "category": "Content",
+      "type": "content-duplicate",
+      "affectedUrl": "/location-austin.html",
+      "foundOn": [
+        "/"
+      ],
+      "detail": "Same template as /location-denver.html with only the city swapped"
+    },
+    {
+      "id": "F-27",
+      "category": "Content",
+      "type": "content-duplicate",
+      "affectedUrl": "/location-denver.html",
+      "foundOn": [
+        "/"
+      ],
+      "detail": "Same template as /location-austin.html with only the city swapped"
+    },
+    {
+      "id": "F-28",
+      "category": "Content",
+      "type": "content-placeholder",
+      "affectedUrl": "/draft-page.html",
+      "foundOn": [
+        "/"
+      ],
+      "detail": "Lorem ipsum and an unfilled {{ company_name }} tag"
+    },
+    {
+      "id": "F-29",
+      "category": "Content",
+      "type": "content-repeated-word",
+      "affectedUrl": "/draft-page.html",
+      "foundOn": [
+        "/"
+      ],
+      "detail": "\"the the\""
     }
   ],
   "controlPages": [
     "/",
     "/about.html",
-    "/contact.html",
     "/final.html"
   ],
   "notYetPlanted": [
