@@ -190,11 +190,13 @@ const CSS = `
   .ev-pre{background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 12px;font-family:var(--font-mono);font-size:11.5px;color:var(--text-2);overflow-x:auto;white-space:pre-wrap;word-break:break-all;line-height:1.6}
   .ev-row{display:flex;gap:12px;margin-bottom:5px;font-size:13px}
   .ev-k{color:var(--text-3);min-width:96px;flex-shrink:0}
-  .ev-v{color:var(--text-1);flex:1;word-break:break-all}
+  .ev-v{color:var(--text-1);flex:1;overflow-wrap:anywhere}
   .ev-chain{display:flex;flex-wrap:wrap;gap:4px;align-items:center}
   .chain-u{font-family:var(--font-mono);font-size:11px;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:1px 7px;color:var(--text-2)}
   .chain-a{color:var(--text-3);font-size:12px}
   .ev-img{display:block;max-width:160px;max-height:96px;border-radius:8px;border:1px solid var(--border);background:var(--bg);margin-bottom:10px;object-fit:contain}
+  .ev-outline{font-size:12.5px;line-height:1.7}
+  .ev-outline b{color:var(--text-3);font-weight:600;font-size:11px;margin-right:4px}
   .found-on{margin-top:10px}
   .fo-title{font-size:11.5px;font-weight:600;color:var(--text-3);margin-bottom:3px}
   .fo-url{font-family:var(--font-mono);font-size:11.5px;color:var(--text-2);line-height:1.8}
@@ -297,7 +299,8 @@ const HTML = String.raw`<!DOCTYPE html>
           <div class="cap-row" aria-label="What gets checked">
             <span class="cap-pill">Broken links &amp; HTTP</span>
             <span class="cap-pill">Redirects</span>
-            <span class="cap-pill">Titles, meta &amp; canonical</span>
+            <span class="cap-pill">SEO tags &amp; indexing</span>
+            <span class="cap-pill">Social sharing</span>
             <span class="cap-pill">Soft 404s</span>
             <span class="cap-pill">Images &amp; alt text</span>
           </div>
@@ -367,7 +370,7 @@ function addMsg(role,html,ts){
 function fmtTime(d){return(d instanceof Date?d:new Date(d)).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'});}
 function scroll(){requestAnimationFrame(()=>{chatA.scrollTop=chatA.scrollHeight;});}
 
-const DETS=[{id:'links',lbl:'Links & HTTP'},{id:'redirect',lbl:'Redirects'},{id:'images',lbl:'Images'},{id:'metadata',lbl:'Metadata'},{id:'soft404',lbl:'Soft 404s'},{id:'registry',lbl:'Issue registry'}];
+const DETS=[{id:'links',lbl:'Links & HTTP'},{id:'redirect',lbl:'Redirects'},{id:'images',lbl:'Images'},{id:'metadata',lbl:'SEO & tags'},{id:'soft404',lbl:'Soft 404s'},{id:'registry',lbl:'Issue registry'}];
 
 function buildProg(url){
   const c=el('div','prog-card');
@@ -401,7 +404,7 @@ async function streamSSE(runId,card){
       if(/checking \d+ distinct links/i.test(line))setPill(card,'links','running');
       else if(/following \d+ redirect/i.test(line))setPill(card,'redirect','running');
       else if(/checking \d+ distinct images/i.test(line)){setPill(card,'links','done');setPill(card,'redirect','done');setPill(card,'images','running');}
-      else if(/metadata and canonical/i.test(line)){setPill(card,'links','done');setPill(card,'redirect','done');setPill(card,'images','done');setPill(card,'metadata','running');}
+      else if(/=== seo, social/i.test(line)){setPill(card,'links','done');setPill(card,'redirect','done');setPill(card,'images','done');setPill(card,'metadata','running');}
       else if(/soft 404/i.test(line)){setPill(card,'metadata','done');setPill(card,'soft404','running');}
       else if(/issue registry/i.test(line)){setPill(card,'soft404','done');setPill(card,'registry','running');}
       else if(/done\. see issues/i.test(line))setPill(card,'registry','done');
@@ -458,7 +461,7 @@ function renderResults(reg,siteUrl){
   if(!issues.length){addMsg('agent','<span style="color:var(--success)">&#10003; No issues detected.</span> The site looks clean based on the detectors that ran.');return;}
   addMsg('agent','Done. I found <strong>'+counts.total+' issue'+(counts.total!==1?'s':'')+'</strong> in '+cats.length+' categor'+(cats.length!==1?'ies':'y')+'. Tap any issue to see its evidence.');
   const grouped=groupBy(issues,i=>i.category);
-  const order=['HTTP and URLs','Images','Soft 404s','Canonical tags','SEO and metadata'];
+  const order=['HTTP and URLs','Images','Soft 404s','SEO: indexing','SEO: titles & descriptions','Social sharing','Page setup'];
   const sorted=[...order.filter(c=>grouped[c]),...Object.keys(grouped).filter(c=>!order.includes(c))];
   const wrap=el('div','issue-list');
   sorted.forEach(cat=>wrap.appendChild(buildGrp(cat,grouped[cat])));
@@ -469,7 +472,7 @@ function buildSummaryCard(siteUrl,run,counts,bySev,cats){
   const card=el('div','rpt-card');
   const sa=run.startedAt?new Date(run.startedAt):null,fa=run.finishedAt?new Date(run.finishedAt):null;
   const dur=sa&&fa?Math.round((fa-sa)/1000):null;
-  const catMap={'HTTP and URLs':'Links & Redirects','Soft 404s':'Soft 404 detector','Canonical tags':'Canonical detector','SEO and metadata':'Metadata detector','Images':'Image checks'};
+  const catMap={'HTTP and URLs':'Links & Redirects','Soft 404s':'Soft 404 detector','SEO: indexing':'Canonical & robots','SEO: titles & descriptions':'Titles & headings','Social sharing':'Open Graph','Page setup':'Viewport & language','Images':'Image checks'};
   card.innerHTML=
     '<div class="rpt-hdr">'+
       '<div class="rpt-sicon" aria-hidden="true"><svg viewBox="0 0 20 20" fill="none" stroke="#515154" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="16" height="14" rx="2"/><path d="M2 7h16"/><circle cx="5.5" cy="5" r=".8" fill="black" stroke="none"/><circle cx="8" cy="5" r=".8" fill="black" stroke="none"/></svg></div>'+
@@ -532,14 +535,29 @@ function buildEvidence(iss){
     if(ev.finalStatus)h+='<div class="ev-row"><span class="ev-k">Final status</span><span class="ev-v">'+ev.finalStatus+'</span></div>';
     if(ev.chain&&ev.chain.length){h+='<div class="ev-row"><span class="ev-k">Chain</span><div class="ev-chain">'+ev.chain.map((u,i)=>'<span class="chain-u">'+esc(u)+'</span>'+(i<ev.chain.length-1?'<span class="chain-a">&rarr;</span>':'')).join('')+'</div></div>';}
   }else if(ev.kind==='head'){
-    const hd=ev.head||{};
-    if(hd.title!==undefined)h+='<div class="ev-row"><span class="ev-k">Title</span><span class="ev-v">'+(hd.title?esc(hd.title):'<em style="color:var(--text-3)">none</em>')+'</span></div>';
-    if(hd.description!==undefined)h+='<div class="ev-row"><span class="ev-k">Description</span><span class="ev-v">'+(hd.description?esc(hd.description):'<em style="color:var(--text-3)">none</em>')+'</span></div>';
-    if(hd.h1s&&hd.h1s.length)h+='<div class="ev-row"><span class="ev-k">H1</span><span class="ev-v">'+hd.h1s.map(esc).join(', ')+'</span></div>';
-    if(hd.canonicals&&hd.canonicals.length)h+='<div class="ev-row"><span class="ev-k">Canonical</span><span class="ev-v">'+hd.canonicals.map(esc).join(', ')+'</span></div>';
-    if(ev.canonicalCheck)h+='<div class="ev-row"><span class="ev-k">Canon. status</span><span class="ev-v">'+(ev.canonicalCheck.status??'unknown')+' ('+ev.canonicalCheck.classification+')</span></div>';
-    if(ev.rawHead&&!ev.rawSameAsRendered)h+='<div class="ev-row"><span class="ev-k">JS change</span><span class="ev-v" style="color:var(--medium)">Metadata differs in raw HTML vs rendered &mdash; JS-only</span></div>';
-    if(ev.rawSameAsRendered)h+='<div class="ev-row"><span class="ev-k">JS change</span><span class="ev-v" style="color:var(--text-3)">None (raw HTML matches rendered)</span></div>';
+    // Show only the tags that matter for this issue's category.
+    const hd=ev.head||{},cat=iss.category||'',none='<em style="color:var(--text-3)">none</em>';
+    const row=(k,v)=>'<div class="ev-row"><span class="ev-k">'+k+'</span><span class="ev-v">'+v+'</span></div>';
+    const val=(v)=>v?esc(v):none;
+    if(cat.startsWith('SEO: titles')){
+      h+=row('Title',val(hd.title))+row('Description',val(hd.description));
+      if(hd.h1s&&hd.h1s.length)h+=row('H1',hd.h1s.map(esc).join(', '));
+      if(iss.type==='heading-skip'&&hd.headings&&hd.headings.length)h+=row('Outline','<div class="ev-outline">'+hd.headings.slice(0,30).map(x=>'<div style="padding-left:'+((x.level-1)*14)+'px"><b>H'+x.level+'</b> '+esc(x.text)+'</div>').join('')+'</div>');
+      if(ev.rawHead&&!ev.rawSameAsRendered)h+=row('JS change','<span style="color:var(--medium)">Tags differ in raw HTML vs rendered &mdash; JS-only</span>');
+      if(ev.rawSameAsRendered)h+=row('JS change','<span style="color:var(--text-3)">None (raw HTML matches rendered)</span>');
+    }else if(cat==='SEO: indexing'){
+      h+=row('Canonical',hd.canonicals&&hd.canonicals.length?hd.canonicals.map(esc).join(', '):none);
+      if(ev.canonicalCheck)h+=row('Canon. status',esc(ev.canonicalCheck.status??'unknown')+' ('+esc(ev.canonicalCheck.classification)+')');
+      h+=row('Robots meta',val(hd.robots));
+    }else if(cat==='Social sharing'){
+      const og=hd.og||{},tw=hd.twitter||{};
+      for(const k of ['og:title','og:description','og:image'])h+=row(k,val(og[k]));
+      const extra=Object.keys(og).filter(k=>!['og:title','og:description','og:image'].includes(k));
+      if(extra.length)h+=row('Other og:',extra.map(k=>esc(k)+' = '+esc(og[k])).join('<br>'));
+      if(Object.keys(tw).length)h+=row('Twitter/X',Object.keys(tw).map(k=>esc(k)+' = '+esc(tw[k])).join('<br>'));
+    }else if(cat==='Page setup'){
+      h+=row('Viewport',val(hd.viewport))+row('&lt;html lang&gt;',val(hd.lang));
+    }
   }else if(ev.kind==='soft-404'){
     if(ev.title)h+='<div class="ev-row"><span class="ev-k">Title</span><span class="ev-v">'+esc(ev.title)+'</span></div>';
     if(ev.wordCount!=null)h+='<div class="ev-row"><span class="ev-k">Word count</span><span class="ev-v">'+ev.wordCount+'</span></div>';
@@ -550,6 +568,7 @@ function buildEvidence(iss){
     const row=(k,v)=>'<div class="ev-row"><span class="ev-k">'+k+'</span><span class="ev-v">'+v+'</span></div>';
     if(ev.status!==null&&ev.status<400&&/^https?:/.test(ev.src))h+='<img class="ev-img" src="'+esc(ev.finalUrl||ev.src)+'" alt="" loading="lazy">';
     h+=row('Image',esc(ev.src));
+    if(ev.usedAs)h+=row('Used as',esc(ev.usedAs)+' (the preview image when the page is shared)');
     if(ev.finalUrl)h+=row('Redirects to',esc(ev.finalUrl));
     h+=row('Status',ev.status===null?'<em style="color:var(--text-3)">no response</em>':esc(ev.status));
     if(ev.bytes)h+=row('File size',esc(ev.bytes>=1048576?(ev.bytes/1048576).toFixed(1)+' MB':ev.bytes>=1024?Math.round(ev.bytes/1024)+' KB':ev.bytes+' bytes'));
@@ -563,11 +582,11 @@ function buildEvidence(iss){
 }
 
 function issueLabel(t){
-  const m={'http-4xx-internal':'Internal link returns 4xx','http-4xx-external':'External link returns 4xx','link-unreachable':'Link unreachable','redirect-loop':'Redirect loop','redirect-chain':'Redirect chain','redirect-to-error':'Redirect ends in error','https-missing-redirect':'HTTP \u2192 HTTPS redirect missing','www-variant-not-redirected':'www/non-www not unified','soft-404':'Soft 404 (false 200 OK)','title-missing':'Missing <title> tag','title-multiple':'Multiple <title> tags','title-too-long':'Title too long','title-too-short':'Title too short','title-duplicate':'Duplicate title','description-missing':'Missing meta description','description-multiple':'Multiple meta descriptions','description-too-long':'Meta description too long','description-too-short':'Meta description too short','description-duplicate':'Duplicate meta description','h1-missing':'Missing H1','h1-multiple':'Multiple H1 tags','metadata-js-only':'Metadata only available after JS','canonical-missing':'Missing canonical tag','canonical-multiple':'Multiple canonical tags','canonical-broken-target':'Canonical points to broken URL','canonical-redirect':'Canonical points to redirect','image-broken':'Broken image','image-alt-missing':'Image has no alt text','image-alt-unhelpful':'Alt text does not describe the image','image-alt-too-long':'Alt text too long','image-mixed-content':'HTTP image on an HTTPS page','image-oversized':'Image file too large'};
+  const m={'http-4xx-internal':'Internal link returns 4xx','http-4xx-external':'External link returns 4xx','link-unreachable':'Link unreachable','redirect-loop':'Redirect loop','redirect-chain':'Redirect chain','redirect-to-error':'Redirect ends in error','https-missing-redirect':'HTTP \u2192 HTTPS redirect missing','www-variant-not-redirected':'www/non-www not unified','soft-404':'Soft 404 (false 200 OK)','title-missing':'Missing <title> tag','title-multiple':'Multiple <title> tags','title-too-long':'Title too long','title-too-short':'Title too short','title-duplicate':'Duplicate title','description-missing':'Missing meta description','description-multiple':'Multiple meta descriptions','description-too-long':'Meta description too long','description-too-short':'Meta description too short','description-duplicate':'Duplicate meta description','h1-missing':'Missing H1','h1-multiple':'Multiple H1 tags','metadata-js-only':'Metadata only available after JS','canonical-missing':'Missing canonical tag','canonical-multiple':'Multiple canonical tags','canonical-broken-target':'Canonical points to broken URL','canonical-redirect':'Canonical points to redirect','image-broken':'Broken image','image-alt-missing':'Image has no alt text','image-alt-unhelpful':'Alt text does not describe the image','image-alt-too-long':'Alt text too long','image-mixed-content':'HTTP image on an HTTPS page','image-oversized':'Image file too large','heading-skip':'Heading levels skip','robots-noindex':'Hidden from search (noindex)','robots-nofollow':'Links not followed (nofollow)','og-missing':'No Open Graph tags','og-incomplete':'Open Graph tags incomplete','og-image-broken':'Share image broken','viewport-missing':'No viewport tag (not mobile-friendly)','lang-missing':'No page language set'};
   return m[t]||t.replace(/-/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
 }
 function catIcon(c){
-  const m={'HTTP and URLs':'<circle cx="7" cy="7" r="5.5"/><path d="M7 4v3.5l2 2"/>','Soft 404s':'<circle cx="7" cy="7" r="5.5"/><path d="M7 4.5v3m0 1.5v.5"/>','Canonical tags':'<path d="M3 7h8m0 0l-3-3m3 3l-3 3"/><path d="M11 4h1a1 1 0 011 1v4a1 1 0 01-1 1h-1"/>','SEO and metadata':'<rect x="2" y="3" width="10" height="8" rx="1"/><path d="M5 6h4m-4 2h2"/>','Images':'<rect x="2" y="2.5" width="10" height="9" rx="1.5"/><circle cx="5.2" cy="5.6" r="1"/><path d="M2.5 10.5l3-3 2 2 1.5-1.5 2.5 2.5"/>'};
+  const m={'HTTP and URLs':'<circle cx="7" cy="7" r="5.5"/><path d="M7 4v3.5l2 2"/>','Soft 404s':'<circle cx="7" cy="7" r="5.5"/><path d="M7 4.5v3m0 1.5v.5"/>','SEO: indexing':'<path d="M3 7h8m0 0l-3-3m3 3l-3 3"/><path d="M11 4h1a1 1 0 011 1v4a1 1 0 01-1 1h-1"/>','SEO: titles & descriptions':'<rect x="2" y="3" width="10" height="8" rx="1"/><path d="M5 6h4m-4 2h2"/>','Images':'<rect x="2" y="2.5" width="10" height="9" rx="1.5"/><circle cx="5.2" cy="5.6" r="1"/><path d="M2.5 10.5l3-3 2 2 1.5-1.5 2.5 2.5"/>','Social sharing':'<circle cx="10.5" cy="3.5" r="1.6"/><circle cx="3.5" cy="7" r="1.6"/><circle cx="10.5" cy="10.5" r="1.6"/><path d="M5 6.2l4-2M5 7.8l4 2"/>','Page setup':'<rect x="4" y="1.5" width="6" height="11" rx="1.2"/><path d="M6.3 10.5h1.4"/>'};
   return m[c]||'<circle cx="7" cy="7" r="5.5"/>';
 }
 function groupBy(arr,fn){return arr.reduce((a,x)=>{const k=fn(x);if(!a[k])a[k]=[];a[k].push(x);return a;},{});}
