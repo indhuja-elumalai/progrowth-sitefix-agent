@@ -37,6 +37,12 @@ jobs:
           MAX_PAGES: ${{ github.event.inputs.max_pages }}
         run: node crawl.js "$TARGET_URL" --max-pages "$MAX_PAGES"
 
+      - name: Build the explained report and PDF
+        # Uses AI when the repository has an OPENAI_API_KEY secret; standard guidance otherwise.
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: node report.js
+
       - name: Upload reports as a downloadable artifact
         uses: actions/upload-artifact@v4
         with:
@@ -48,4 +54,5 @@ jobs:
             soft404.json
             images.json
             content.json
+            audit-report/
             issues.json
