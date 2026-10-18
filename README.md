@@ -63,7 +63,7 @@ nothing in the pipeline can skip the human-approval step.
 | SEO and metadata | Missing or duplicate titles and meta descriptions, missing H1, broken heading structure |
 | Canonical tags | Missing or duplicate canonical tag, canonical pointing to a 404 or to a redirect |
 | Sitemap and robots | robots.txt errors, sitemap URLs that error, redirect, or are wrongly marked noindex |
-| Images | Broken images, missing alt text, oversized files, HTTP images on HTTPS pages |
+| Images | Broken images, missing / unhelpful / too-long alt text, oversized files, HTTP images on HTTPS pages |
 | Links | Broken or redirected internal/external links, plus every page that links to the broken one |
 | Structured data and accessibility | Invalid schema/Open Graph tags, missing form labels, heading structure, contrast signals |
 
@@ -74,8 +74,8 @@ Sitebulb), consolidated into a set sized for Phase 1 rather than a full
 clone of a mature enterprise crawler.
 
 **Coverage in the current sprint (to Oct 17):** HTTP/URLs, links, redirects,
-metadata, canonical tags and soft 404s are built and tested; image and sitemap
-checks are basic (Day 7); robots.txt parsing,
+metadata, canonical tags and soft 404s are built and tested; image
+checks are built and tested (broken images, alt text, mixed content, oversized files); robots.txt parsing,
 structured data and accessibility follow in the next block.
 
 ## 5. How a fix is classified
@@ -149,22 +149,24 @@ progrowth-sitefix-agent/
 │       ├── crawl.yml                  run the crawler on any URL (manual)
 │       └── fixture-selfcheck.yml      unit tests, then crawl and score the fixture on every change
 ├── fixture/                           controlled test site with planted faults
-│   ├── generate-site.js               writes the 13 HTML pages into site/
-│   ├── server.js                      serves them with real HTTP redirects
+│   ├── generate-site.js               writes the 15 HTML pages and the small images into site/
+│   ├── server.js                      serves them with real HTTP redirects (and generates the oversized test image)
 │   ├── selfcheck.js                   proves the fixture behaves as claimed
 │   ├── score.js                       scores crawler output against the planted issues
-│   ├── expected-issues.json           ground truth: the 12 planted issues
+│   ├── expected-issues.json           ground truth: the 16 planted issues
 │   └── site/                          generated pages
 ├── lib/
 │   ├── redirects.js                   follow redirects hop by hop, classify them, site-level checks
 │   ├── metadata.js                    read title / description / H1 / canonical, apply the metadata rules
 │   ├── soft404.js                     soft-404 rule: says "not found" plus a second signal
+│   ├── images.js                      image rules: pick the real src, decorative or not, alt text, size, mixed content
 │   └── issues.js                      issue schema, severity and fix-class catalog, registry builder and validator
 ├── test/
 │   ├── redirects.test.js              unit tests for lib/redirects.js
 │   ├── metadata.test.js               unit tests for lib/metadata.js
 │   ├── soft404.test.js                unit tests for lib/soft404.js
-│   └── issues.test.js                 unit tests for lib/issues.js (npm test runs all four)
+│   ├── images.test.js                 unit tests for lib/images.js
+│   └── issues.test.js                 unit tests for lib/issues.js (npm test runs all five)
 ├── ui/                                chat-first internal website audit agent UI
 │   ├── build-index.js                 source of the page: edit this, then run it to regenerate index.html
 │   ├── index.html                     generated single-page chat interface (do not edit by hand)
@@ -190,7 +192,7 @@ Saturday. Fridays are a half day of build plus review preparation.
 | 4 | Thu Oct 8 | Metadata and canonical detector | **Done** |
 | 5 | Fri Oct 9 | Soft-404 rule, then Week 1 review prep | **Done** |
 | 6 | Sat Oct 10 | Evidence capture and issue schema, registry v0 | **Done** |
-| 7 | Mon Oct 12 | Registry across runs, image and sitemap checks | Planned |
+| 7 | Mon Oct 12 | Registry across runs, image and sitemap checks | Image checks **Done**; registry across runs and sitemap checks planned |
 | 8 | Tue Oct 13 | AI layer: input and output contract | Planned |
 | 9 | Wed Oct 14 | AI layer: guardrails and evaluation | Planned |
 | 10 | Thu Oct 15 | Readable report: chat-first audit UI (SiteFix) | **Done** |
@@ -277,7 +279,7 @@ ignored when deciding whether a page was already crawled.
 | `--no-sitemap` | off | Only follow links, skip the sitemap |
 
 Lower `--concurrency` and `--link-concurrency` (or raise `--delay-ms`) for
-small or fragile servers. It writes five files:
+small or fragile servers. It writes six files:
 
 - `report.json`: one entry per crawled page (raw vs rendered status, title,
   word count, broken resources, and the page's title, meta description, H1s,
@@ -305,6 +307,16 @@ small or fragile servers. It writes five files:
   evidence and a `flagged` true/false. Candidates are every page that loaded
   plus up to 20 pages that are only ever reached through redirects (the
   crawler never lands on them directly).
+- `images.json`: a summary (images found, broken, alt problems, mixed
+  content, oversized, size unknown) and one entry per distinct image URL:
+  its status, where it redirects, its size and type, every page it is on,
+  and which pages have missing, unhelpful or too-long alt text. Each image
+  is checked once (HEAD, falling back to GET; redirects followed to the
+  real file). Decorative images (`alt=""`, `role="presentation"`,
+  `aria-hidden="true"`) skip the alt rules. Lazy-loaded images are read
+  from `data-src` / `srcset` when `src` is only a placeholder. Limits:
+  alt text up to 125 characters, files up to 300 KB (`IMAGE_LIMITS` in
+  `lib/images.js`).
 
 ### Issue records
 
@@ -369,7 +381,7 @@ it does not yet compare with earlier runs.
 ### Run the unit tests and the test fixture
 
 ```bash
-npm test                              # unit tests for the redirect, metadata, soft-404 and registry logic (no server needed)
+npm test                              # unit tests for the redirect, metadata, soft-404, image and registry logic (no server needed)
 ```
 
 The fixture is a small site with a known set of planted faults, used to
@@ -388,10 +400,10 @@ serve real HTTP 301/302 redirects, so a redirect chain or loop cannot be
 planted there. The same server runs in CI (`fixture-selfcheck.yml`), which
 runs the unit tests, then crawls and scores the fixture on every push.
 
-**Detected so far: 11 of the 12 planted issues**; only F-03 (broken image) is
-left, due on Day 7.
+**Detected so far: all 16 planted issues, with 0 false positives** (CI
+requires 16).
 
-**The 12 planted issues** (`fixture/expected-issues.json`):
+**The 16 planted issues** (`fixture/expected-issues.json`):
 
 | ID | Planted fault |
 |---|---|
@@ -406,13 +418,20 @@ left, due on Day 7.
 | F-10 | Canonical pointing at a 404 |
 | F-11 | Redirect that ends in a 404 (`/old-page`) |
 | F-12 | Soft 404 reached only through redirects: 200 OK, title says 404, two old links redirect into it (the sonagroup.ae pattern) |
+| F-13 | Image with no alt attribute (`/img/office.svg` on `/image-alt.html`) |
+| F-14 | Image whose alt text is a camera file name (`IMG_0042.jpg`) |
+| F-15 | Image with alt text over 125 characters |
+| F-16 | Image file over 300 KB (`/img/large-banner.svg` on `/large-image.html`, generated by the server) |
 
 Four control pages (`/`, `/about.html`, `/contact.html`, `/final.html`)
 must produce no issues, and the self-check confirms every fixture title and
 description is inside the length limits so the length rules stay quiet; `/contact.html` is deliberately short but valid,
-to catch soft-404 false alarms. Not yet planted: http-to-https and www
-mismatches (they need real hostnames, so they are covered by unit tests with
-a fake server), and sitemap and robots faults and image alt text (Day 7).
+to catch soft-404 false alarms. `/image-alt.html` also carries two
+decorative images (`alt=""` and `aria-hidden="true"`) that must not be
+flagged. Not yet planted: http-to-https and www mismatches (they need real
+hostnames, so they are covered by unit tests with a fake server), image mixed
+content (the fixture runs on http, so it is covered by unit tests), and
+sitemap and robots faults.
 
 ## 12. Results so far
 
@@ -561,6 +580,35 @@ redirect chains (22), plus 4 external links returning 4xx, 4 over-long titles,
 2 redirects that end in an error, 2 duplicate descriptions, 1 broken internal
 link and 1 missing canonical.
 
+### Day 12: image checks
+
+New detector `lib/images.js` (pure functions, 21 unit tests, plus 2 registry tests) and six issue
+types in a new **Images** category:
+
+| Type | Severity | Rule |
+|---|---|---|
+| `image-broken` | high | Image URL returns 4xx/5xx after redirects, or loops |
+| `image-alt-missing` | medium | No `alt` attribute and not marked decorative |
+| `image-alt-unhelpful` | low | Alt is a file name, camera name, hash or filler word ("image", "logo") |
+| `image-alt-too-long` | low | Alt text over 125 characters |
+| `image-mixed-content` | high | `http://` image on an `https://` page |
+| `image-oversized` | medium | File over 300 KB (from the server's reported size) |
+
+Each issue is filed once per image URL with the pages it appears on; an alt
+problem lists only the pages where that image has the problem. The UI shows
+an Images group with a preview, status, size, type and the alt text in the
+evidence.
+
+Fixture: score went from 11 of 12 to **16 of 16 planted issues found**, 0
+false positives (F-03 broken image, plus new F-13 to F-16). Also checked by
+hand against a throwaway server: an image that redirects is followed to the
+real file and sized there, a lazy-loaded image (`data:` placeholder plus
+`data-src`) is found, and an image redirect loop is reported as broken.
+
+Not covered yet: CSS background images, real compression analysis (only the
+reported file size), and whether the alt text actually describes the image
+(that needs the AI layer).
+
 ## 13. Security principles
 
 - Every client site is its own isolated tenant: separate credentials,
@@ -586,4 +634,4 @@ Every PR uses [`.github/PULL_REQUEST_TEMPLATE.md`](.github/PULL_REQUEST_TEMPLATE
 what it does, which roadmap item it closes, how it was tested, the
 outcome, and any risk notes. A PR is done when its checks pass (unit tests
 and the fixture score) and it is merged to `main`. Never commit tokens,
-`.env` files, `report.json`, `links.json`, `metadata.json`, `soft404.json` or `issues.json`.
+`.env` files, `report.json`, `links.json`, `metadata.json`, `soft404.json`, `images.json` or `issues.json`.
