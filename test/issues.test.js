@@ -106,3 +106,24 @@ test("every catalog entry is well-formed", () => {
         assert.ok(m.category && ["high", "medium", "low"].includes(m.severity) && ["deterministic", "ai-proposed", "not-automatable"].includes(m.fixClass), type);
     }
 });
+
+test("image findings become Images issues with image evidence", () => {
+    const imageFindings = [
+        { type: "image-broken", affectedUrl: "https://x.test/img/gone.jpg", foundOn: ["https://x.test/b", "https://x.test/a"], detail: "Image returns 404", evidence: { kind: "image", src: "https://x.test/img/gone.jpg", status: 404 } },
+        { type: "image-alt-missing", affectedUrl: "https://x.test/img/team.jpg", foundOn: ["https://x.test/a"], detail: "No alt attribute", evidence: { kind: "image", src: "https://x.test/img/team.jpg", status: 200, alt: null } },
+    ];
+    const r = buildRegistry({ run, imageFindings });
+    assert.deepEqual(validateRegistry(r), []);
+    assert.deepEqual(r.issues.map((i) => [i.type, i.category, i.severity, i.fixClass]), [
+        ["image-broken", "Images", "high", "ai-proposed"],
+        ["image-alt-missing", "Images", "medium", "ai-proposed"],
+    ]);
+    assert.deepEqual(r.issues[0].foundOn, ["https://x.test/a", "https://x.test/b"]); // sorted
+    assert.equal(r.issues[0].evidence.kind, "image");
+});
+
+test("every image type is in the catalog under Images", () => {
+    for (const t of ["image-broken", "image-alt-missing", "image-alt-unhelpful", "image-alt-too-long", "image-mixed-content", "image-oversized"]) {
+        assert.equal(CATALOG[t]?.category, "Images", t);
+    }
+});
