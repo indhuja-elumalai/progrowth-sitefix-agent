@@ -20,16 +20,21 @@ const LONG_ALT =
   "Bar chart comparing quarterly visitor numbers for every page on the fixture site across four years, " +
   "with a separate line showing the average bounce rate for each quarter";
 
-function page({ file, title, desc, h1, body, canonical }) {
+// Every page gets lang, viewport and complete Open Graph tags unless a fault
+// is planted on purpose:
+//   og: true (title, description, image from the page) | false (none) | { "og:...": value } (exactly these)
+//   robots: content of <meta name="robots">;  viewport / lang: false to leave them out
+function page({ file, title, desc, h1, body, canonical, og = true, robots = null, viewport = true, lang = true }) {
   const titleTag = title ? `<title>${title}</title>\n` : "";
+  const ogTags = og === true ? { "og:title": title || h1, "og:description": desc, "og:image": `${BASE}/img/logo.svg` } : og || {};
+  const ogHtml = Object.entries(ogTags).map(([k, v]) => `<meta property="${k}" content="${v}">\n`).join("");
   const html = `<!doctype html>
-<html lang="en">
+<html${lang ? ' lang="en"' : ""}>
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-${titleTag}<meta name="description" content="${desc}">
+${viewport ? '<meta name="viewport" content="width=device-width, initial-scale=1">\n' : ""}${titleTag}<meta name="description" content="${desc}">
 <link rel="canonical" href="${canonical || `${BASE}/${file}`}">
-</head>
+${robots ? `<meta name="robots" content="${robots}">\n` : ""}${ogHtml}</head>
 <body>
 <h1>${h1}</h1>
 ${body}
@@ -45,7 +50,9 @@ const navLinks = [
   ["soft-404.html", "Soft 404 page"], ["missing-title.html", "Missing title page"],
   ["dup-title-1.html", "Duplicate title one"], ["dup-title-2.html", "Duplicate title two"],
   ["canonical-to-404.html", "Canonical page"], ["image-alt.html", "Image alt text page"],
-  ["large-image.html", "Large image page"],
+  ["large-image.html", "Large image page"], ["noindex.html", "Hidden from search page"],
+  ["heading-skip.html", "Heading order page"], ["no-social.html", "No share tags page"],
+  ["social-partial.html", "Partial share tags page"], ["page-setup.html", "Page setup page"],
 ];
 const nav = navLinks.map(([f, l]) => `<li><a href="/${f}">${l}</a></li>`).join("");
 
@@ -153,6 +160,45 @@ const pages = [
     // F-16: fixture/server.js generates /img/large-banner.svg in memory (over 300 KB), so no big file is committed
     body: long("One large image follows.") +
       '<img src="/img/large-banner.svg" alt="Wide product banner showing the full fixture range" width="640" height="160">'
+  },
+  // ---- SEO: indexing ----
+  {
+    // F-17 and F-18: robots meta asks search engines not to index or follow this page
+    file: "noindex.html", title: "Page Hidden From Search with Noindex Planted",
+    desc: "A normal page whose robots meta tag says noindex, nofollow, so search engines are told to drop it and ignore its links.",
+    h1: "Hidden from search", body: long("The robots meta tag on this page says noindex, nofollow."),
+    robots: "noindex, nofollow"
+  },
+  // ---- SEO: titles & descriptions ----
+  {
+    // F-19: heading levels skip from H2 straight to H4
+    file: "heading-skip.html", title: "Heading Order Page with One Skipped Level",
+    desc: "A page whose headings go from H2 straight to H4, skipping H3, used to test the heading-order rule.",
+    h1: "Service overview",
+    body: long("The headings below skip a level on purpose.") +
+      "<h2>What we offer</h2><p>Three service tiers.</p><h4>Tier details</h4><p>Details for each tier.</p>"
+  },
+  // ---- Social sharing ----
+  {
+    // F-20: no Open Graph tags at all
+    file: "no-social.html", title: "Page with No Open Graph Share Tags Planted",
+    desc: "A page with no Open Graph tags, so a shared link shows no title, description or preview image.",
+    h1: "No share tags", body: long("This page has no Open Graph tags."), og: false
+  },
+  {
+    // F-21: og:description missing; F-22: og:image points at a missing file
+    file: "social-partial.html", title: "Page with Partial Open Graph Tags Planted",
+    desc: "A page with an Open Graph title and a share image that returns 404, but no Open Graph description.",
+    h1: "Partial share tags", body: long("This page has incomplete Open Graph tags."),
+    og: { "og:title": "Partial share tags", "og:image": `${BASE}/img/missing-share.png` }
+  },
+  // ---- Page setup ----
+  {
+    // F-23: no viewport meta tag; F-24: no lang on <html>
+    file: "page-setup.html", title: "Page Setup Page Missing Viewport and Language",
+    desc: "A page with no viewport meta tag and no lang attribute on the html element, used to test the page-setup rules.",
+    h1: "Page setup test", body: long("This page has no viewport tag and no language attribute."),
+    viewport: false, lang: false
   },
   {
     file: "canonical-to-404.html", title: "Canonical Pointing at a Missing Page",
