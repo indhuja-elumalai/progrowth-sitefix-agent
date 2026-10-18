@@ -25,6 +25,13 @@ const redirects = {
   "/old-help": [302, "/gone.html"],
   "/old-faq": [302, "/gone.html"],
 };
+// Planted oversized image (F-16): a valid SVG padded past 300 KB with a comment.
+// Generated here so no large file is committed.
+const LARGE_BANNER = Buffer.from(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="160"><rect width="640" height="160" fill="#2B7A78"/>' +
+  `<!-- ${"padding ".repeat(40 * 1024)} --></svg>\n`
+);
+
 const types = {
   ".html": "text/html; charset=utf-8",
   ".svg": "image/svg+xml",
@@ -39,6 +46,10 @@ const main = http.createServer(async (req, res) => {
     res.writeHead(code, { Location: to });
     return res.end();
   }
+  if (p === "/img/large-banner.svg") {
+    res.writeHead(200, { "Content-Type": "image/svg+xml", "Content-Length": LARGE_BANNER.length });
+    return res.end(LARGE_BANNER);
+  }
   if (p === "/") p = "/index.html";
   const file = path.join(root, path.normalize(p));
   if (!file.startsWith(root)) {
@@ -47,7 +58,7 @@ const main = http.createServer(async (req, res) => {
   }
   try {
     const data = await readFile(file);
-    res.writeHead(200, { "Content-Type": types[path.extname(file)] || "application/octet-stream" });
+    res.writeHead(200, { "Content-Type": types[path.extname(file)] || "application/octet-stream", "Content-Length": data.length });
     res.end(data);
   } catch {
     // A genuine 404: correct status code, error content.

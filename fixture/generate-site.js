@@ -16,6 +16,9 @@ const FILLER =
   "technically clean unless a fault was planted on purpose, so that anything a detector reports can be compared against a " +
   "known list. The body text is deliberately long enough that a short-content rule will never mistake this page for an empty one.";
 const long = (extra) => `<p>${FILLER} ${extra}</p>`;
+const LONG_ALT =
+  "Bar chart comparing quarterly visitor numbers for every page on the fixture site across four years, " +
+  "with a separate line showing the average bounce rate for each quarter";
 
 function page({ file, title, desc, h1, body, canonical }) {
   const titleTag = title ? `<title>${title}</title>\n` : "";
@@ -41,7 +44,8 @@ const navLinks = [
   ["broken-links.html", "Links page"], ["broken-image.html", "Image page"], ["redirects.html", "Redirect page"],
   ["soft-404.html", "Soft 404 page"], ["missing-title.html", "Missing title page"],
   ["dup-title-1.html", "Duplicate title one"], ["dup-title-2.html", "Duplicate title two"],
-  ["canonical-to-404.html", "Canonical page"],
+  ["canonical-to-404.html", "Canonical page"], ["image-alt.html", "Image alt text page"],
+  ["large-image.html", "Large image page"],
 ];
 const nav = navLinks.map(([f, l]) => `<li><a href="/${f}">${l}</a></li>`).join("");
 
@@ -128,6 +132,29 @@ const pages = [
     h1: "Duplicate title page two", body: long("This page shares its title with page one.")
   },
   {
+    file: "image-alt.html", title: "Image Alt Text Page with Three Faults Planted",
+    desc: "Contains one image without alt text, one with a file name as alt text, one with over-long alt text, and two decorative images.",
+    h1: "Team gallery",
+    body: long("Five images follow: three with planted alt-text faults and two decorative controls.") +
+      // F-13: no alt attribute at all
+      '<img src="/img/office.svg" width="64" height="64">' +
+      // F-14: the alt text is just a camera file name
+      '<img src="/img/team-photo.svg" alt="IMG_0042.jpg" width="64" height="64">' +
+      // F-15: alt text over 125 characters
+      `<img src="/img/chart.svg" alt="${LONG_ALT}" width="64" height="64">` +
+      // Controls: decorative images must NOT be flagged (alt="" and aria-hidden)
+      '<img src="/img/divider.svg" alt="" width="64" height="4">' +
+      '<img src="/img/pattern.svg" aria-hidden="true" width="64" height="64">'
+  },
+  {
+    file: "large-image.html", title: "Large Image Page with One Oversized Image",
+    desc: "Contains one well described image whose file is larger than 300 KB, used to test the oversized-image rule.",
+    h1: "Product showcase",
+    // F-16: fixture/server.js generates /img/large-banner.svg in memory (over 300 KB), so no big file is committed
+    body: long("One large image follows.") +
+      '<img src="/img/large-banner.svg" alt="Wide product banner showing the full fixture range" width="640" height="160">'
+  },
+  {
     file: "canonical-to-404.html", title: "Canonical Pointing at a Missing Page",
     desc: "This page declares a canonical URL that returns 404, which search engines cannot use.",
     h1: "Canonical test", body: long("The canonical tag points at a page that does not exist."),
@@ -137,8 +164,17 @@ const pages = [
 
 pages.forEach(page);
 
-writeFileSync(
-  path.join(siteDir, "img", "logo.svg"),
-  '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64"><rect width="64" height="64" rx="10" fill="#2B7A78"/><text x="32" y="42" font-size="28" text-anchor="middle" fill="#fff" font-family="Arial">F</text></svg>\n'
-);
-console.log(`Wrote ${pages.length} pages and 1 image to ${siteDir}`);
+// Small SVG images (a letter on a coloured square). large-banner.svg is not
+// written here: fixture/server.js generates it in memory.
+const svg = (letter, color) =>
+  `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64"><rect width="64" height="64" rx="10" fill="${color}"/><text x="32" y="42" font-size="28" text-anchor="middle" fill="#fff" font-family="Arial">${letter}</text></svg>\n`;
+const images = {
+  "logo.svg": svg("F", "#2B7A78"),
+  "office.svg": svg("O", "#3D5A80"),
+  "team-photo.svg": svg("T", "#98C1D9"),
+  "chart.svg": svg("C", "#EE6C4D"),
+  "divider.svg": svg("-", "#CCCCCC"),
+  "pattern.svg": svg("~", "#DDDDDD"),
+};
+for (const [name, body] of Object.entries(images)) writeFileSync(path.join(siteDir, "img", name), body);
+console.log(`Wrote ${pages.length} pages and ${Object.keys(images).length} images to ${siteDir}`);

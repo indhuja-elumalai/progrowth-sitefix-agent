@@ -37,7 +37,8 @@ async function follow(start, max = 10) {
 console.log("-- HTTP behaviour");
 for (const p of ["/", "/about.html", "/contact.html", "/final.html", "/broken-links.html", "/broken-image.html",
   "/redirects.html", "/soft-404.html", "/missing-title.html", "/dup-title-1.html", "/dup-title-2.html",
-  "/canonical-to-404.html", "/gone.html", "/img/logo.svg"]) {
+  "/canonical-to-404.html", "/gone.html", "/image-alt.html", "/large-image.html",
+  "/img/logo.svg", "/img/office.svg", "/img/team-photo.svg", "/img/chart.svg", "/img/divider.svg", "/img/pattern.svg"]) {
   const { status } = await hit(base + p);
   check(`200 ${p}`, status === 200, `got ${status}`);
 }
@@ -46,6 +47,9 @@ for (const p of ["/does-not-exist.html", "/img/missing.jpg", "/gone-page.html"])
   check(`404 ${p}`, status === 404, `got ${status}`);
 }
 check("external /gone is 404", (await hit(ext + "/gone")).status === 404);
+const banner = await fetch(base + "/img/large-banner.svg", { method: "HEAD" });
+const bannerBytes = Number(banner.headers.get("content-length"));
+check("large-banner.svg is 200 and reports a size over 300 KB", banner.status === 200 && bannerBytes > 300 * 1024, `status=${banner.status} bytes=${bannerBytes}`);
 check("external /ok is 200", (await hit(ext + "/ok")).status === 200);
 
 const help = await follow(base + "/old-help");
@@ -84,6 +88,13 @@ check(
     info[f].desc.length >= LIMITS.descriptionMin && info[f].desc.length <= LIMITS.descriptionMax),
   files.filter((f) => (info[f].title && (info[f].title.length < LIMITS.titleMin || info[f].title.length > LIMITS.titleMax)) || info[f].desc.length < LIMITS.descriptionMin || info[f].desc.length > LIMITS.descriptionMax).join()
 );
+const imgTags = {};
+for (const f of files) imgTags[f] = (await readFile(path.join(dir, "site", f), "utf8")).match(/<img\b[^>]*>/gi) || [];
+const lacksAlt = (tag) => !/\salt=/i.test(tag) && !/aria-hidden="true"/i.test(tag);
+check("only image-alt.html has an image without alt (the planted office.svg)",
+  files.filter((f) => imgTags[f].some(lacksAlt)).join() === "image-alt.html" && imgTags["image-alt.html"].filter(lacksAlt).length === 1);
+check("image-alt.html keeps its two decorative controls (alt=\"\" and aria-hidden)",
+  imgTags["image-alt.html"].some((t) => /alt=""/.test(t)) && imgTags["image-alt.html"].some((t) => /aria-hidden="true"/.test(t)));
 check("only canonical-to-404.html has a non-self canonical", files.filter((f) => info[f].canonical !== `${base}/${f}`).join() === "canonical-to-404.html");
 
 console.log("-- Ground truth file");

@@ -1,4 +1,4 @@
-// Crawler, Day 11 version.
+// Crawler, Day 12 version.
 // Usage: node crawl.js https://your-site.com [--max-pages 0] [--concurrency 4]
 //          [--link-concurrency 8] [--settle-ms 1500] [--delay-ms 150] [--no-sitemap]
 //
@@ -25,14 +25,20 @@
 //      into the page). Pages that are only reached through redirects are
 //      fetched and judged too.
 //
-//   9. Gathers every finding into one issue registry (issues.json): a typed
+//   9. Reads every <img> on each page (src, lazy-load src, alt, decorative
+//      markers), checks each distinct image URL once (following redirects,
+//      reading its size), and flags broken images, missing / unhelpful /
+//      too-long alt text, http images on https pages, and files over 300 KB.
+//
+//  10. Gathers every finding into one issue registry (issues.json): a typed
 //      issue with severity, the pages it was found on, and the evidence.
 //
-// Writes five files:
+// Writes six files:
 //   report.json    one entry per crawled page (raw vs rendered, with head facts)
 //   links.json     summary, site-level checks, redirect destinations, one entry per link
 //   metadata.json  per-page metadata and canonical issues, with a summary
 //   soft404.json   pages with soft-404 signals, flagged or not, with the evidence
+//   images.json    one entry per distinct image: status, size, pages, alt problems
 //   issues.json    the issue registry: every finding as one typed record with evidence
 //
 // Nothing here fixes anything or touches the site. It only looks and records.
@@ -43,6 +49,7 @@ import { extractHead, headIssues, findDuplicates, canonicalTargetIssue, jsDepend
 import { buildRegistry, validateRegistry } from "./lib/issues.js";
 import { analyzeSoft404, visibleWordCount } from "./lib/soft404.js";
 import { followRedirects, classifyRedirect, redirectIssueType, siteLevelChecks } from "./lib/redirects.js";
+import { pickImageSrc, isDecorative, summarizeImages, imageFindings, formatBytes, IMAGE_LIMITS } from "./lib/images.js";
 
 // ---------- command line ----------
 const args = process.argv.slice(2);
@@ -150,7 +157,7 @@ async function fetchRendered(context, url) {
     if (SETTLE_MS > 0) await page.waitForLoadState("networkidle", { timeout: SETTLE_MS }).catch(() => { });
   } catch (err) {
     await page.close();
-    return { status: null, error: String(err), links: [], brokenLinks: [] };
+    return { status: null, error: String(err), links: [], brokenLinks: [], images: [] };
   }
 
   const title = await page.title();
@@ -165,8 +172,21 @@ async function fetchRendered(context, url) {
     links.add(u.href);
   }
 
+  // Every <img>, with the attributes the image rules need (lib/images.js).
+  const rawImages = await page.$$eval("img", (imgs) => imgs.map((i) => ({
+    currentSrc: i.currentSrc || "",
+    src: i.getAttribute("src") || "",
+    dataSrc: i.getAttribute("data-src") || i.getAttribute("data-lazy-src") || i.getAttribute("data-original") || "",
+    srcset: i.getAttribute("srcset") || i.getAttribute("data-srcset") || "",
+    alt: i.getAttribute("alt"), // null when the attribute is absent, "" when empty
+    role: i.getAttribute("role") || "",
+    ariaHidden: i.getAttribute("aria-hidden") || "",
+  })));
+  const base = page.url(); // resolve relative src against where the page ended up
+  const images = rawImages.map((r) => ({ src: pickImageSrc(r, base), alt: r.alt, decorative: isDecorative(r) }));
+
   await page.close();
-  return { status, title, head, wordCount, links: [...links], brokenLinks };
+  return { status, title, head, wordCount, links: [...links], brokenLinks, images };
 }
 
 // ---------- direct link check ----------
@@ -188,7 +208,8 @@ function classify(status) {
   return "broken"; // other 4xx and 5xx
 }
 
-async function checkLink(url) {
+// With { meta: true } it also returns the response's size and type (used for images).
+async function checkLink(url, { meta = false } = {}) {
   try {
     let res = await requestOnce(url, "HEAD");
     // Some servers reject HEAD (405/501) or block it with 403. Retry with GET before judging.
@@ -197,11 +218,16 @@ async function checkLink(url) {
       res = await requestOnce(url, "GET");
     }
     res.body?.cancel().catch(() => { }); // we only need the status, not the page
-    return {
+    const out = {
       status: res.status,
       location: res.headers.get("location") || null,
       classification: classify(res.status),
     };
+    if (meta) {
+      out.bytes = Number(res.headers.get("content-length")) || null; // null when the server does not say
+      out.contentType = res.headers.get("content-type") || null;
+    }
+    return out;
   } catch (err) {
     const timedOut = err?.name === "TimeoutError" || err?.name === "AbortError";
     return {
@@ -211,6 +237,19 @@ async function checkLink(url) {
       error: timedOut ? "timeout" : String(err.cause?.code || err.message),
     };
   }
+}
+
+// ---------- image check ----------
+// Like a link check, but follows redirects to the real file and reads its size there.
+async function checkImage(url) {
+  const first = await checkLink(url, { meta: true });
+  if (first.classification !== "redirect") return { ...first, finalUrl: null };
+  const r = classifyRedirect(await followRedirects(url, checkLink, { maxHops: MAX_HOPS }));
+  if (!r.finalUrl) { // a loop, or more than MAX_HOPS redirects: the image never arrives
+    return { status: null, classification: "broken", error: r.kind === "loop" ? "redirect loop" : "too many redirects", bytes: null, contentType: null, finalUrl: null };
+  }
+  const end = await checkLink(r.finalUrl, { meta: true });
+  return { ...end, finalUrl: r.finalUrl };
 }
 
 // ---------- sitemap ----------
@@ -272,6 +311,7 @@ async function main() {
   // Crawl with CONCURRENCY workers sharing one queue. A worker stops when the
   // queue is empty and no other worker is still busy (and could add more).
   const crawled = []; // { n, entry } in completion order; sorted by n afterwards
+  const imageOccurrences = []; // one per <img> per page (pages that loaded with 2xx only)
   let active = 0;
   const worker = async () => {
     for (;;) {
@@ -308,6 +348,10 @@ async function main() {
             jsChangedTitle: rawIsPage && renderedOk && (raw.title || "") !== (rendered.title || ""),
           },
         });
+
+        if (rendered.status >= 200 && rendered.status < 300) {
+          for (const img of rendered.images) imageOccurrences.push({ pageUrl: url, ...img });
+        }
 
         for (const link of rendered.links || []) {
           if (!foundOn.has(link)) foundOn.set(link, new Set());
@@ -349,6 +393,39 @@ async function main() {
     const c = classifyRedirect(result);
     l.redirect = { ...c, issueType: redirectIssueType(c) };
   });
+
+  // ---------- images ----------
+  const imageSummary = summarizeImages(imageOccurrences);
+  console.log(`Checking ${imageSummary.length} distinct images (${imageOccurrences.length} <img> tags)...`);
+  const imageChecks = await mapPool(imageSummary, LINK_CONCURRENCY, async (img) => {
+    const c = await checkImage(img.url);
+    if (DELAY_MS) await sleep(DELAY_MS); // be polite to the server
+    return c;
+  });
+  const imageEntries = imageSummary.map((img, i) => {
+    const check = imageChecks[i];
+    const findings = imageFindings(img, check);
+    return { ...img, status: check.status, classification: check.classification, finalUrl: check.finalUrl, bytes: check.bytes ?? null, contentType: check.contentType ?? null, error: check.error, issues: findings.map((f) => f.type), findings };
+  });
+  const imgFindings = imageEntries.flatMap((e) => e.findings);
+  const imgCount = (t) => imgFindings.filter((f) => f.type === t).length;
+  const images = {
+    imagesFound: imageEntries.length,
+    imgTags: imageOccurrences.length,
+    limits: { altMaxChars: IMAGE_LIMITS.altMax, maxBytes: IMAGE_LIMITS.maxBytes },
+    broken: imgCount("image-broken"),
+    unverified: imageEntries.filter((e) => e.classification === "unverified" || e.classification === "unreachable").length,
+    altMissing: imgCount("image-alt-missing"),
+    altUnhelpful: imgCount("image-alt-unhelpful"),
+    altTooLong: imgCount("image-alt-too-long"),
+    mixedContent: imgCount("image-mixed-content"),
+    oversized: imgCount("image-oversized"),
+    sizeUnknown: imageEntries.filter((e) => e.classification === "ok" && e.bytes === null).length,
+  };
+  await writeFile("images.json", JSON.stringify({
+    summary: images,
+    images: imageEntries.map(({ findings, ...e }) => e),
+  }, null, 2));
 
   // Which destinations do many different redirecting links end up on?
   const byDestination = new Map();
@@ -439,7 +516,7 @@ async function main() {
   const runId = "run-" + startedAt.replace(/[-:]/g, "").slice(0, 15);
   const registry = buildRegistry({
     run: { id: runId, startedAt, finishedAt: new Date().toISOString(), startUrl, pagesCrawled: visited.size, capReached, toolVersion: "0.6" },
-    links, siteChecks, metaPages, softPages: soft,
+    links, siteChecks, metaPages, softPages: soft, imageFindings: imgFindings,
   });
   const registryProblems = validateRegistry(registry);
   await writeFile("issues.json", JSON.stringify(registry, null, 2));
@@ -518,6 +595,16 @@ async function main() {
     if (n > 3) console.log(`  ... and ${n - 3} more in metadata.json`);
   }
 
+  console.log("\n=== Images ===");
+  console.log(`  ${images.imagesFound} distinct images in ${images.imgTags} <img> tags: ${images.broken} broken, ${images.altMissing} missing alt, ${images.altUnhelpful} unhelpful alt, ${images.altTooLong} alt too long, ${images.mixedContent} mixed content, ${images.oversized} over ${formatBytes(IMAGE_LIMITS.maxBytes)}`);
+  for (const t of ["image-broken", "image-alt-missing", "image-alt-unhelpful", "image-alt-too-long", "image-mixed-content", "image-oversized"]) {
+    const list = imgFindings.filter((f) => f.type === t);
+    if (!list.length) continue;
+    console.log(`\n${t} (${list.length}):`);
+    for (const f of list.slice(0, 5)) console.log(`  ${f.affectedUrl}  ${f.detail}  (on ${f.foundOn.length} page${f.foundOn.length === 1 ? "" : "s"})`);
+    if (list.length > 5) console.log(`  ... and ${list.length - 5} more in images.json`);
+  }
+
   console.log("\n=== Soft 404 ===");
   console.log(`  ${soft.length} pages analysed (${extra.length} reached only through redirects), ${softFlagged.length} flagged`);
   for (const s of softFlagged.slice(0, 10)) {
@@ -536,7 +623,7 @@ async function main() {
     process.exitCode = 1;
   }
 
-  console.log("\nDone. See issues.json (all findings) plus report.json, links.json, metadata.json and soft404.json");
+  console.log("\nDone. See issues.json (all findings) plus report.json, links.json, metadata.json, soft404.json and images.json");
 }
 
 main();
