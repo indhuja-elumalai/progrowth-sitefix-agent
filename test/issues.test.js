@@ -143,3 +143,10 @@ test("ready-made findings (e.g. a broken share image) go into the registry", () 
     assert.deepEqual(validateRegistry(r), []);
     assert.equal(r.issues[0].category, "Social sharing");
 });
+
+test("content findings become Content issues, detected only (Phase 1 does not edit copy)", () => {
+    const r = buildRegistry({ run, findings: [{ type: "content-placeholder", severity: "high", affectedUrl: "https://x.test/draft", foundOn: ["https://x.test/"], detail: "Placeholder text on the live page: lorem ipsum", evidence: { kind: "content", words: 300, mainWords: 120, matches: [{ name: "lorem ipsum", text: "Lorem ipsum dolor" }] } }] });
+    assert.deepEqual(validateRegistry(r), []);
+    assert.deepEqual([r.issues[0].category, r.issues[0].severity, r.issues[0].fixClass], ["Content", "high", "not-automatable"]);
+    for (const t of ["content-thin", "content-duplicate", "content-placeholder", "content-repeated-word"]) assert.equal(CATALOG[t].category, "Content", t);
+});
