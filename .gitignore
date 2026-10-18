@@ -5,5 +5,6 @@ links.json
 metadata.json
 soft404.json
 issues.json
+images.json
 # local crawl logs and scratch files
 *-run.txt
