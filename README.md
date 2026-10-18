@@ -64,6 +64,7 @@ nothing in the pipeline can skip the human-approval step.
 | SEO: indexing | Missing or duplicate canonical tag, canonical pointing to a 404 or to a redirect; pages marked `noindex` / `nofollow` (meta tag or `X-Robots-Tag` header) |
 | Social sharing | No Open Graph tags, essential ones missing (title, description, image), share image that does not load |
 | Page setup | No viewport tag (not mobile-friendly), no `lang` on `<html>` |
+| Content | Thin pages (under 200 words), near-duplicate pages (85%+ the same text once menus and footers are removed), leftover placeholder text (lorem ipsum, unfilled `{{template}}` tags), repeated words ("the the") |
 | Sitemap and robots | robots.txt errors, sitemap URLs that error, redirect, or are wrongly marked noindex |
 | Images | Broken images, missing / unhelpful / too-long alt text, oversized files, HTTP images on HTTPS pages |
 | Links | Broken or redirected internal/external links, plus every page that links to the broken one |
@@ -74,9 +75,10 @@ nothing in the pipeline can skip the human-approval step.
 by **who reads the tag**, because that decides the impact and who fixes it:
 Google's results page (titles & descriptions), Google's crawler (indexing),
 link previews on Facebook, LinkedIn, WhatsApp and X (social sharing), and
-browsers, phones and screen readers (page setup). The code follows the same
+browsers, phones and screen readers (page setup). Page *text* is a fifth
+group, **Content**, read by the people visiting the page. The code follows the same
 split: `lib/head.js` only reads the page, and each group has its own rules
-file (`lib/seo.js`, `lib/social.js`, `lib/page-setup.js`).
+file (`lib/seo.js`, `lib/social.js`, `lib/page-setup.js`, `lib/content.js`).
 
 Every finding carries evidence (a status code, a screenshot, or a DOM
 snippet), never a guess. This list is adapted from the overlapping
@@ -160,11 +162,11 @@ progrowth-sitefix-agent/
 │       ├── crawl.yml                  run the crawler on any URL (manual)
 │       └── fixture-selfcheck.yml      unit tests, then crawl and score the fixture on every change
 ├── fixture/                           controlled test site with planted faults
-│   ├── generate-site.js               writes the 20 HTML pages and the small images into site/
+│   ├── generate-site.js               writes the 23 HTML pages and the small images into site/
 │   ├── server.js                      serves them with real HTTP redirects (and generates the oversized test image)
 │   ├── selfcheck.js                   proves the fixture behaves as claimed
 │   ├── score.js                       scores crawler output against the planted issues
-│   ├── expected-issues.json           ground truth: the 24 planted issues
+│   ├── expected-issues.json           ground truth: the 29 planted issues
 │   └── site/                          generated pages
 ├── lib/
 │   ├── redirects.js                   follow redirects hop by hop, classify them, site-level checks
@@ -173,6 +175,7 @@ progrowth-sitefix-agent/
 │   ├── social.js                      social sharing rules: Open Graph tags, broken share image
 │   ├── page-setup.js                  page setup rules: viewport, lang
 │   ├── soft404.js                     soft-404 rule: says "not found" plus a second signal
+│   ├── content.js                     content rules: boilerplate removal, thin pages, near-duplicates (MinHash), placeholder text, repeated words
 │   ├── images.js                      image rules: pick the real src, decorative or not, alt text, size, mixed content
 │   └── issues.js                      issue schema, severity and fix-class catalog, registry builder and validator
 ├── test/
@@ -182,6 +185,7 @@ progrowth-sitefix-agent/
 │   ├── social.test.js                 unit tests for lib/social.js
 │   ├── page-setup.test.js             unit tests for lib/page-setup.js
 │   ├── soft404.test.js                unit tests for lib/soft404.js
+│   ├── content.test.js                unit tests for lib/content.js
 │   ├── images.test.js                 unit tests for lib/images.js
 │   └── issues.test.js                 unit tests for lib/issues.js (npm test runs them all)
 ├── ui/                                chat-first internal website audit agent UI
@@ -296,7 +300,7 @@ ignored when deciding whether a page was already crawled.
 | `--no-sitemap` | off | Only follow links, skip the sitemap |
 
 Lower `--concurrency` and `--link-concurrency` (or raise `--delay-ms`) for
-small or fragile servers. It writes six files:
+small or fragile servers. It writes seven files:
 
 - `report.json`: one entry per crawled page (raw vs rendered status, title,
   word count, broken resources, and the page's title, meta description, H1s,
@@ -327,6 +331,11 @@ small or fragile servers. It writes six files:
   evidence and a `flagged` true/false. Candidates are every page that loaded
   plus up to 20 pages that are only ever reached through redirects (the
   crawler never lands on them directly).
+- `content.json`: a summary (pages analysed, menu / footer lines ignored,
+  thin, near-duplicate, placeholder, repeated-word counts) and, per page, its
+  word count, its own word count once menus and footers are removed, its
+  content issues and the pages it is near-identical to. The page text itself
+  is not saved.
 - `images.json`: a summary (images found, broken, alt problems, mixed
   content, oversized, size unknown) and one entry per distinct image URL:
   its status, where it redirects, its size and type, every page it is on,
@@ -391,6 +400,23 @@ each distinct image is checked once). Twitter/X falls back to Open Graph, so
 **Page setup rules** (`lib/page-setup.js`): `viewport-missing` (medium) and
 `lang-missing` (low).
 
+**Content rules** (`lib/content.js`) read the page's visible text, line by
+line, as a visitor sees it. A line that appears on at least half the pages
+(menus, footers, shared blocks; only on sites with 4 or more pages) is treated
+as boilerplate. `content-thin` (low): under 200 words of visible text; pages
+already flagged as a soft 404 are skipped. `content-duplicate` (medium): two
+pages whose own text (boilerplate removed, at least 50 words) shares 85% or
+more of its 5-word phrases; candidates are found with MinHash so large sites
+are not compared page by page, then confirmed with the exact score.
+`content-placeholder` (high): lorem ipsum, unfilled template tags (`{{ }}`,
+`{% %}`, `${}`), fill-in brackets (`[insert ...]`), "your text here", sample
+text, "page under construction", `TODO:` notes, and script output bugs
+(`[object Object]`, `$NaN`, a line that is just "undefined").
+`content-repeated-word` (low): the same word twice in a row, except words
+that are legitimately doubled ("had had", "that that") and capitalised place
+names ("Walla Walla"). Phase 1 does not edit page copy, so all four are
+detected only.
+
 Two site-level checks run on the start URL's host (skipped for localhost):
 the `http://` version should redirect to `https://`, and the `www` / non-`www`
 twin should redirect to the main host rather than serve the site itself.
@@ -436,10 +462,10 @@ serve real HTTP 301/302 redirects, so a redirect chain or loop cannot be
 planted there. The same server runs in CI (`fixture-selfcheck.yml`), which
 runs the unit tests, then crawls and scores the fixture on every push.
 
-**Detected so far: all 24 planted issues, with 0 false positives** (CI
-requires 24).
+**Detected so far: all 29 planted issues, with 0 false positives** (CI
+requires 29).
 
-**The 24 planted issues** (`fixture/expected-issues.json`):
+**The 29 planted issues** (`fixture/expected-issues.json`):
 
 | ID | Planted fault |
 |---|---|
@@ -464,11 +490,19 @@ requires 24).
 | F-21 | Open Graph tags without `og:description` (`/social-partial.html`) |
 | F-22 | Share image (`og:image`) that returns 404 |
 | F-23, F-24 | No viewport tag and no `lang` (`/page-setup.html`) |
+| F-25 | Thin page: `/contact.html`, 15 words (it is still the soft-404 negative control) |
+| F-26, F-27 | Near-duplicate pages: `/location-austin.html` and `/location-denver.html`, one template with the city swapped |
+| F-28 | Placeholder text: lorem ipsum and `{{ company_name }}` (`/draft-page.html`) |
+| F-29 | Repeated word: "the the" (`/draft-page.html`) |
 
-Four control pages (`/`, `/about.html`, `/contact.html`, `/final.html`)
-must produce no issues, and the self-check confirms every fixture title and
-description is inside the length limits so the length rules stay quiet; `/contact.html` is deliberately short but valid,
-to catch soft-404 false alarms. `/image-alt.html` also carries two
+Three control pages (`/`, `/about.html`, `/final.html`) must produce no
+issues, and the self-check confirms every fixture title and description is
+inside the length limits so the length rules stay quiet, and that every page
+except the planted short ones has at least 200 words. `/contact.html` is
+deliberately short but valid: it must be reported as thin (F-25) and never as
+a soft 404. The shared filler paragraph on most pages doubles as a
+boilerplate test: it must be ignored when pages are compared for
+near-duplicates. `/image-alt.html` also carries two
 decorative images (`alt=""` and `aria-hidden="true"`) that must not be
 flagged. Not yet planted: http-to-https and www mismatches (they need real
 hostnames, so they are covered by unit tests with a fake server), image mixed
@@ -673,6 +707,27 @@ false positives. Unit tests: 78 to 101.
 Not covered yet: structured data (JSON-LD), `hreflang`, Twitter-specific
 tags, and whether titles and descriptions are well written (the AI layer).
 
+### Day 14: content checks
+
+New detector `lib/content.js` (pure functions, 15 unit tests, plus 1 registry test) and a new
+**Content** category with four issue types: `content-thin`,
+`content-duplicate`, `content-placeholder` and `content-repeated-word`. The
+crawler now keeps each page's visible text in memory (capped at 200,000
+characters per page, never written to disk) and writes `content.json`.
+
+Two things the fixture caught while building it: a per-line cap of 1,000
+characters cut long paragraphs short and undercounted words (raised, and
+replaced by a per-page cap), and a shared paragraph that each page extended
+with its own sentence made every page a near-duplicate, which is correct
+behaviour for such a site, so the fixture now keeps its shared text in its own
+paragraph like a real footer.
+
+Fixture: score went from 24 of 24 to **29 of 29 planted issues found**, 0
+false positives. Unit tests: 101 to 117.
+
+Not covered yet: spelling and grammar (needs the AI layer or a dictionary),
+readability scores, and duplicates of text on *other* sites.
+
 ## 13. Security principles
 
 - Every client site is its own isolated tenant: separate credentials,
@@ -698,4 +753,4 @@ Every PR uses [`.github/PULL_REQUEST_TEMPLATE.md`](.github/PULL_REQUEST_TEMPLATE
 what it does, which roadmap item it closes, how it was tested, the
 outcome, and any risk notes. A PR is done when its checks pass (unit tests
 and the fixture score) and it is merged to `main`. Never commit tokens,
-`.env` files, `report.json`, `links.json`, `metadata.json`, `soft404.json`, `images.json` or `issues.json`.
+`.env` files, `report.json`, `links.json`, `metadata.json`, `soft404.json`, `images.json`, `content.json` or `issues.json`.
