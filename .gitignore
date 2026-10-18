@@ -7,5 +7,7 @@ soft404.json
 issues.json
 images.json
 content.json
+audit-report/
+.sitefix-ai-cache.json
 # local crawl logs and scratch files
 *-run.txt

@@ -147,7 +147,8 @@ re-engineering, content strategy work, and heavy infrastructure
 | CI | GitHub Actions | In use |
 | Issue registry | JSON file now (`issues.json`, one run), PostgreSQL later | In use (v0) |
 | Chat-first UI | Vanilla HTML, CSS and JS (no framework), Node.js HTTP + SSE server, no new dependencies | In use (Day 10) |
-| AI reasoning | Claude API | Planned |
+| AI reasoning | OpenAI API (`gpt-4o-mini` by default; any OpenAI-compatible endpoint), behind guardrails; a mock provider for tests | In use (v1: explanations, fixes, chat) |
+| PDF report | Playwright's Chromium (print to PDF) | In use |
 | Fix adapter | GitHub REST API | Planned |
 | Secrets | GitHub Actions secrets now, a secrets manager later | Planned |
 | Dashboard | React + Tailwind | Planned |
@@ -177,7 +178,15 @@ progrowth-sitefix-agent/
 │   ├── soft404.js                     soft-404 rule: says "not found" plus a second signal
 │   ├── content.js                     content rules: boilerplate removal, thin pages, near-duplicates (MinHash), placeholder text, repeated words
 │   ├── images.js                      image rules: pick the real src, decorative or not, alt text, size, mixed content
-│   └── issues.js                      issue schema, severity and fix-class catalog, registry builder and validator
+│   ├── issues.js                      issue schema, severity and fix-class catalog, registry builder and validator
+│   ├── triage.js                      priority (P1/P2/P3), who fixes it, effort, quick wins
+│   ├── explain-templates.js           standard plain-language guidance for every issue type (used when AI is off)
+│   ├── explain.js                     AI explanations and suggested fixes, with guardrails and a cache
+│   ├── chat.js                        answers questions from one report only; checks every cited issue id
+│   ├── report-html.js                 the printable report (HTML that report.js turns into the PDF)
+│   ├── ai-provider.js                 the only code that talks to an AI: OpenAI or the mock, from .env
+│   ├── ai-mock.js                     the mock AI (no key, no network) for demos, tests and CI
+│   └── env.js                         reads .env without overriding real environment variables
 ├── test/
 │   ├── redirects.test.js              unit tests for lib/redirects.js
 │   ├── head.test.js                   unit tests for lib/head.js
@@ -187,12 +196,19 @@ progrowth-sitefix-agent/
 │   ├── soft404.test.js                unit tests for lib/soft404.js
 │   ├── content.test.js                unit tests for lib/content.js
 │   ├── images.test.js                 unit tests for lib/images.js
-│   └── issues.test.js                 unit tests for lib/issues.js (npm test runs them all)
+│   ├── issues.test.js                 unit tests for lib/issues.js
+│   ├── triage.test.js                 priority, effort, owner; every type has a rule and guidance
+│   ├── explain.test.js                guardrails (invented URLs, bad ids, value lengths), fallbacks, cache
+│   ├── chat.test.js                   context selection, cited-id checks, error handling
+│   ├── ai-provider.test.js            .env loading, config, OpenAI request format and retries (fake server)
+│   └── report-html.test.js            report sections, escaping, screenshots, caps (npm test runs them all)
 ├── ui/                                chat-first internal website audit agent UI
 │   ├── build-index.js                 source of the page: edit this, then run it to regenerate index.html
 │   ├── index.html                     generated single-page chat interface (do not edit by hand)
-│   └── server.js                      Node.js HTTP server: runs crawl.js and streams its output over SSE
+│   └── server.js                      Node.js HTTP server: runs crawl.js then report.js, streams both over SSE, serves the PDF and the chat
 ├── crawl.js                           the crawler (page crawl, link checks, redirect, metadata and soft-404 analysis, then builds the issue registry)
+├── report.js                        after a crawl: triage, explanations, screenshots, then audit-report/ (JSON, HTML, PDF)
+├── .env.example                     template for .env (your API key; .env itself is never committed)
 ├── package.json
 ├── .gitignore
 └── README.md
@@ -214,8 +230,8 @@ Saturday. Fridays are a half day of build plus review preparation.
 | 5 | Fri Oct 9 | Soft-404 rule, then Week 1 review prep | **Done** |
 | 6 | Sat Oct 10 | Evidence capture and issue schema, registry v0 | **Done** |
 | 7 | Mon Oct 12 | Registry across runs, image and sitemap checks | Image checks **Done**; registry across runs and sitemap checks planned |
-| 8 | Tue Oct 13 | AI layer: input and output contract | Planned |
-| 9 | Wed Oct 14 | AI layer: guardrails and evaluation | Planned |
+| 8 | Tue Oct 13 | AI layer: input and output contract | **Done** (explanations, fixes, chat) |
+| 9 | Wed Oct 14 | AI layer: guardrails and evaluation | **Done** (guardrails, fixture run with mock AI in CI) |
 | 10 | Thu Oct 15 | Readable report: chat-first audit UI (SiteFix) | **Done** |
 | 11 | Fri Oct 16 | Live-site runs (faster full-site crawl), then Week 2 review prep | In progress |
 | 12 | Sat Oct 17 | Validation and close-out | Planned |
@@ -264,9 +280,21 @@ What you get:
    affected URL, detail and fix class. Click a card to see its evidence
    (HTTP status, redirect chain, head tags, soft-404 signals) and the pages
    that link to it (`foundOn`, first five).
-5. **AI slot.** Each card carries a placeholder for the AI explanation and
-   fix proposal (Days 8 and 9, not built yet). Everything shown today comes
-   from the deterministic detectors.
+5. **Explanations, priorities and fixes.** After the crawl, `report.js` runs
+   automatically. Categories start collapsed; open one to see its issues,
+   sorted P1 first. Each issue shows its priority, effort, who fixes it and
+   whether it is a quick win, and its evidence opens with: in plain words,
+   why it matters, how to fix, a suggested value (title, description or alt
+   text) with a Copy button, and a screenshot.
+6. **PDF report.** "Open PDF report" on the summary card opens the full
+   report: a cover with totals and what to fix first, then one section per
+   issue type with the explanation, fix steps, every instance and screenshots
+   (the broken link or image outlined in red).
+7. **Chat about the report.** Type a question in the same box ("what should I
+   fix first?", "which images are broken?", "what is wrong with the austin
+   page?"). Answers use only this inspection's data, cite the issues they
+   used (click a citation to open that issue), and say so when the report
+   does not cover something. A URL in the box still starts a new inspection.
 
 Guardrails in `ui/server.js`: it listens on `127.0.0.1` only (set
 `SITEFIX_UI_HOST` to change that), runs one inspection at a time (every run
@@ -276,6 +304,57 @@ issues.
 
 To change the page, edit `ui/build-index.js` and run
 `node ui/build-index.js` to regenerate `ui/index.html`. Commit both.
+
+### AI layer: set up your API key
+
+The AI explains each issue in plain language, writes the fix and suggested
+values, and answers chat questions. Without a key everything still works with
+SiteFix's standard guidance, except the chat.
+
+```bash
+cp .env.example .env        # .env is in .gitignore: it is never committed
+open -e .env                # or any editor; set OPENAI_API_KEY=sk-...
+npm run ui                  # the server prints "AI: openai (gpt-4o-mini)" when the key is picked up
+```
+
+Settings in `.env`: `OPENAI_API_KEY` (required for AI), `AI_MODEL` (default
+`gpt-4o-mini`; any chat model on your account), `AI_PROVIDER` (`openai`,
+`mock` or `none`), `AI_BASE_URL` (any OpenAI-compatible endpoint). A real
+environment variable always wins over `.env`. Restart the UI server after
+changing `.env`. For the GitHub Action, add the key as a repository secret
+named `OPENAI_API_KEY`.
+
+`AI_PROVIDER=mock` runs the whole pipeline with no key and no cost (fixed,
+evidence-based answers); CI uses it on every push.
+
+How it stays real (`lib/explain.js`, `lib/chat.js`):
+
+- One AI call per issue **type** (up to 8 instances each), so 300 redirect
+  chains cost one call, not 300. Answers are cached in
+  `.sitefix-ai-cache.json`, so re-running a report costs nothing.
+- The AI sees only the issue's own evidence, never the raw page.
+- Every answer is checked: valid JSON in the expected shape, length limits,
+  **every URL it mentions must appear in the evidence**, issue ids must be
+  real, suggested values must fit the rules (title 10-60 characters,
+  description 50-160, alt text up to 125). Whatever fails a check is replaced
+  by the standard guidance and the reason is logged.
+- Chat answers come from this report only; issue ids not in the report are
+  removed from the answer.
+- Priority and effort are rule-based (`lib/triage.js`), not AI: the same issue
+  always gets the same priority.
+
+Run the report on its own after a crawl:
+
+```bash
+node report.js                       # AI if a key is set, else standard guidance
+node report.js --no-ai               # standard guidance only
+node report.js --no-screenshots      # faster, no screenshots
+node report.js --max-screenshots 10  # default 30
+```
+
+It writes `audit-report/explained.json` (every issue with priority, effort,
+owner, explanation, fix and suggested value), `audit-report/report.html`,
+`audit-report/sitefix-report.pdf` and `audit-report/shots/`.
 
 ### Run the crawler via CLI
 
@@ -728,6 +807,28 @@ false positives. Unit tests: 101 to 117.
 Not covered yet: spelling and grammar (needs the AI layer or a dictionary),
 readability scores, and duplicates of text on *other* sites.
 
+### Day 15: AI layer, priorities, PDF report and chat
+
+Every issue now gets a priority (P1 fix first, P2 fix soon, P3 when you can:
+severity, raised when the issue reaches 10+ pages or the home page), an
+effort (easy / medium / hard), who fixes it (developer, content writer, SEO)
+and a quick-win flag, all rule-based. Every issue type has standard
+plain-language guidance, and the AI (OpenAI, with guardrails) makes it
+specific to each issue and writes suggested values. `report.js` adds
+screenshots and a PDF. The UI collapses categories by default, shows the
+explanation, fix and screenshot in each issue, links the PDF, and answers
+questions about the report.
+
+Tested without a live key: 42 new unit tests (159 in total) including a fake
+OpenAI server (request format, retries, error messages) and every guardrail
+(an invented URL, unknown ids, values outside the length rules, a failing
+AI), plus the full fixture run with the mock AI: 29 issues, 9 P1, 10 P2, 10
+P3, 12 quick wins, 24 screenshots, a 29-page PDF in about 6 seconds. CI builds
+the PDF with the mock AI on every push.
+
+Not covered yet: spelling and grammar (next branch, on this AI layer),
+history of past inspections in the UI, and AI review of screenshots.
+
 ## 13. Security principles
 
 - Every client site is its own isolated tenant: separate credentials,
@@ -736,6 +837,11 @@ readability scores, and duplicates of text on *other* sites.
   during development), never in code, config, or logs.
 - Each adapter requests the narrowest possible scope (one repo, one
   application-password user), never admin or org-wide access.
+- The AI API key lives only in `.env` (gitignored) or a GitHub secret. With
+  a key set, each issue's evidence (page addresses, titles, descriptions,
+  short text snippets) is sent to the AI provider; full pages are not. Use
+  `AI_PROVIDER=none` or `node report.js --no-ai` for a client that must not
+  have its data sent to a third party.
 - The AI reasoning service never holds fix-execution credentials; that is
   an architectural boundary, not a permissions setting.
 - Every fix requires human approval. No silent auto-apply exists in
@@ -753,4 +859,4 @@ Every PR uses [`.github/PULL_REQUEST_TEMPLATE.md`](.github/PULL_REQUEST_TEMPLATE
 what it does, which roadmap item it closes, how it was tested, the
 outcome, and any risk notes. A PR is done when its checks pass (unit tests
 and the fixture score) and it is merged to `main`. Never commit tokens,
-`.env` files, `report.json`, `links.json`, `metadata.json`, `soft404.json`, `images.json`, `content.json` or `issues.json`.
+`.env` files, `report.json`, `links.json`, `metadata.json`, `soft404.json`, `images.json`, `content.json`, `issues.json`, `audit-report/` or `.sitefix-ai-cache.json`.

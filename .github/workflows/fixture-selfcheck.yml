@@ -7,6 +7,8 @@ on:
       - "lib/**"
       - "test/**"
       - "crawl.js"
+      - "report.js"
+      - "ui/**"
       - "package.json"
       - "package-lock.json"
       - ".github/workflows/fixture-selfcheck.yml"
@@ -50,3 +52,11 @@ jobs:
 
       - name: Score the crawl against the planted issues
         run: node fixture/score.js --require 29
+
+      - name: Build the explained report and PDF (mock AI, no key needed)
+        env:
+          AI_PROVIDER: mock
+        run: |
+          node report.js --max-screenshots 5
+          test -s audit-report/sitefix-report.pdf
+          test -s audit-report/explained.json
