@@ -225,6 +225,10 @@
   .cite:hover{background:var(--accent-dim)}
   .typing{display:inline-flex;gap:4px}.typing i{width:6px;height:6px;border-radius:50%;background:var(--text-3);animation:pulse 1s infinite}
   .typing i:nth-child(2){animation-delay:.2s}.typing i:nth-child(3){animation-delay:.4s}
+  .fix-row{border:1px solid var(--border);border-radius:8px;padding:7px 10px;margin-top:6px;background:var(--bg);font-size:13px}
+  .fix-from{color:var(--high);text-decoration:line-through;text-decoration-color:rgba(215,0,21,.35);overflow-wrap:anywhere}
+  .fix-to{color:var(--success);font-weight:500;margin-top:2px;overflow-wrap:anywhere}
+  .fix-why{color:var(--text-3);font-size:12px;margin-top:3px}
   .iss-item.flash{box-shadow:inset 3px 0 0 var(--accent)}
   .ai-status{display:block;margin-top:6px}
   .ai-ph{margin-top:10px;padding:8px 12px;border:1px dashed var(--border-mid);border-radius:var(--radius-sm);font-size:12px;color:var(--text-3);display:flex;align-items:center;gap:8px}
@@ -320,6 +324,7 @@
             <span class="cap-pill">SEO tags &amp; indexing</span>
             <span class="cap-pill">Social sharing</span>
             <span class="cap-pill">Thin &amp; duplicate content</span>
+            <span class="cap-pill">Spelling &amp; grammar</span>
             <span class="cap-pill">Soft 404s</span>
             <span class="cap-pill">Images &amp; alt text</span>
           </div>
@@ -613,7 +618,9 @@ function buildEvidence(iss){
     const row=(k,v)=>'<div class="ev-row"><span class="ev-k">'+k+'</span><span class="ev-v">'+v+'</span></div>';
     h+=row('Words on page',esc(ev.words)+' <span style="color:var(--text-3)">('+esc(ev.mainWords)+' after removing menus and footers)</span>');
     if(ev.similarTo&&ev.similarTo.length)h+=row('Similar pages',ev.similarTo.map(x=>'<b>'+Math.round(x.similarity*100)+'%</b> '+esc(x.url)).join('<br>'));
-    if(ev.matches&&ev.matches.length)h+='<div class="ev-title" style="margin-top:10px">Found in the page text</div><div class="ev-pre">'+ev.matches.map(x=>(x.name?esc(x.name)+': ':'')+'&ldquo;'+esc(x.text)+'&rdquo;').join('\n')+'</div>';
+    if(ev.matches&&ev.matches.length&&ev.matches[0].correction!==undefined){
+      h+='<div class="ev-title" style="margin-top:10px">Found in the page text</div>'+ev.matches.map(x=>'<div class="fix-row"><div class="fix-from">&ldquo;'+esc(x.text)+'&rdquo;</div><div class="fix-to">&rarr; &ldquo;'+esc(x.correction)+'&rdquo;</div>'+(x.explanation?'<div class="fix-why">'+esc(x.explanation)+(x.source==='dictionary'?' (common misspelling)':'')+'</div>':'')+(x.alsoOn&&x.alsoOn.length?'<div class="fix-why">Same text on '+x.alsoOn.length+' other page'+(x.alsoOn.length===1?'':'s')+', fixing it once fixes all of them.</div>':'')+'</div>').join('');
+    }else if(ev.matches&&ev.matches.length)h+='<div class="ev-title" style="margin-top:10px">Found in the page text</div><div class="ev-pre">'+ev.matches.map(x=>(x.name?esc(x.name)+': ':'')+'&ldquo;'+esc(x.text)+'&rdquo;').join('\n')+'</div>';
   }
   else if(ev.kind==='image'){
     const row=(k,v)=>'<div class="ev-row"><span class="ev-k">'+k+'</span><span class="ev-v">'+v+'</span></div>';
@@ -644,7 +651,7 @@ function buildEvidence(iss){
 }
 
 function issueLabel(t){
-  const m={'http-4xx-internal':'Internal link returns 4xx','http-4xx-external':'External link returns 4xx','link-unreachable':'Link unreachable','redirect-loop':'Redirect loop','redirect-chain':'Redirect chain','redirect-to-error':'Redirect ends in error','https-missing-redirect':'HTTP \u2192 HTTPS redirect missing','www-variant-not-redirected':'www/non-www not unified','soft-404':'Soft 404 (false 200 OK)','title-missing':'Missing <title> tag','title-multiple':'Multiple <title> tags','title-too-long':'Title too long','title-too-short':'Title too short','title-duplicate':'Duplicate title','description-missing':'Missing meta description','description-multiple':'Multiple meta descriptions','description-too-long':'Meta description too long','description-too-short':'Meta description too short','description-duplicate':'Duplicate meta description','h1-missing':'Missing H1','h1-multiple':'Multiple H1 tags','metadata-js-only':'Metadata only available after JS','canonical-missing':'Missing canonical tag','canonical-multiple':'Multiple canonical tags','canonical-broken-target':'Canonical points to broken URL','canonical-redirect':'Canonical points to redirect','image-broken':'Broken image','image-alt-missing':'Image has no alt text','image-alt-unhelpful':'Alt text does not describe the image','image-alt-too-long':'Alt text too long','image-mixed-content':'HTTP image on an HTTPS page','image-oversized':'Image file too large','heading-skip':'Heading levels skip','robots-noindex':'Hidden from search (noindex)','robots-nofollow':'Links not followed (nofollow)','og-missing':'No Open Graph tags','og-incomplete':'Open Graph tags incomplete','og-image-broken':'Share image broken','viewport-missing':'No viewport tag (not mobile-friendly)','lang-missing':'No page language set','content-thin':'Thin page (little text)','content-duplicate':'Near-duplicate page','content-placeholder':'Placeholder text on a live page','content-repeated-word':'Repeated word'};
+  const m={'http-4xx-internal':'Internal link returns 4xx','http-4xx-external':'External link returns 4xx','link-unreachable':'Link unreachable','redirect-loop':'Redirect loop','redirect-chain':'Redirect chain','redirect-to-error':'Redirect ends in error','https-missing-redirect':'HTTP \u2192 HTTPS redirect missing','www-variant-not-redirected':'www/non-www not unified','soft-404':'Soft 404 (false 200 OK)','title-missing':'Missing <title> tag','title-multiple':'Multiple <title> tags','title-too-long':'Title too long','title-too-short':'Title too short','title-duplicate':'Duplicate title','description-missing':'Missing meta description','description-multiple':'Multiple meta descriptions','description-too-long':'Meta description too long','description-too-short':'Meta description too short','description-duplicate':'Duplicate meta description','h1-missing':'Missing H1','h1-multiple':'Multiple H1 tags','metadata-js-only':'Metadata only available after JS','canonical-missing':'Missing canonical tag','canonical-multiple':'Multiple canonical tags','canonical-broken-target':'Canonical points to broken URL','canonical-redirect':'Canonical points to redirect','image-broken':'Broken image','image-alt-missing':'Image has no alt text','image-alt-unhelpful':'Alt text does not describe the image','image-alt-too-long':'Alt text too long','image-mixed-content':'HTTP image on an HTTPS page','image-oversized':'Image file too large','heading-skip':'Heading levels skip','robots-noindex':'Hidden from search (noindex)','robots-nofollow':'Links not followed (nofollow)','og-missing':'No Open Graph tags','og-incomplete':'Open Graph tags incomplete','og-image-broken':'Share image broken','viewport-missing':'No viewport tag (not mobile-friendly)','lang-missing':'No page language set','content-thin':'Thin page (little text)','content-duplicate':'Near-duplicate page','content-placeholder':'Placeholder text on a live page','content-repeated-word':'Repeated word','copy-spelling':'Spelling mistakes','copy-grammar':'Grammar mistakes'};
   return m[t]||t.replace(/-/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
 }
 function catIcon(c){

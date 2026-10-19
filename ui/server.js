@@ -275,6 +275,14 @@ const server = createServer(async (req, res) => {
   res.end("Not found");
 });
 
+server.on("error", (err) => {
+  if (err.code !== "EADDRINUSE") throw err;
+  console.error(`Port ${PORT} is already in use, probably by a SiteFix UI that is still running.`);
+  console.error(`Stop it with: lsof -ti :${PORT} | xargs kill`);
+  console.error(`Or use another port: node ui/server.js --port ${PORT + 1}`);
+  process.exit(1);
+});
+
 server.listen(PORT, HOST, () => {
   console.log(provider ? `AI: ${provider.name} (${provider.model})` : `AI: off (${AI.problem}). Reports use standard guidance; chat needs a key.`);
   console.log(`SiteFix UI  →  http://localhost:${PORT}`);
