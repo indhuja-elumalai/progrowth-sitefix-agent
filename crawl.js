@@ -1,6 +1,7 @@
 // Crawler, Day 14 version.
 // Usage: node crawl.js https://your-site.com [--max-pages 0] [--concurrency 4]
 //          [--link-concurrency 8] [--settle-ms 1500] [--delay-ms 150] [--no-sitemap]
+//          [--no-ai] [--copy-ai]
 //
 // What it does, on purpose and nothing more:
 //   1. Fetches the raw HTML of each page (no JavaScript executed).
@@ -34,6 +35,8 @@
 //      too-long alt text, http images on https pages, and files over 300 KB.
 //
 //  10. Reads each page's visible text and flags thin pages (under 200 words),
+//      spelling and grammar mistakes (a built-in list of common misspellings,
+//      plus AI proofreading when a key is set: see lib/copy.js),
 //      near-duplicate pages (85%+ the same text once menus and footers are
 //      removed), leftover placeholder text and repeated words ("the the").
 //
@@ -58,6 +61,10 @@ import { headIssues, robotsIssues, headingIssues, findDuplicates, canonicalTarge
 import { socialIssues, ogImageUrl, ogImageFindings } from "./lib/social.js";
 import { pageSetupIssues } from "./lib/page-setup.js";
 import { contentFindings, CONTENT_LIMITS } from "./lib/content.js";
+import { checkCopy } from "./lib/copy.js";
+import { loadEnv } from "./lib/env.js";
+import { aiConfig, providerFromConfig } from "./lib/ai-provider.js";
+import { readFile } from "node:fs/promises";
 import { buildRegistry, validateRegistry, CATALOG } from "./lib/issues.js";
 import { analyzeSoft404, visibleWordCount } from "./lib/soft404.js";
 import { followRedirects, classifyRedirect, redirectIssueType, siteLevelChecks } from "./lib/redirects.js";
@@ -71,7 +78,7 @@ const opt = (name, fallback) => {
   return i !== -1 && args[i + 1] ? Number(args[i + 1]) : fallback;
 };
 if (!startArg) {
-  console.error("Usage: node crawl.js https://your-site.com [--max-pages 0] [--concurrency 4] [--link-concurrency 8] [--settle-ms 1500] [--delay-ms 150] [--no-sitemap]");
+  console.error("Usage: node crawl.js https://your-site.com [--max-pages 0] [--concurrency 4] [--link-concurrency 8] [--settle-ms 1500] [--delay-ms 150] [--no-sitemap] [--no-ai] [--copy-ai]");
   process.exit(1);
 }
 const MAX_PAGES = opt("max-pages", 0); // 0 = no cap: crawl every internal page found
@@ -80,6 +87,11 @@ const CONCURRENCY = Math.max(1, opt("concurrency", 4)); // pages rendered at the
 const LINK_CONCURRENCY = Math.max(1, opt("link-concurrency", 8)); // link checks at the same time
 const SETTLE_MS = opt("settle-ms", 1500); // max wait for late JavaScript after DOMContentLoaded
 const USE_SITEMAP = !args.includes("--no-sitemap");
+// AI proofreading runs when a key is set (.env), except on local addresses (the test
+// fixture) so the fixture score never depends on an AI; --copy-ai forces it, --no-ai stops it.
+const NO_AI = args.includes("--no-ai");
+const FORCE_COPY_AI = args.includes("--copy-ai");
+const AI_CACHE_FILE = ".sitefix-ai-cache.json";
 const MAX_HOPS = 10;
 const LINK_TIMEOUT_MS = 10000;
 const UA = "progrowth-sitefix-agent/0.6 (site QA crawler)";
@@ -588,13 +600,38 @@ async function main() {
     placeholder: cCount("content-placeholder"),
     repeatedWord: cCount("content-repeated-word"),
   };
+
+  // ---------- spelling and grammar ----------
+  loadEnv();
+  const local = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(new URL(startUrl).hostname);
+  const copyProvider = NO_AI || (local && !FORCE_COPY_AI) ? null : await providerFromConfig(aiConfig());
+  const allowWords = new Set((process.env.SITEFIX_ALLOW_WORDS || "").toLowerCase().split(/[\s,]+/).filter(Boolean));
+  let aiCache = {};
+  try { aiCache = JSON.parse(await readFile(AI_CACHE_FILE, "utf8")); } catch { /* no cache yet */ }
+  console.log(`\nChecking spelling and grammar on ${contentInput.length} pages (${copyProvider ? `dictionary + AI proofreading, ${copyProvider.model}` : `dictionary only${NO_AI ? ", --no-ai" : local ? ", AI skipped on a local address (use --copy-ai to force)" : ", no AI key"}`})...`);
+  const copyResult = await checkCopy({
+    pages: contentInput.map((p) => ({ url: p.url, foundOn: p.foundOn, text: contentResult.mainTexts.get(p.url) || "" })),
+    provider: copyProvider,
+    cache: { get: (k) => aiCache[k], set: (k, v) => { aiCache[k] = v; } },
+    allowWords,
+    onProgress: ({ done, total }) => { if (copyProvider && (done % 20 === 0 || done === total)) console.log(`  ${done}/${total} pages proofread`); },
+  });
+  if (copyProvider) await writeFile(AI_CACHE_FILE, JSON.stringify(aiCache));
+  content.copy = {
+    pagesChecked: copyResult.stats.pagesChecked,
+    aiPagesChecked: copyResult.stats.aiPagesChecked,
+    aiFailures: copyResult.stats.aiFailures,
+    ai: copyProvider ? copyProvider.model : null,
+    spelling: copyResult.stats.spelling,
+    grammar: copyResult.stats.grammar,
+  };
   await writeFile("content.json", JSON.stringify({ summary: content, pages: contentResult.pages }, null, 2));
 
   // ---------- issue registry ----------
   const runId = "run-" + startedAt.replace(/[-:]/g, "").slice(0, 15);
   const registry = buildRegistry({
     run: { id: runId, startedAt, finishedAt: new Date().toISOString(), startUrl, pagesCrawled: visited.size, capReached, toolVersion: "0.6" },
-    links, siteChecks, metaPages, softPages: soft, imageFindings: imgFindings, findings: [...ogFindings, ...contentResult.findings],
+    links, siteChecks, metaPages, softPages: soft, imageFindings: imgFindings, findings: [...ogFindings, ...contentResult.findings, ...copyResult.findings],
   });
   const registryProblems = validateRegistry(registry);
   await writeFile("issues.json", JSON.stringify(registry, null, 2));
@@ -690,8 +727,10 @@ async function main() {
 
   console.log("\n=== Content ===");
   console.log(`  ${content.pagesAnalysed} pages analysed (${content.boilerplateLines} menu / footer lines ignored): ${content.thin} thin, ${content.nearDuplicate} near-duplicate, ${content.placeholder} with placeholder text, ${content.repeatedWord} with repeated words`);
-  for (const t of ["content-placeholder", "content-duplicate", "content-thin", "content-repeated-word"]) {
-    const list = contentResult.findings.filter((f) => f.type === t);
+  console.log(`  spelling and grammar: ${content.copy.spelling} page(s) with spelling mistakes, ${content.copy.grammar} with grammar mistakes (${content.copy.ai ? `AI proofread ${content.copy.aiPagesChecked} of ${content.copy.pagesChecked} pages${content.copy.aiFailures ? `, ${content.copy.aiFailures} AI call(s) failed` : ""}` : "dictionary only"})`);
+  const allContent = [...contentResult.findings, ...copyResult.findings];
+  for (const t of ["content-placeholder", "copy-spelling", "copy-grammar", "content-duplicate", "content-thin", "content-repeated-word"]) {
+    const list = allContent.filter((f) => f.type === t);
     if (!list.length) continue;
     console.log(`\n${t} (${list.length}):`);
     for (const f of list.slice(0, 5)) console.log(`  ${f.affectedUrl}  ${f.detail}`);
