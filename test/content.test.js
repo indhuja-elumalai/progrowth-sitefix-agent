@@ -154,3 +154,8 @@ test("contentFindings: boilerplate is ignored for duplicates, thin can be skippe
     assert.equal(f.evidence.kind, "content");
     assert.equal(summary.find((p) => p.url === "/about").issues.length, 0);
 });
+
+test("\"[object Object]\" is placeholder text, not a repeated word", () => {
+    assert.equal(repeatedWordIssue(["Written by [object Object] in 2026."]), null);
+    assert.ok(placeholderIssue(["Written by [object Object] in 2026."]));
+});
