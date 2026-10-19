@@ -1,6 +1,7 @@
 // Checks that the fixture really behaves the way expected-issues.json claims.
 // Run with the fixture server already running:  node fixture/selfcheck.js
 import { LIMITS } from "../lib/seo.js";
+import { COMMON_MISSPELLINGS } from "../lib/copy.js";
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -39,7 +40,7 @@ for (const p of ["/", "/about.html", "/contact.html", "/final.html", "/broken-li
   "/redirects.html", "/soft-404.html", "/missing-title.html", "/dup-title-1.html", "/dup-title-2.html",
   "/canonical-to-404.html", "/gone.html", "/image-alt.html", "/large-image.html",
   "/noindex.html", "/heading-skip.html", "/no-social.html", "/social-partial.html", "/page-setup.html",
-  "/location-austin.html", "/location-denver.html", "/draft-page.html",
+  "/location-austin.html", "/location-denver.html", "/draft-page.html", "/typos-page.html",
   "/img/logo.svg", "/img/office.svg", "/img/team-photo.svg", "/img/chart.svg", "/img/divider.svg", "/img/pattern.svg"]) {
   const { status } = await hit(base + p);
   check(`200 ${p}`, status === 200, `got ${status}`);
@@ -116,6 +117,9 @@ check("only draft-page.html has a doubled word", only((h) => lines(h).some((l) =
 const words = (h) => (text(h).match(/[A-Za-z0-9][A-Za-z0-9'-]*/g) || []).length;
 check("every page except contact.html and soft-404.html has at least 200 words",
   only((h) => words(h) < 200) === "contact.html,soft-404.html", files.filter((f) => words(raw[f]) < 200).map((f) => `${f}=${words(raw[f])}`).join(" "));
+const misspelled = (h) => (text(h).match(/[A-Za-z]+/g) || []).filter((w) => COMMON_MISSPELLINGS[w.toLowerCase()]);
+check("only typos-page.html has common misspellings (recieve, seperate)",
+  only((h) => misspelled(h).length > 0) === "typos-page.html" && misspelled(raw["typos-page.html"]).map((w) => w.toLowerCase()).sort().join() === "recieve,seperate");
 check("only canonical-to-404.html has a non-self canonical", files.filter((f) => info[f].canonical !== `${base}/${f}`).join() === "canonical-to-404.html");
 
 console.log("-- Ground truth file");

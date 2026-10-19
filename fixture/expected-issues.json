@@ -1,8 +1,8 @@
 {
-  "fixtureVersion": 6,
+  "fixtureVersion": 7,
   "baseUrl": "http://localhost:4000",
   "externalBaseUrl": "http://localhost:4001",
-  "plantedCount": 29,
+  "plantedCount": 30,
   "issues": [
     {
       "id": "F-01",
@@ -293,6 +293,16 @@
         "/"
       ],
       "detail": "\"the the\""
+    },
+    {
+      "id": "F-30",
+      "category": "Content",
+      "type": "copy-spelling",
+      "affectedUrl": "/typos-page.html",
+      "foundOn": [
+        "/"
+      ],
+      "detail": "\"recieve\" and \"seperate\" (common misspellings)"
     }
   ],
   "controlPages": [

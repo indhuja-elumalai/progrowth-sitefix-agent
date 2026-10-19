@@ -51,7 +51,7 @@ jobs:
         run: node crawl.js http://localhost:4000
 
       - name: Score the crawl against the planted issues
-        run: node fixture/score.js --require 29
+        run: node fixture/score.js --require 30
 
       - name: Build the explained report and PDF (mock AI, no key needed)
         env:

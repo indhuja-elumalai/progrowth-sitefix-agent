@@ -86,6 +86,7 @@ const navLinks = [
   ["heading-skip.html", "Heading order page"], ["no-social.html", "No share tags page"],
   ["social-partial.html", "Partial share tags page"], ["page-setup.html", "Page setup page"],
   ["location-austin.html", "Austin office"], ["location-denver.html", "Denver office"], ["draft-page.html", "Draft page"],
+  ["typos-page.html", "Typos page"],
 ];
 const nav = navLinks.map(([f, l]) => `<li><a href="/${f}">${l}</a></li>`).join("");
 
@@ -256,6 +257,16 @@ const pages = [
       "<p>Welcome to {{ company_name }}, your trusted partner.</p>" +
       "<p>Lorem ipsum dolor sit amet, consectetur adipiscing elit.</p>" +
       "<p>Contact the the team for a free consultation.</p>"
+  },
+  {
+    // F-30: two common misspellings ("recieve", "seperate") in otherwise clean copy.
+    // AI proofreading is skipped on local addresses, so only the built-in list runs here.
+    file: "typos-page.html", title: "Typos Page with Two Misspellings Planted",
+    desc: "A support page whose copy contains two common misspellings, used to test the spelling check against a known answer.",
+    h1: "How we handle enquiries",
+    body: long("This page explains how enquiries are handled.") +
+      "<p>We recieve every enquiry through the contact form and reply within one working day.</p>" +
+      "<p>Our team will seperate urgent requests from routine ones so nothing important waits.</p>"
   },
   {
     file: "canonical-to-404.html", title: "Canonical Pointing at a Missing Page",
