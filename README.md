@@ -64,7 +64,7 @@ nothing in the pipeline can skip the human-approval step.
 | SEO: indexing | Missing or duplicate canonical tag, canonical pointing to a 404 or to a redirect; pages marked `noindex` / `nofollow` (meta tag or `X-Robots-Tag` header) |
 | Social sharing | No Open Graph tags, essential ones missing (title, description, image), share image that does not load |
 | Page setup | No viewport tag (not mobile-friendly), no `lang` on `<html>` |
-| Content | Thin pages (under 200 words), near-duplicate pages (85%+ the same text once menus and footers are removed), leftover placeholder text (lorem ipsum, unfilled `{{template}}` tags), repeated words ("the the") |
+| Content | Thin pages (under 200 words), near-duplicate pages (85%+ the same text once menus and footers are removed), leftover placeholder text (lorem ipsum, unfilled `{{template}}` tags), repeated words ("the the"), spelling and grammar mistakes (quoted with a corrected version) |
 | Sitemap and robots | robots.txt errors, sitemap URLs that error, redirect, or are wrongly marked noindex |
 | Images | Broken images, missing / unhelpful / too-long alt text, oversized files, HTTP images on HTTPS pages |
 | Links | Broken or redirected internal/external links, plus every page that links to the broken one |
@@ -163,11 +163,11 @@ progrowth-sitefix-agent/
 │       ├── crawl.yml                  run the crawler on any URL (manual)
 │       └── fixture-selfcheck.yml      unit tests, then crawl and score the fixture on every change
 ├── fixture/                           controlled test site with planted faults
-│   ├── generate-site.js               writes the 23 HTML pages and the small images into site/
+│   ├── generate-site.js               writes the 24 HTML pages and the small images into site/
 │   ├── server.js                      serves them with real HTTP redirects (and generates the oversized test image)
 │   ├── selfcheck.js                   proves the fixture behaves as claimed
 │   ├── score.js                       scores crawler output against the planted issues
-│   ├── expected-issues.json           ground truth: the 29 planted issues
+│   ├── expected-issues.json           ground truth: the 30 planted issues
 │   └── site/                          generated pages
 ├── lib/
 │   ├── redirects.js                   follow redirects hop by hop, classify them, site-level checks
@@ -176,6 +176,7 @@ progrowth-sitefix-agent/
 │   ├── social.js                      social sharing rules: Open Graph tags, broken share image
 │   ├── page-setup.js                  page setup rules: viewport, lang
 │   ├── soft404.js                     soft-404 rule: says "not found" plus a second signal
+│   ├── copy.js                        spelling and grammar: built-in misspellings list + AI proofreading with guardrails
 │   ├── content.js                     content rules: boilerplate removal, thin pages, near-duplicates (MinHash), placeholder text, repeated words
 │   ├── images.js                      image rules: pick the real src, decorative or not, alt text, size, mixed content
 │   ├── issues.js                      issue schema, severity and fix-class catalog, registry builder and validator
@@ -194,6 +195,7 @@ progrowth-sitefix-agent/
 │   ├── social.test.js                 unit tests for lib/social.js
 │   ├── page-setup.test.js             unit tests for lib/page-setup.js
 │   ├── soft404.test.js                unit tests for lib/soft404.js
+│   ├── copy.test.js                   misspellings list, quote-must-exist and site-vocabulary guardrails, caching
 │   ├── content.test.js                unit tests for lib/content.js
 │   ├── images.test.js                 unit tests for lib/images.js
 │   ├── issues.test.js                 unit tests for lib/issues.js
@@ -319,7 +321,9 @@ npm run ui                  # the server prints "AI: openai (gpt-4o-mini)" when 
 
 Settings in `.env`: `OPENAI_API_KEY` (required for AI), `AI_MODEL` (default
 `gpt-4o-mini`; any chat model on your account), `AI_PROVIDER` (`openai`,
-`mock` or `none`), `AI_BASE_URL` (any OpenAI-compatible endpoint). A real
+`mock` or `none`), `AI_BASE_URL` (any OpenAI-compatible endpoint),
+`SITEFIX_ALLOW_WORDS` (comma-separated words the spelling check must never flag,
+such as brand or product names). A real
 environment variable always wins over `.env`. Restart the UI server after
 changing `.env`. For the GitHub Action, add the key as a repository secret
 named `OPENAI_API_KEY`.
@@ -377,6 +381,8 @@ ignored when deciding whether a page was already crawled.
 | `--settle-ms N` | `1500` | Longest wait for late JavaScript after a page loads |
 | `--delay-ms N` | `150` | Pause after each request, per worker |
 | `--no-sitemap` | off | Only follow links, skip the sitemap |
+| `--no-ai` | off | Spelling check uses the built-in misspellings list only (no AI proofreading) |
+| `--copy-ai` | off | Run AI proofreading on a local address too (it is skipped there by default) |
 
 Lower `--concurrency` and `--link-concurrency` (or raise `--delay-ms`) for
 small or fragile servers. It writes seven files:
@@ -541,10 +547,10 @@ serve real HTTP 301/302 redirects, so a redirect chain or loop cannot be
 planted there. The same server runs in CI (`fixture-selfcheck.yml`), which
 runs the unit tests, then crawls and scores the fixture on every push.
 
-**Detected so far: all 29 planted issues, with 0 false positives** (CI
-requires 29).
+**Detected so far: all 30 planted issues, with 0 false positives** (CI
+requires 30).
 
-**The 29 planted issues** (`fixture/expected-issues.json`):
+**The 30 planted issues** (`fixture/expected-issues.json`):
 
 | ID | Planted fault |
 |---|---|
@@ -573,6 +579,7 @@ requires 29).
 | F-26, F-27 | Near-duplicate pages: `/location-austin.html` and `/location-denver.html`, one template with the city swapped |
 | F-28 | Placeholder text: lorem ipsum and `{{ company_name }}` (`/draft-page.html`) |
 | F-29 | Repeated word: "the the" (`/draft-page.html`) |
+| F-30 | Spelling: "recieve" and "seperate" (`/typos-page.html`), caught by the built-in list |
 
 Three control pages (`/`, `/about.html`, `/final.html`) must produce no
 issues, and the self-check confirms every fixture title and description is
@@ -828,6 +835,55 @@ the PDF with the mock AI on every push.
 
 Not covered yet: spelling and grammar (next branch, on this AI layer),
 history of past inspections in the UI, and AI review of screenshots.
+
+### Day 16: spelling and grammar
+
+New `lib/copy.js` and two issue types in the **Content** category:
+`copy-spelling` (medium) and `copy-grammar` (low). Each issue lists every
+mistake on the page as the exact phrase and a corrected version, with a
+one-line explanation; the UI shows them as "before → after" and the PDF lists
+the corrections.
+
+Two layers. A built-in list of 115 common misspellings ("recieve",
+"seperate", "occured") always runs: no key, no cost, the same answer every
+time. When an AI key is set, each page's own text (menus and footers removed)
+is also proofread by the AI, behind guardrails:
+
+- every flagged phrase must appear word for word on the page (whitespace
+  aside), so the AI cannot invent mistakes;
+- a word the site uses on 3 or more pages (a brand, product or local term) is
+  never treated as a typo, and `SITEFIX_ALLOW_WORDS` adds your own;
+- corrections that rewrite the sentence (more than about twice as long) are
+  dropped, as are style or tone comments;
+- style choices are dropped: a "correction" whose words are the same as the
+  original once spacing, case, punctuation and British vs American spelling are
+  ignored ("350 %" → "350%", "b2b" → "B2B", "realising" → "realizing", a missing
+  full stop). Real fixes such as "atleast" → "at least" are kept;
+- a cut-off last word ("Monthly Packa" → "Monthly Package") is truncated text,
+  not a typo, and the text sent to the AI is cut at a sentence or word end;
+- text shared by several pages (a blog card, a sidebar) is reported once, on
+  the first page, with the other pages listed;
+- doubled words and placeholder text are left to their own rules, so nothing
+  is reported twice;
+- one call per page, cached by the page text, at most 8 findings per page; a
+  failed call keeps the dictionary results and is counted, never breaks the crawl.
+
+AI proofreading is skipped on local addresses (the fixture) so the fixture
+score never depends on an AI; `--copy-ai` forces it, `--no-ai` turns it off.
+
+Fixture: **30 of 30 planted issues found**, 0 false positives (F-30, two
+misspellings). Unit tests: 161 to 187. Also run end to end against a fake
+OpenAI server in a real crawl: an invented quote was dropped, a site-wide
+word ("controlled") was not flagged, a placeholder tag was left to the
+placeholder rule, and the dictionary's finds were not repeated.
+
+First live run (progrowth.services, 166 pages, gpt-4o-mini) found 31 pages with
+spelling and 67 with grammar issues. Many were style choices or the same blog card
+repeated on every listing page, which led to the style, cut-off word and shared
+text filters above. Real finds such as "atleast" were kept.
+
+Not covered yet: readability scores, tone and brand voice (judgement calls),
+and text inside images.
 
 ## 13. Security principles
 
