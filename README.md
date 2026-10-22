@@ -186,6 +186,7 @@ progrowth-sitefix-agent/
 │   ├── chat.js                        answers questions from one report only; checks every cited issue id
 │   ├── history.js                     past inspections in history/<run-id>/: save, list, open, delete
 │   ├── report-html.js                 the printable report (HTML that report.js turns into the PDF)
+│   ├── web-report.js                  the interactive web report: filters, search, screenshots; also a single downloadable file
 │   ├── ai-provider.js                 the only code that talks to an AI: OpenAI or the mock, from .env
 │   ├── ai-mock.js                     the mock AI (no key, no network) for demos, tests and CI
 │   └── env.js                         reads .env without overriding real environment variables
@@ -205,13 +206,14 @@ progrowth-sitefix-agent/
 │   ├── chat.test.js                   context selection, cited-id checks, error handling
 │   ├── history.test.js                save, report matching, pruning, delete stays deleted, safe file names
 │   ├── ai-provider.test.js            .env loading, config, OpenAI request format and retries (fake server)
-│   └── report-html.test.js            report sections, escaping, screenshots, caps (npm test runs them all)
+│   ├── report-html.test.js            report sections, escaping, screenshots, caps
+│   └── web-report.test.js             filter data, escaping, no network in the downloaded file, fix-first order (npm test runs them all)
 ├── ui/                                chat-first internal website audit agent UI
 │   ├── build-index.js                 source of the page: edit this, then run it to regenerate index.html
 │   ├── index.html                     generated single-page chat interface (do not edit by hand)
 │   └── server.js                      Node.js HTTP server: runs crawl.js then report.js, streams both over SSE, serves the PDF and the chat
 ├── crawl.js                           the crawler (page crawl, link checks, redirect, metadata and soft-404 analysis, then builds the issue registry)
-├── report.js                        after a crawl: triage, explanations, screenshots, then audit-report/ (JSON, HTML, PDF)
+├── report.js                        after a crawl: triage, explanations, screenshots, then audit-report/ (JSON, PDF, web-report.html)
 ├── .env.example                     template for .env (your API key; .env itself is never committed)
 ├── package.json
 ├── .gitignore
@@ -299,7 +301,18 @@ What you get:
    page?"). Answers use only this inspection's data, cite the issues they
    used (click a citation to open that issue), and say so when the report
    does not cover something. A URL in the box still starts a new inspection.
-8. **Past inspections.** Every finished inspection is listed in the sidebar
+8. **Web report.** "Open web report" on the summary card opens the report as a
+   web page (`/report/<inspection>`): totals you can click to filter, "Fix these
+   first", issues by category, then every issue with a search box and filters
+   for priority, category, who fixes it and quick wins. Each issue opens to
+   show the explanation, why it matters, fix steps, a suggested value with a
+   Copy button, the evidence, the pages it is on and a screenshot. "Download"
+   saves the same page as one HTML file with the screenshots built in: it
+   opens in any browser without SiteFix running and loads nothing from the
+   internet, so it can be emailed or uploaded as it is. It follows the
+   reader's light or dark setting and prints cleanly. `node report.js` also
+   writes it to `audit-report/web-report.html`.
+9. **Past inspections.** Every finished inspection is listed in the sidebar
    (Today, Yesterday, then by date) with its time, issue count and pages.
    Click one to reopen it with its PDF, screenshots and the questions you
    asked about it. The list and the open inspection survive a page reload
@@ -905,6 +918,23 @@ text filters above. Real finds such as "atleast" were kept.
 
 Not covered yet: readability scores, tone and brand voice (judgement calls),
 and text inside images.
+
+### Day 18: web report
+
+New `lib/web-report.js`, two routes in `ui/server.js` (`/report/:id` and
+`/report/:id/download`) and `audit-report/web-report.html` from `report.js`.
+The page is rendered on the server, so all of it is readable with JavaScript
+off; a small inline script adds the filters, search, expand all, copy and
+"jump to issue" from the "Fix these first" list. Every piece of text from the
+crawled site is escaped, the start URL is only made a link when it is http(s),
+and the downloaded file has no links back to the SiteFix server.
+
+Tests: 197 to 205 (8 new in `test/web-report.test.js`). Checked in a browser
+against the fixture: the counts after each filter match the report (30 all,
+9 P1, 13 quick wins, 5 images), search narrows to the three alt-text types,
+an empty search shows "No issues match", a "Fix these first" entry opens its
+issue, all 25 screenshots load, and the downloaded file (4.6 MB with 25
+screenshots) works offline at phone width with zero network requests.
 
 ### Day 17: inspection history in the UI
 
