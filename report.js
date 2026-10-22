@@ -5,7 +5,8 @@
 // 2. Triage: priority (P1/P2/P3), who fixes it, effort (lib/triage.js).
 // 3. Explanations and suggested fixes: AI with guardrails, or standard guidance
 //    when AI is off or an answer fails a check (lib/explain.js).
-// 4. Screenshots of the affected pages, with the broken link or image outlined.
+// 4. Screenshots of the affected pages, with the broken link or image outlined,
+//    taken while the explanations are being written (both at the same time).
 // 5. Writes audit-report/explained.json, report.html, sitefix-report.pdf and
 //    web-report.html (the interactive report as one file, screenshots built in).
 //
@@ -18,7 +19,7 @@ import { chromium } from "playwright";
 import { loadEnv } from "./lib/env.js";
 import { aiConfig, providerFromConfig } from "./lib/ai-provider.js";
 import { triage, triageSummary } from "./lib/triage.js";
-import { explainIssues } from "./lib/explain.js";
+import { explainIssues, groupByType } from "./lib/explain.js";
 import { buildReportHtml } from "./lib/report-html.js";
 import { buildWebReport } from "./lib/web-report.js";
 
@@ -56,13 +57,16 @@ async function takeShots(picks, dir) {
     const browser = await chromium.launch();
     const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
     let done = 0, next = 0;
-    await Promise.all(Array.from({ length: Math.min(3, picks.length) }, async () => {
+    await Promise.all(Array.from({ length: Math.min(6, picks.length) }, async () => {
         while (next < picks.length) {
             const p = picks[next++];
             const page = await context.newPage();
             try {
                 await page.goto(p.page, { waitUntil: "domcontentloaded", timeout: 20000 });
-                await page.waitForLoadState("networkidle", { timeout: 2500 }).catch(() => { });
+                // Wait for the page's images to arrive (the "load" event), not for the
+                // network to go quiet: analytics and chat widgets never do.
+                await page.waitForLoadState("load", { timeout: 4000 }).catch(() => { });
+                await page.waitForTimeout(250);
                 if (p.target) {
                     // Outline the broken link or image if it can be found on the page.
                     await page.evaluate(({ target, kind }) => {
@@ -101,21 +105,25 @@ async function main() {
     const config = aiConfig();
     const provider = flag("no-ai") ? null : await providerFromConfig(config);
 
+    // Explanations (AI calls) and screenshots (a browser) do not depend on each
+    // other, so they run at the same time.
+    const picks = pickShots(groupByType(issues).map((t) => ({ ...t, issues: t.list })), MAX_SHOTS);
     console.log("\n=== AI explanations ===");
-    if (provider) console.log(`  ${provider.name} (${provider.model}): explaining ${new Set(issues.map((i) => i.type)).size} issue types`);
-    else console.log(`  AI off (${flag("no-ai") ? "--no-ai" : config.problem}): using standard guidance`);
+    if (provider) console.log(`  ${provider.name} (${provider.model}): explaining ${new Set(issues.map((i) => i.type)).size} issue types; ${picks.length} screenshots at the same time`);
+    else console.log(`  AI off (${flag("no-ai") ? "--no-ai" : config.problem}): using standard guidance; ${picks.length} screenshots`);
     const cacheData = (await readJson(CACHE_FILE)) || {};
     const cache = { get: (k) => cacheData[k], set: (k, v) => { cacheData[k] = v; } };
-    const { types, stats } = await explainIssues({
-        issues, provider, cache,
-        onProgress: ({ done, total, type, source, problems }) => console.log(`  ${done}/${total} ${type}: ${source === "ai" ? "AI" : "standard"}${problems.length ? ` (${problems.length} check(s) failed: ${problems[0]})` : ""}`),
-    });
+    const [{ types, stats }, shotFiles] = await Promise.all([
+        explainIssues({
+            issues, provider, cache,
+            onProgress: ({ done, total, type, source, problems }) => console.log(`  ${done}/${total} ${type}: ${source === "ai" ? "AI" : "standard"}${problems.length ? ` (${problems.length} check(s) failed: ${problems[0]})` : ""}`),
+        }),
+        takeShots(picks, path.join(OUT, "shots")),
+    ]);
     if (provider) await writeFile(CACHE_FILE, JSON.stringify(cacheData));
 
     console.log("\n=== Screenshots ===");
-    const picks = pickShots(types, MAX_SHOTS);
-    console.log(`  ${picks.length} pages to capture`);
-    const shotFiles = await takeShots(picks, path.join(OUT, "shots"));
+    console.log(`  ${shotFiles.size} of ${picks.length} pages captured`);
 
     const report = {
         generatedAt: new Date().toISOString(),
