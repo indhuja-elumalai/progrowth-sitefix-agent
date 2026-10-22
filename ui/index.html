@@ -46,11 +46,31 @@
   .new-btn svg{width:14px;height:14px;flex-shrink:0;color:var(--text-2)}
   .sidebar-section{padding:12px 18px 4px;font-size:12px;font-weight:600;color:var(--text-3)}
   .history-list{flex:1;overflow-y:auto;padding:2px 8px 16px}
-  .history-item{padding:9px 10px;border-radius:var(--radius-sm);color:var(--text-1);font-size:13px;display:flex;align-items:center;gap:9px;transition:background var(--t);cursor:pointer;border:none;background:none;width:100%;text-align:left;line-height:1.3}
-  .history-item:hover{background:var(--surface-3)}
+  .sidebar-section{display:flex;align-items:center;justify-content:space-between}
+  .hist-clear{border:none;background:none;font-size:11.5px;font-weight:500;color:var(--text-3);padding:2px 6px;border-radius:6px}
+  .hist-clear:hover{color:var(--high);background:var(--high-bg)}
+  .hist-clear.confirm{color:#fff;background:var(--high)}
+  .hist-day{padding:10px 10px 3px;font-size:11px;font-weight:600;color:var(--text-3)}
+  .hist-empty{padding:6px 10px;font-size:12px;color:var(--text-3);line-height:1.5}
+  .hist-row{position:relative;display:flex;align-items:center;border-radius:var(--radius-sm);transition:background var(--t)}
+  .hist-row:hover,.hist-row:focus-within{background:var(--surface-3)}
+  .hist-row.active{background:var(--surface-3)}
+  .hist-row.active::before{content:"";position:absolute;left:0;top:8px;bottom:8px;width:3px;border-radius:3px;background:var(--accent-border)}
+  .history-item{padding:8px 10px;border-radius:var(--radius-sm);color:var(--text-1);font-size:13px;display:flex;align-items:center;gap:9px;cursor:pointer;border:none;background:none;flex:1;min-width:0;text-align:left;line-height:1.3}
+  .history-item:disabled{cursor:default;opacity:.55}
   .h-dot{width:7px;height:7px;border-radius:50%;background:var(--success);flex-shrink:0}
   .h-dot.bad{background:var(--high)}
-  .h-url{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .h-dot.mid{background:var(--medium)}
+  .h-txt{min-width:0;flex:1}
+  .h-url{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .h-meta{display:block;font-size:11.5px;color:var(--text-3);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .h-del{flex-shrink:0;margin-right:6px;height:26px;min-width:26px;padding:0 6px;border:none;border-radius:var(--radius-xl);background:transparent;color:var(--text-3);display:flex;align-items:center;justify-content:center;gap:4px;font-size:11.5px;font-weight:600;opacity:0;transition:opacity var(--t),background var(--t),color var(--t)}
+  .hist-row:hover .h-del,.h-del:focus-visible,.h-del.confirm{opacity:1}
+  .h-del:hover{color:var(--high);background:var(--high-bg)}
+  .h-del.confirm{color:#fff;background:var(--high)}
+  .h-del svg{width:14px;height:14px}
+  @media(hover:none){.h-del{opacity:1}}
+  .icon-btn.menu-btn{display:none;left:12px;right:auto}
   .sidebar-footer{padding:12px 18px 16px;border-top:1px solid var(--border);font-size:11.5px;color:var(--text-3);line-height:1.6}
   .ver-badge{display:inline-block;background:var(--surface-3);color:var(--text-2);border-radius:var(--radius-xl);padding:1px 8px;font-size:10.5px;font-weight:500;margin-top:4px}
 
@@ -257,6 +277,8 @@
   @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
   @media(max-width:720px){
     #sidebar{display:none}
+    body.show-side #sidebar{display:flex;position:fixed;inset:0 auto 0 0;z-index:10;box-shadow:0 0 0 100vmax rgba(0,0,0,.25)}
+    .icon-btn.menu-btn{display:flex}
     .rpt-counts{grid-template-columns:repeat(2,1fr)}
     .cnt-cell:nth-child(2){border-right:none}
     .cnt-cell:nth-child(-n+2){border-bottom:1px solid var(--border)}
@@ -289,9 +311,9 @@
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg>
       New inspection
     </button>
-    <div class="sidebar-section">Inspections</div>
-    <div class="history-list" id="hist" role="list" aria-label="Inspection history">
-      <div style="padding:6px 10px;font-size:12px;color:var(--text-3)">No inspections yet</div>
+    <div class="sidebar-section">Inspections <button class="hist-clear" id="hist-clear" type="button" hidden>Delete all</button></div>
+    <div class="history-list" id="hist" aria-label="Inspection history">
+      <div class="hist-empty">Loading&hellip;</div>
     </div>
     <div class="sidebar-footer">
       Phase 1 &middot; Detection only<br/>
@@ -302,6 +324,9 @@
 
   <main id="main">
     <div id="topbar">
+      <button class="icon-btn menu-btn" id="menu-btn" title="Past inspections" aria-label="Past inspections">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M3.5 6h13M3.5 10h13M3.5 14h13"/></svg>
+      </button>
       <div class="tb-center">
         <div class="tb-av" aria-hidden="true"><svg viewBox="0 0 16 16" fill="none" stroke="#1d1d1f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5l3 3"/></svg></div>
         <div class="tb-name">SiteFix</div>
@@ -357,7 +382,9 @@
 const S=(s,c=document)=>c.querySelector(s);
 const el=(t,c,h)=>{const e=document.createElement(t);if(c)e.className=c;if(h!==undefined)e.innerHTML=h;return e;};
 const esc=s=>String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
-let running=false,history_=[],lastTs=0,current=null; // current = {byId, report} for the last inspection
+let running=false,history_=[],lastTs=0,current=null; // current = {id, byId, report, base} for the inspection on screen
+const OPEN_KEY='sitefix.openInspection';
+const store={get(){try{return localStorage.getItem(OPEN_KEY);}catch{return null;}},set(v){try{v?localStorage.setItem(OPEN_KEY,v):localStorage.removeItem(OPEN_KEY);}catch{}}};
 const urlIn=S('#url-input'),inspBtn=S('#inspect-btn'),chatIn=S('#chat-inner'),
       chatA=S('#chat-area'),empty=S('#empty-state'),hist=S('#hist'),
       tbTitle=S('#tb-title'),inpErr=S('#inp-err'),inpOk=S('#inp-ok');
@@ -374,27 +401,32 @@ function validateUrl(r){
 }
 urlIn.addEventListener('keydown',e=>{if(e.key==='Enter'&&!running)submit();});
 urlIn.addEventListener('input',()=>{urlIn.classList.remove('invalid');inpErr.style.display='none';inpOk.style.display='';syncBtn();});
-function syncBtn(){inspBtn.disabled=running||!urlIn.value.trim();}
+function syncBtn(){inspBtn.disabled=running||!urlIn.value.trim();if(typeof syncHistButtons==='function'&&hist)syncHistButtons();}
 syncBtn();
 inspBtn.addEventListener('click',()=>{if(!running)submit();});
 // One box for both: a URL starts an inspection, anything else is a question about the last report.
 function looksLikeUrl(s){s=s.trim();return !/\s/.test(s)&&(/^https?:\/\//i.test(s)||/^(localhost|127\.0\.0\.1)(:|\/|$)/i.test(s)||/^[\w-]+(\.[\w-]+)+(:\d+)?(\/|$)/.test(s));}
 function submit(){const v=urlIn.value.trim();if(!v)return;if(looksLikeUrl(v))start();else ask(v);}
 fetch('/api/ai-status').then(r=>r.json()).then(a=>{S('#ai-status').textContent=a.enabled?'AI: on ('+a.model+')':'AI: off \u2014 add a key to .env';}).catch(()=>{S('#ai-status').textContent='AI: unknown';});
-S('#clear-btn').addEventListener('click',clear);
-S('#new-btn').addEventListener('click',()=>{clear();urlIn.focus();});
+S('#clear-btn').addEventListener('click',()=>{if(!running)clear();});
+S('#new-btn').addEventListener('click',()=>{if(running)return;clear();closeSide();urlIn.focus();});
+S('#menu-btn').addEventListener('click',()=>document.body.classList.toggle('show-side'));
+function closeSide(){document.body.classList.remove('show-side');}
+document.addEventListener('click',e=>{if(document.body.classList.contains('show-side')&&!e.target.closest('#sidebar,#menu-btn'))closeSide();});
 
-function clear(){current=null;urlIn.placeholder='Website URL';chatIn.innerHTML='';chatIn.appendChild(empty);empty.style.display='';tbTitle.textContent='Website audit agent';lastTs=0;urlIn.value='';urlIn.classList.remove('invalid');inpErr.style.display='none';inpOk.style.display='';running=false;syncBtn();}
+function clear(){current=null;store.set(null);markActive();urlIn.placeholder='Website URL';chatIn.innerHTML='';chatIn.appendChild(empty);empty.style.display='';tbTitle.textContent='Website audit agent';lastTs=0;urlIn.value='';urlIn.classList.remove('invalid');inpErr.style.display='none';inpOk.style.display='';running=false;syncBtn();}
 
 function addMsg(role,html,ts){
   if(empty.parentNode===chatIn)empty.style.display='none';
   const now=ts?new Date(ts):new Date();
-  if(!lastTs||now-lastTs>5*60*1000){const sep=el('div','ts-sep');sep.innerHTML='<b>Today</b> '+esc(fmtTime(now));chatIn.appendChild(sep);}
+  if(!lastTs||Math.abs(now-lastTs)>5*60*1000){const sep=el('div','ts-sep');sep.innerHTML='<b>'+esc(dayLabel(now))+'</b> '+esc(fmtTime(now));chatIn.appendChild(sep);}
   lastTs=now;
   const w=el('div','chat-msg '+role),bbl=el('div','msg-bbl');
   bbl.innerHTML=html;w.appendChild(bbl);
   chatIn.appendChild(w);scroll();return bbl;
 }
+function dayStart(d){const x=new Date(d);x.setHours(0,0,0,0);return x.getTime();}
+function dayLabel(d){const diff=Math.round((dayStart(new Date())-dayStart(d))/864e5);if(diff===0)return 'Today';if(diff===1)return 'Yesterday';return new Date(d).toLocaleDateString([],{weekday:'short',day:'numeric',month:'short',year:new Date(d).getFullYear()===new Date().getFullYear()?undefined:'numeric'});}
 function fmtTime(d){return(d instanceof Date?d:new Date(d)).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'});}
 function scroll(){requestAnimationFrame(()=>{chatA.scrollTop=chatA.scrollHeight;});}
 
@@ -429,6 +461,7 @@ async function streamSSE(runId,card){
       const{line}=JSON.parse(e.data);
       if(line.startsWith('__DONE__:')){es.close();res(Number(line.slice(9)));return;}
       if(line.startsWith('__REPORT__:')){card.dataset.report=line.slice(11);return;}
+      if(line.startsWith('__SAVED__:')){card.dataset.saved=line.slice(10);return;}
       logLine(card,line);
       if(/checking \d+ distinct links/i.test(line))setPill(card,'links','running');
       else if(/following \d+ redirect/i.test(line))setPill(card,'redirect','running');
@@ -450,7 +483,9 @@ async function streamSSE(runId,card){
 async function start(){
   const v=validateUrl(urlIn.value);
   if(!v.ok){urlIn.classList.add('invalid');inpErr.textContent=v.msg;inpErr.style.display='inline';inpOk.style.display='none';return;}
-  running=true;inspBtn.disabled=true;urlIn.classList.remove('invalid');inpErr.style.display='none';
+  // Each inspection gets its own conversation: leave the one on screen (it stays in the list).
+  if(current||chatIn.querySelector('.prog-card'))clear();
+  running=true;inspBtn.disabled=true;urlIn.classList.remove('invalid');inpErr.style.display='none';syncHistButtons();
   const siteUrl=v.url;
   urlIn.value='';syncBtn();
   tbTitle.textContent=siteUrl;
@@ -480,9 +515,10 @@ async function start(){
     if(prog.dataset.report==='0'){try{const rr=await fetch('/api/report');if(rr.ok)report=await rr.json();}catch{}}
     progDone(prog,reg);
     if(!report&&prog.dataset.report!==undefined)setPill(prog,'ai','err'),setPill(prog,'pdf','err');
-    renderResults(reg,siteUrl,report);
-    history_.unshift({url:siteUrl,n:reg.counts.total});
-    renderHist();
+    const savedId=prog.dataset.saved||null;
+    renderResults(reg,siteUrl,report,savedId);
+    if(savedId)store.set(savedId);
+    await loadHistory();
   }catch(e){
     progErr(prog,'Could not load results: '+e.message);
     addMsg('agent','<span style="color:var(--high)">&#9888; Could not read results: '+esc(e.message)+'</span>');
@@ -491,15 +527,18 @@ async function start(){
 }
 
 const PRI={P1:0,P2:1,P3:2};
-function renderResults(reg,siteUrl,report){
+// id: the saved inspection (history/<id>); its PDF and screenshots are served from there.
+function renderResults(reg,siteUrl,report,id,meta){
   // Merge the explained report (priority, explanation, fix) into each issue when it exists.
   const extra=new Map(),typeInfo=new Map();
   if(report)for(const t of report.types){typeInfo.set(t.type,t);for(const i of t.issues)extra.set(i.id,i);}
   const issues=(reg.issues||[]).map(i=>({...i,...(extra.get(i.id)||{}),_type:typeInfo.get(i.type)||null}));
-  current={byId:new Map(issues.map(i=>[i.id,i])),report};
+  const base=id?'/api/history/'+encodeURIComponent(id)+'/':'/api/';
+  current={id:id||null,byId:new Map(issues.map(i=>[i.id,i])),report,base,hasPdf:meta?meta.hasPdf:Boolean(report)};
+  markActive();
   const run=reg.run||{},counts=reg.counts||{},bySev=counts.bySeverity||{};
   const cats=[...new Set(issues.map(i=>i.category))];
-  chatIn.appendChild(buildSummaryCard(siteUrl,run,counts,bySev,cats,report));scroll();
+  chatIn.appendChild(buildSummaryCard(siteUrl,run,counts,bySev,cats,report,current));scroll();
   urlIn.placeholder='Ask about this report, or paste another URL';
   if(!issues.length){addMsg('agent','<span style="color:var(--success)">&#10003; No issues detected.</span> The site looks clean based on the detectors that ran.');return;}
   const s=report&&report.summary;
@@ -512,7 +551,8 @@ function renderResults(reg,siteUrl,report){
   chatIn.appendChild(wrap);scroll();
 }
 
-function buildSummaryCard(siteUrl,run,counts,bySev,cats,report){
+function buildSummaryCard(siteUrl,run,counts,bySev,cats,report,cur){
+  const pdfOk=report&&cur.hasPdf;
   const card=el('div','rpt-card');
   const sa=run.startedAt?new Date(run.startedAt):null,fa=run.finishedAt?new Date(run.finishedAt):null;
   const dur=sa&&fa?Math.round((fa-sa)/1000):null;
@@ -532,7 +572,7 @@ function buildSummaryCard(siteUrl,run,counts,bySev,cats,report){
     (report?'<div class="rpt-pri"><span class="lbl">Priority</span><span class="chip P1">P1 fix first &middot; '+report.summary.byPriority.P1+'</span><span class="chip P2">P2 fix soon &middot; '+report.summary.byPriority.P2+'</span><span class="chip P3">P3 when you can &middot; '+report.summary.byPriority.P3+'</span><span class="chip qw">Quick wins &middot; '+report.summary.quickWins+'</span></div>':'')+
     '<div class="rpt-dets">'+cats.map(c=>'<span class="det-tag"><svg viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="2,5 4.5,7.5 8.5,2"/></svg>'+esc(catMap[c]||c)+'</span>').join('')+'</div>'+
     '<div class="rpt-actions">'+
-      '<a class="btn primary" href="/api/report.pdf" target="_blank" rel="noopener"'+(report?'':' aria-disabled="true"')+'><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2H4.5A1.5 1.5 0 003 3.5v9A1.5 1.5 0 004.5 14h7a1.5 1.5 0 001.5-1.5V6z"/><path d="M9 2v4h4"/></svg>Open PDF report</a>'+
+      '<a class="btn primary" href="'+esc(cur.base)+'report.pdf" target="_blank" rel="noopener"'+(pdfOk?'':' aria-disabled="true"')+'><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2H4.5A1.5 1.5 0 003 3.5v9A1.5 1.5 0 004.5 14h7a1.5 1.5 0 001.5-1.5V6z"/><path d="M9 2v4h4"/></svg>Open PDF report</a>'+
       (report?'<span class="rpt-meta" style="align-self:center">'+(report.ai.provider!=='none'?'Explained by AI ('+esc(report.ai.model)+')':'Standard guidance (AI off)')+'</span>':'<span class="rpt-meta" style="align-self:center">PDF report not available for this run</span>')+
     '</div>';
   return card;
@@ -641,7 +681,7 @@ function buildEvidence(iss){
     if(t.why)a+='<div class="ai-k">Why it matters</div><div class="ai-v">'+esc(t.why)+'</div>';
     if(t.fixSteps&&t.fixSteps.length)a+='<div class="ai-k">How to fix</div><ol class="ai-steps">'+t.fixSteps.map(x=>'<li>'+esc(x)+'</li>').join('')+'</ol>';
     if(iss.suggestedValue)a+='<div class="ai-k">'+esc(t.valueLabel||'Suggested value')+'</div><div class="val-box"><span class="v">'+esc(iss.suggestedValue)+'</span><button class="copy" type="button" data-copy="'+esc(iss.suggestedValue)+'">Copy</button></div>';
-    if(iss.screenshot)a+='<div class="ai-k">Screenshot</div><a href="/api/'+esc(iss.screenshot)+'" target="_blank" rel="noopener"><img class="ev-shot" src="/api/'+esc(iss.screenshot)+'" alt="" loading="lazy"></a>';
+    if(iss.screenshot){const src=(current?current.base:'/api/')+iss.screenshot;a+='<div class="ai-k">Screenshot</div><a href="'+esc(src)+'" target="_blank" rel="noopener"><img class="ev-shot" src="'+esc(src)+'" alt="" loading="lazy"></a>';}
     a+='<div class="ai-src">'+(iss.explanationSource==='ai'?'Written by AI from this evidence and checked automatically':'SiteFix standard guidance')+' &middot; priority: '+esc(iss.priorityReason||iss.priority)+'</div></div>';
     h=a+h;
   }else{
@@ -672,17 +712,20 @@ function formatAnswer(t){
   return out+(inList?'</ul>':'');
 }
 function shortPath(u){try{const x=new URL(u);return x.pathname+x.search;}catch{return u;}}
+function answerHtml(d){
+  let h='<div class="ans">'+formatAnswer(d.answer||d.error||'No answer.')+'</div>';
+  const ids=(d.issueIds||[]).filter(id=>current&&current.byId.has(id));
+  if(ids.length)h+='<div class="cites">'+ids.slice(0,8).map(id=>{const i=current.byId.get(id);return '<button class="cite" type="button" data-id="'+esc(id)+'">'+esc(issueLabel(i.type))+' &middot; '+esc(shortPath(i.affectedUrl))+'</button>';}).join('')+'</div>';
+  return h;
+}
 async function ask(q){
+  if(!current){addMsg('user',esc(q));addMsg('agent','Inspect a site first, or open a past inspection from the list, then ask me about it.');urlIn.value='';syncBtn();return;}
   urlIn.value='';syncBtn();
   addMsg('user',esc(q));
   const bbl=addMsg('agent','<span class="typing" aria-label="Thinking"><i></i><i></i><i></i></span>');
   try{
-    const r=await fetch('/api/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:q})});
-    const d=await r.json();
-    let h='<div class="ans">'+formatAnswer(d.answer||'No answer.')+'</div>';
-    const ids=(d.issueIds||[]).filter(id=>current&&current.byId.has(id));
-    if(ids.length)h+='<div class="cites">'+ids.slice(0,8).map(id=>{const i=current.byId.get(id);return '<button class="cite" type="button" data-id="'+esc(id)+'">'+esc(issueLabel(i.type))+' &middot; '+esc(shortPath(i.affectedUrl))+'</button>';}).join('')+'</div>';
-    bbl.innerHTML=h;
+    const r=await fetch('/api/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:q,inspectionId:current.id})});
+    bbl.innerHTML=answerHtml(await r.json());
   }catch(e){bbl.innerHTML='<span style="color:var(--high)">Could not reach the SiteFix server: '+esc(e.message)+'</span>';}
   scroll();
 }
@@ -702,18 +745,80 @@ chatIn.addEventListener('click',e=>{
   if(b){e.stopPropagation();navigator.clipboard&&navigator.clipboard.writeText(b.dataset.copy).then(()=>{b.textContent='Copied';setTimeout(()=>b.textContent='Copy',1200);}).catch(()=>{});}
 });
 
-function renderHist(){
-  if(!history_.length){hist.innerHTML='<div style="padding:6px 10px;font-size:12px;color:var(--text-3)">No inspections yet</div>';return;}
-  hist.innerHTML='';
-  history_.forEach(e=>{
-    const btn=el('button','history-item');
-    btn.setAttribute('role','listitem');
-    const host=(()=>{try{return new URL(e.url).hostname;}catch{return e.url;}})();
-    btn.innerHTML='<span class="h-dot'+(e.n>0?' bad':'')+'"></span><span class="h-url" title="'+esc(e.url)+'">'+esc(host)+'</span>';
-    btn.addEventListener('click',()=>{urlIn.value=e.url;urlIn.focus();});
-    hist.appendChild(btn);
-  });
+// ---------- past inspections (kept by the server in history/) ----------
+async function loadHistory(){
+  try{const r=await fetch('/api/history');const d=await r.json();if(!r.ok)throw new Error(d.error);history_=d.inspections||[];}
+  catch(e){hist.innerHTML='<div class="hist-empty">Could not load past inspections: '+esc(e.message)+'</div>';return;}
+  renderHist();
 }
+const TRASH='<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 4.5h11M6.5 4.5V3h3v1.5M4 4.5l.7 8.6a1 1 0 001 .9h4.6a1 1 0 001-.9l.7-8.6"/></svg>';
+function renderHist(){
+  S('#hist-clear').hidden=history_.length<2;
+  if(!history_.length){hist.innerHTML='<div class="hist-empty">No inspections yet. Finished inspections are kept here, even after a reload.</div>';return;}
+  hist.innerHTML='';
+  let day='';
+  history_.forEach(m=>{
+    const label=m.startedAt?dayLabel(m.startedAt):'Earlier';
+    if(label!==day){day=label;hist.appendChild(el('div','hist-day',esc(label)));}
+    const row=el('div','hist-row');row.dataset.id=m.id;
+    const sev=m.bySeverity||{},dot=sev.high?' bad':sev.medium?' mid':'';
+    const when=m.startedAt?fmtTime(m.startedAt):'';
+    const btn=el('button','history-item');btn.type='button';
+    btn.title=(m.url||m.host)+(m.startedAt?' — '+new Date(m.startedAt).toLocaleString():'');
+    btn.innerHTML='<span class="h-dot'+dot+'" aria-hidden="true"></span><span class="h-txt"><span class="h-url">'+esc(m.host||m.url)+'</span><span class="h-meta">'+esc(when)+' &middot; '+(m.total?m.total+' issue'+(m.total!==1?'s':''):'Clean')+(m.pagesCrawled?' &middot; '+m.pagesCrawled+' page'+(m.pagesCrawled!==1?'s':''):'')+'</span></span>';
+    btn.disabled=running;
+    btn.addEventListener('click',()=>openInspection(m.id));
+    const del=el('button','h-del',TRASH);del.type='button';
+    del.setAttribute('aria-label','Delete inspection of '+(m.host||m.url)+' from '+(m.startedAt?new Date(m.startedAt).toLocaleString():''));
+    del.title='Delete this inspection';
+    del.disabled=running;
+    del.addEventListener('click',e=>{e.stopPropagation();twoStep(del,'Delete',()=>removeInspection(m.id));});
+    row.appendChild(btn);row.appendChild(del);hist.appendChild(row);
+  });
+  markActive();
+}
+function markActive(){hist.querySelectorAll('.hist-row').forEach(r=>{const on=Boolean(current&&current.id&&r.dataset.id===current.id);r.classList.toggle('active',on);const b=r.querySelector('.history-item');if(b){if(on)b.setAttribute('aria-current','true');else b.removeAttribute('aria-current');}});}
+// First click arms the button ("Delete"), a second click within 3 seconds confirms. No pop-up dialog.
+function twoStep(btn,label,action){
+  if(btn.classList.contains('confirm')){clearTimeout(btn._t);action();return;}
+  const old=btn.innerHTML;btn.classList.add('confirm');btn.textContent=label;
+  btn._t=setTimeout(()=>{btn.classList.remove('confirm');btn.innerHTML=old;},3000);
+}
+async function removeInspection(id){
+  try{const r=await fetch('/api/history/'+encodeURIComponent(id),{method:'DELETE'});if(!r.ok&&r.status!==404)throw new Error((await r.json()).error);}
+  catch(e){alertHist('Could not delete: '+e.message);return;}
+  if(current&&current.id===id)clear();
+  if(store.get()===id)store.set(null);
+  await loadHistory();
+}
+S('#hist-clear').addEventListener('click',e=>{const b=e.currentTarget;if(running)return;twoStep(b,'Delete all '+history_.length+'?',async()=>{
+  try{const r=await fetch('/api/history',{method:'DELETE'});if(!r.ok)throw new Error((await r.json()).error);}catch(err){alertHist('Could not delete: '+err.message);return;}
+  b.classList.remove('confirm');b.textContent='Delete all';
+  if(current&&current.id)clear();
+  await loadHistory();
+});});
+function alertHist(msg){const n=el('div','hist-empty');n.style.color='var(--high)';n.textContent=msg;hist.prepend(n);setTimeout(()=>n.remove(),4000);}
+
+async function openInspection(id){
+  if(running)return;
+  closeSide();
+  let saved;
+  try{const r=await fetch('/api/history/'+encodeURIComponent(id));saved=await r.json();if(!r.ok)throw new Error(saved.error);}
+  catch(e){alertHist('Could not open: '+e.message);if(store.get()===id)store.set(null);await loadHistory();return;}
+  clear();
+  const{meta,registry,report,chat}=saved,url=meta.url||registry.run?.startUrl||'';
+  store.set(id);
+  tbTitle.textContent=url;
+  addMsg('user',esc(url),meta.startedAt);
+  renderResults(registry,url,report,id,meta);
+  for(const c of chat){addMsg('user',esc(c.question),c.at);addMsg('agent',answerHtml(c),c.at);}
+  // Start at the top of the inspection (addMsg scrolls to the bottom on the next frame).
+  requestAnimationFrame(()=>requestAnimationFrame(()=>{chatA.style.scrollBehavior='auto';chatA.scrollTop=0;chatA.style.scrollBehavior='';}));
+}
+function syncHistButtons(){hist.querySelectorAll('.history-item,.h-del').forEach(b=>{b.disabled=running;});S('#hist-clear').disabled=running;}
+
+// On load: list past inspections and reopen the one that was open before the reload.
+loadHistory().then(()=>{const id=store.get();if(id&&history_.some(m=>m.id===id))openInspection(id);});
 </script>
 </body>
 </html>
