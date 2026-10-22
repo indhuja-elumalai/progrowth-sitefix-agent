@@ -162,6 +162,9 @@ progrowth-sitefix-agent/
 │   └── workflows/
 │       ├── crawl.yml                  run the crawler on any URL (manual)
 │       └── fixture-selfcheck.yml      unit tests, then crawl and score the fixture on every change
+├── bench/                             speed benchmark
+│   ├── server.js                      a 200-page site with heavy images, a web font, never-idle analytics and slow responses
+│   └── time.js                        times crawl.js step by step against any URL
 ├── fixture/                           controlled test site with planted faults
 │   ├── generate-site.js               writes the 24 HTML pages and the small images into site/
 │   ├── server.js                      serves them with real HTTP redirects (and generates the oversized test image)
@@ -180,6 +183,7 @@ progrowth-sitefix-agent/
 │   ├── content.js                     content rules: boilerplate removal, thin pages, near-duplicates (MinHash), placeholder text, repeated words
 │   ├── images.js                      image rules: pick the real src, decorative or not, alt text, size, mixed content
 │   ├── issues.js                      issue schema, severity and fix-class catalog, registry builder and validator
+│   ├── throttle.js                    per-site request limits that slow down by themselves on 429 / 503
 │   ├── triage.js                      priority (P1/P2/P3), who fixes it, effort, quick wins
 │   ├── explain-templates.js           standard plain-language guidance for every issue type (used when AI is off)
 │   ├── explain.js                     AI explanations and suggested fixes, with guardrails and a cache
@@ -207,6 +211,7 @@ progrowth-sitefix-agent/
 │   ├── history.test.js                save, report matching, pruning, delete stays deleted, safe file names
 │   ├── ai-provider.test.js            .env loading, config, OpenAI request format and retries (fake server)
 │   ├── report-html.test.js            report sections, escaping, screenshots, caps
+│   ├── throttle.test.js               per-site limits, backing off on 429 / 503, Retry-After, the check pool
 │   └── web-report.test.js             filter data, escaping, no network in the downloaded file, fix-first order (npm test runs them all)
 ├── ui/                                chat-first internal website audit agent UI
 │   ├── build-index.js                 source of the page: edit this, then run it to regenerate index.html
@@ -410,16 +415,24 @@ ignored when deciding whether a page was already crawled.
 | Option | Default | What it does |
 |---|---|---|
 | `--max-pages N` | `0` (no cap) | Stop after N pages |
-| `--concurrency N` | `4` | Pages rendered in the browser at the same time |
-| `--link-concurrency N` | `8` | Link checks and redirect follows at the same time |
+| `--concurrency N` | `8` | Pages rendered in the browser at the same time |
+| `--link-concurrency N` | `16` | Link and image checks at the same time (all sites together) |
+| `--per-host N` | `6` | Link and image checks at the same time to any one site |
 | `--settle-ms N` | `1500` | Longest wait for late JavaScript after a page loads |
-| `--delay-ms N` | `150` | Pause after each request, per worker |
+| `--quiet-ms N` | `400` | A page is read once it has loaded and its content has not changed for this long |
+| `--delay-ms N` | `0` | Smallest pause between requests to the same site (it grows by itself when a site answers 429 or 503) |
+| `--full-render` | off | Also download images, video and fonts while rendering, and wait for the network to go quiet (the old, slower behaviour) |
 | `--no-sitemap` | off | Only follow links, skip the sitemap |
 | `--no-ai` | off | Spelling check uses the built-in misspellings list only (no AI proofreading) |
 | `--copy-ai` | off | Run AI proofreading on a local address too (it is skipped there by default) |
 
-Lower `--concurrency` and `--link-concurrency` (or raise `--delay-ms`) for
-small or fragile servers. It writes seven files:
+The crawl is fast by default and polite on its own: when a site answers 429
+("too many requests") or 503, the pause before its next request doubles
+(respecting the site's `Retry-After`), and a refused page is tried again up to
+3 times. For a small or fragile server you can still go gentler, for example
+`--concurrency 2 --per-host 2 --delay-ms 300`. `links.json` records how long
+each step took (`summary.seconds`) and how often a site asked to slow down
+(`summary.slowDowns`). It writes seven files:
 
 - `report.json`: one entry per crawled page (raw vs rendered status, title,
   word count, broken resources, and the page's title, meta description, H1s,
@@ -918,6 +931,49 @@ text filters above. Real finds such as "atleast" were kept.
 
 Not covered yet: readability scores, tone and brand voice (judgement calls),
 and text inside images.
+
+### Day 19: faster crawl
+
+What made the crawl slow, and what changed (`crawl.js`, `lib/throttle.js`, `report.js`):
+
+| Before | Now |
+|---|---|
+| Every page render downloaded its images, video and fonts, which no check uses (images are checked separately) | Those files are not downloaded during rendering; CSS and JavaScript still load, so the page reads the same. The browser cache stays on |
+| Every page waited for the network to go quiet, up to 1.5 s; analytics and chat widgets never go quiet, so most pages waited the full 1.5 s | A page is read once it has loaded and its content (links, images, head, amount of text) has not changed for 0.4 s, still at most 1.5 s. Carousels, counters, rotating headline words and analytics do not hold it up; a section loaded by JavaScript (text changing by more than 2%) does |
+| A fixed 150 ms pause after every request | No fixed pause; each site gets at most 6 checks at once, the pause grows by itself when a site answers 429 / 503, and a refused page is retried up to 3 times |
+| Sitemap first, then crawl pages, then check links, then follow redirects, then check images, then canonical and site checks: one after another | The sitemap is read while the first pages are crawled; links and images are checked (and redirects followed) as soon as they are found; canonical targets and the http / www checks all start together |
+| 4 pages and 8 link checks at a time | 8 pages and 16 checks at a time |
+| Report: AI explanations, then screenshots; each screenshot waited for the network to go quiet (up to 2.5 s) | Both at the same time; 6 AI calls and 6 screenshots at a time; screenshots wait for the page's images (the load event), not the network; AI proofreading 8 pages at a time |
+
+Measured with `bench/` (200 pages with heavy images, a web font, analytics that
+never stops, a carousel that moves forever, a number that counts up and 120 ms
+responses), same machine, `--no-ai`:
+
+| | Before | After |
+|---|---|---|
+| Whole crawl, 203 pages | 116.7 s | 25.7 s (4.5x faster) |
+| Rendering pages | 96.8 s | 25.1 s; average wait for a page to settle 0.45 s, no page hit the 1.5 s limit |
+| Checking links, redirects and images after the crawl | 19.9 s | under 0.1 s (done during the crawl) |
+| Same site, limited to 15 pages a second (429 when exceeded) | not measured | 58.5 s, 60 slow-downs, 43 page retries, every page read |
+
+Results are the same: on the benchmark all issues are identical before and
+after (type, page, severity, detail and found-on pages), all 210 link results
+are identical, and the rate-limited run finds the same issues. Fixture: 30 of
+30, 0 false positives, in 3.7 s. Tests: 205 to 212 (7 new in
+`test/throttle.test.js`).
+
+A first version that counted any change to the page (including animations) as
+"still changing" was only 2.4x faster on this benchmark, and 2.6x on
+progrowth.services (164 s to 63 s): pages with carousels or counters waited the
+full 1.5 s. That is why the settle check now looks at content only.
+
+Every run now records, in `links.json`, how long each step took
+(`summary.seconds`), the average page load and settle time and how many pages
+hit the settle limit (`summary.pageTiming`), and how often a site asked to slow
+down (`summary.slowDowns`). To measure a site yourself: `node bench/time.js
+https://your-site.com` prints the time of each step; add `--full-render` to
+compare with the old loading behaviour. `node bench/server.js` serves the
+benchmark site on port 4100.
 
 ### Day 18: web report
 

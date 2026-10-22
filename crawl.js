@@ -1,7 +1,15 @@
-// Crawler, Day 14 version.
-// Usage: node crawl.js https://your-site.com [--max-pages 0] [--concurrency 4]
-//          [--link-concurrency 8] [--settle-ms 1500] [--delay-ms 150] [--no-sitemap]
-//          [--no-ai] [--copy-ai]
+// Crawler, Day 19 version.
+// Usage: node crawl.js https://your-site.com [--max-pages 0] [--concurrency 8]
+//          [--link-concurrency 16] [--per-host 6] [--settle-ms 1500] [--quiet-ms 400]
+//          [--delay-ms 0] [--full-render] [--no-sitemap] [--no-ai] [--copy-ai]
+//
+// Speed (Day 19): pages are rendered without downloading images, video or fonts
+// (the checks never use them: images are checked once each, directly); a page is
+// read as soon as it has loaded and its content has stopped changing for --quiet-ms,
+// instead of waiting for the network to go quiet (analytics never does); links and
+// images are checked while the crawl is still running; and requests to each host are
+// limited to --per-host at a time, slowing down automatically when a server answers
+// 429 or 503 (lib/throttle.js). --full-render goes back to loading everything.
 //
 // What it does, on purpose and nothing more:
 //   1. Fetches the raw HTML of each page (no JavaScript executed).
@@ -10,8 +18,8 @@
 //   3. Follows every internal link it finds, plus every URL in the site's
 //      sitemap (robots.txt "Sitemap:" lines, else /sitemap.xml). No page cap
 //      by default; --max-pages N sets one. Pages are rendered --concurrency
-//      at a time (default 4) and links checked --link-concurrency at a time
-//      (default 8).
+//      at a time (default 8) and links checked --link-concurrency at a time
+//      (default 16).
 //   4. Checks EVERY link found (internal and external) directly, once each,
 //      and records which pages link to it ("found on").
 //   5. Follows every redirecting link to its end and classifies it:
@@ -69,6 +77,7 @@ import { buildRegistry, validateRegistry, CATALOG } from "./lib/issues.js";
 import { analyzeSoft404, visibleWordCount } from "./lib/soft404.js";
 import { followRedirects, classifyRedirect, redirectIssueType, siteLevelChecks } from "./lib/redirects.js";
 import { pickImageSrc, isDecorative, summarizeImages, imageFindings, formatBytes, IMAGE_LIMITS } from "./lib/images.js";
+import { createThrottle, createPool } from "./lib/throttle.js";
 
 // ---------- command line ----------
 const args = process.argv.slice(2);
@@ -78,14 +87,17 @@ const opt = (name, fallback) => {
   return i !== -1 && args[i + 1] ? Number(args[i + 1]) : fallback;
 };
 if (!startArg) {
-  console.error("Usage: node crawl.js https://your-site.com [--max-pages 0] [--concurrency 4] [--link-concurrency 8] [--settle-ms 1500] [--delay-ms 150] [--no-sitemap] [--no-ai] [--copy-ai]");
+  console.error("Usage: node crawl.js https://your-site.com [--max-pages 0] [--concurrency 8] [--link-concurrency 16] [--per-host 6] [--settle-ms 1500] [--quiet-ms 400] [--delay-ms 0] [--full-render] [--no-sitemap] [--no-ai] [--copy-ai]");
   process.exit(1);
 }
 const MAX_PAGES = opt("max-pages", 0); // 0 = no cap: crawl every internal page found
-const DELAY_MS = opt("delay-ms", 150); // pause after each request, per worker
-const CONCURRENCY = Math.max(1, opt("concurrency", 4)); // pages rendered at the same time
-const LINK_CONCURRENCY = Math.max(1, opt("link-concurrency", 8)); // link checks at the same time
+const DELAY_MS = opt("delay-ms", 0); // smallest pause between requests to the same host (grows by itself on 429/503)
+const CONCURRENCY = Math.max(1, opt("concurrency", 8)); // pages rendered at the same time
+const LINK_CONCURRENCY = Math.max(1, opt("link-concurrency", 16)); // link and image checks at the same time, all hosts
+const PER_HOST = Math.max(1, opt("per-host", 6)); // link and image checks at the same time to any one host
 const SETTLE_MS = opt("settle-ms", 1500); // max wait for late JavaScript after DOMContentLoaded
+const QUIET_MS = opt("quiet-ms", 400); // a page is ready once it has loaded and not changed for this long
+const FULL_RENDER = args.includes("--full-render"); // load images, video and fonts too, and wait for the network to go quiet
 const USE_SITEMAP = !args.includes("--no-sitemap");
 // AI proofreading runs when a key is set (.env), except on local addresses (the test
 // fixture) so the fixture score never depends on an AI; --copy-ai forces it, --no-ai stops it.
@@ -104,6 +116,15 @@ const foundOn = new Map(); // target URL -> Set of pages that link to it
 const SKIP_CRAWL = /\.(pdf|jpe?g|png|gif|webp|svg|ico|zip|mp4|mp3|docx?|xlsx?|pptx?|css|js|xml|txt)$/i;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const throttle = createThrottle({ perHost: PER_HOST, baseDelayMs: DELAY_MS });
+const checks = createPool(LINK_CONCURRENCY); // every link and image check, started as soon as it is found
+
+// Files a page render never needs: the checks read <img> tags from the page and
+// check each image once, directly. Blocked by URL so the browser cache keeps working
+// for the CSS and JavaScript every page shares.
+const BLOCKED_EXT = ["jpg", "jpeg", "png", "gif", "webp", "avif", "svg", "ico", "bmp", "tif", "tiff", "heic",
+  "mp4", "webm", "mov", "m4v", "avi", "mp3", "wav", "ogg", "m4a", "woff", "woff2", "ttf", "otf", "eot"];
+const BLOCKED_URLS = BLOCKED_EXT.flatMap((e) => [`*.${e}`, `*.${e}?*`, `*.${e.toUpperCase()}`, `*.${e.toUpperCase()}?*`]);
 
 // Run fn over items with at most n in flight; results keep the input order.
 async function mapPool(items, n, fn) {
@@ -145,7 +166,9 @@ function decodeEntities(str) {
 // ---------- page fetches ----------
 async function fetchRaw(url) {
   try {
+    await throttle.wait(url);
     const res = await fetch(url, { redirect: "manual", signal: AbortSignal.timeout(15000) });
+    throttle.note(url, res.status, res.headers.get("retry-after"));
     const body = res.status < 400 ? await res.text() : "";
     const titleMatch = body.match(/<title[^>]*>([^<]*)<\/title>/i);
     return {
@@ -162,8 +185,50 @@ async function fetchRaw(url) {
   }
 }
 
+// Wait until the page has loaded and its content has stopped changing for QUIET_MS,
+// at most SETTLE_MS. "Content" is what the checks read: links, images, the head, and
+// the amount of text. Text counts as changed when it grows or shrinks by more than 2%
+// (a section loaded by JavaScript); a number counting up, a rotating headline word,
+// a moving carousel or never-ending analytics requests do not hold the page up.
+// Returns { ms, full } so the run can report how many pages hit the limit.
+async function settle(page) {
+  if (SETTLE_MS <= 0) return { ms: 0, full: false };
+  const t = Date.now();
+  if (FULL_RENDER) {
+    const idle = await page.waitForLoadState("networkidle", { timeout: SETTLE_MS }).then(() => true, () => false);
+    return { ms: Date.now() - t, full: !idle };
+  }
+  const full = await page.evaluate(({ quiet, max }) => new Promise((resolve) => {
+    const start = performance.now();
+    const read = () => ({
+      ready: document.readyState,
+      shape: [document.links.length, document.images.length, document.head ? document.head.innerHTML.length : 0].join("|"),
+      text: document.body ? document.body.textContent.length : 0,
+    });
+    let base = read();
+    let since = performance.now();
+    const tick = () => {
+      const now = performance.now();
+      const r = read();
+      if (r.ready !== base.ready || r.shape !== base.shape || Math.abs(r.text - base.text) > Math.max(40, base.text * 0.02)) { base = r; since = now; }
+      if (document.readyState === "complete" && now - since >= quiet) resolve(false);
+      else if (now - start >= max) resolve(true);
+      else setTimeout(tick, 50);
+    };
+    tick();
+  }), { quiet: QUIET_MS, max: SETTLE_MS }).catch(() => false); // a script navigated away: read what is there
+  return { ms: Date.now() - t, full };
+}
+
 async function fetchRendered(context, url) {
   const page = await context.newPage();
+  if (!FULL_RENDER) {
+    try {
+      const cdp = await context.newCDPSession(page);
+      await cdp.send("Network.enable");
+      await cdp.send("Network.setBlockedURLs", { urls: BLOCKED_URLS });
+    } catch { /* not Chromium: load everything */ }
+  }
   const brokenLinks = [];
   const links = new Set();
 
@@ -174,12 +239,14 @@ async function fetchRendered(context, url) {
   });
 
   let status = null;
+  let settled = { ms: 0, full: false };
+  const loadStart = Date.now();
+  let loadMs = 0;
   try {
     const res = await page.goto(url, { waitUntil: "domcontentloaded", timeout: 20000 });
+    loadMs = Date.now() - loadStart;
     status = res ? res.status() : null;
-    // Give late JavaScript a short window. Many sites never go fully idle
-    // (analytics, chat widgets), so a long wait here costs time on every page.
-    if (SETTLE_MS > 0) await page.waitForLoadState("networkidle", { timeout: SETTLE_MS }).catch(() => { });
+    settled = await settle(page);
   } catch (err) {
     await page.close();
     return { status: null, error: String(err), links: [], brokenLinks: [], images: [], textLines: [] };
@@ -225,7 +292,7 @@ async function fetchRendered(context, url) {
   const images = rawImages.map((r) => ({ src: pickImageSrc(r, base), alt: r.alt, decorative: isDecorative(r) }));
 
   await page.close();
-  return { status, title, head, wordCount, links: [...links], brokenLinks, images, textLines };
+  return { status, title, head, wordCount, links: [...links], brokenLinks, images, textLines, timing: { loadMs, settleMs: settled.ms, waitedFull: settled.full } };
 }
 
 // ---------- direct link check ----------
@@ -262,6 +329,7 @@ async function checkLink(url, { meta = false } = {}) {
       location: res.headers.get("location") || null,
       classification: classify(res.status),
     };
+    if (res.headers.get("retry-after")) out.retryAfter = res.headers.get("retry-after");
     if (meta) {
       out.bytes = Number(res.headers.get("content-length")) || null; // null when the server does not say
       out.contentType = res.headers.get("content-type") || null;
@@ -278,17 +346,29 @@ async function checkLink(url, { meta = false } = {}) {
   }
 }
 
+// The same check, paced per host (lib/throttle.js).
+const checkLinkPaced = (url, o) => throttle.run(url, () => checkLink(url, o));
+
 // ---------- image check ----------
 // Like a link check, but follows redirects to the real file and reads its size there.
 async function checkImage(url) {
-  const first = await checkLink(url, { meta: true });
+  const first = await checkLinkPaced(url, { meta: true });
   if (first.classification !== "redirect") return { ...first, finalUrl: null };
-  const r = classifyRedirect(await followRedirects(url, checkLink, { maxHops: MAX_HOPS }));
+  const r = classifyRedirect(await followRedirects(url, checkLinkPaced, { maxHops: MAX_HOPS }));
   if (!r.finalUrl) { // a loop, or more than MAX_HOPS redirects: the image never arrives
     return { status: null, classification: "broken", error: r.kind === "loop" ? "redirect loop" : "too many redirects", bytes: null, contentType: null, finalUrl: null };
   }
-  const end = await checkLink(r.finalUrl, { meta: true });
+  const end = await checkLinkPaced(r.finalUrl, { meta: true });
   return { ...end, finalUrl: r.finalUrl };
+}
+
+// A link check plus, for a redirect, the whole chain to its end. Started the moment a
+// link is first found, so most checks are done by the time the crawl finishes.
+async function checkAndFollow(url) {
+  const result = await checkLinkPaced(url);
+  if (result.classification !== "redirect") return { result, redirect: null };
+  const c = classifyRedirect(await followRedirects(url, checkLinkPaced, { maxHops: MAX_HOPS }));
+  return { result, redirect: { ...c, issueType: redirectIssueType(c) } };
 }
 
 // ---------- sitemap ----------
@@ -305,18 +385,21 @@ async function sitemapUrls() {
   const robots = await get(origin + "/robots.txt");
   for (const m of (robots || "").matchAll(/^\s*sitemap:\s*(\S+)/gim)) sitemaps.add(m[1]);
   if (!sitemaps.size) sitemaps.add(origin + "/sitemap.xml");
-  const todo = [...sitemaps];
+  let todo = [...sitemaps];
   const pages = new Set();
   let fetched = 0;
-  while (todo.length && fetched < 50) {
-    const xml = await get(todo.shift());
-    fetched++;
-    if (!xml) continue;
-    const locs = [...xml.matchAll(/<loc>\s*([^<\s]+)\s*<\/loc>/gi)].map((m) => decodeEntities(m[1]));
-    if (/<sitemapindex/i.test(xml)) {
-      for (const l of locs) if (!sitemaps.has(l)) { sitemaps.add(l); todo.push(l); }
-    } else {
-      for (const l of locs) pages.add(l);
+  while (todo.length && fetched < 50) { // one level of a sitemap index at a time, fetched together
+    const batch = todo.slice(0, 50 - fetched);
+    todo = [];
+    fetched += batch.length;
+    for (const xml of await Promise.all(batch.map(get))) {
+      if (!xml) continue;
+      const locs = [...xml.matchAll(/<loc>\s*([^<\s]+)\s*<\/loc>/gi)].map((m) => decodeEntities(m[1]));
+      if (/<sitemapindex/i.test(xml)) {
+        for (const l of locs) if (!sitemaps.has(l)) { sitemaps.add(l); todo.push(l); }
+      } else {
+        for (const l of locs) pages.add(l);
+      }
     }
   }
   return [...pages];
@@ -325,6 +408,17 @@ async function sitemapUrls() {
 // ---------- main ----------
 async function main() {
   const startedAt = new Date().toISOString();
+  const t0 = Date.now();
+  const timings = {};
+  let tPhase = t0;
+  const mark = (name) => { const now = Date.now(); timings[name] = Math.round((now - tPhase) / 100) / 10; tPhase = now; };
+  const linkChecks = new Map(); // url -> promise of { result, redirect }
+  const imageChecksByUrl = new Map(); // image url -> promise of the image check
+  // Each check starts now and is awaited later; .catch marks it handled so a failure
+  // surfaces where it is awaited instead of stopping the crawl mid-way.
+  const started = (p) => { p.catch(() => { }); return p; };
+  const scheduleLink = (url) => { if (!linkChecks.has(url)) linkChecks.set(url, started(checks.add(() => checkAndFollow(url)))); return linkChecks.get(url); };
+  const scheduleImage = (url) => { if (!imageChecksByUrl.has(url)) imageChecksByUrl.set(url, started(checks.add(() => checkImage(url)))); return imageChecksByUrl.get(url); };
   const browser = await chromium.launch();
   const context = await browser.newContext(); // one context: pages share the HTTP cache
   const queue = [];
@@ -339,13 +433,15 @@ async function main() {
   enqueue(startUrl);
   let capReached = false;
 
+  // The sitemap is read while the first pages are already being crawled; workers
+  // wait for it before deciding the queue is finished.
   let sitemapListed = [];
-  if (USE_SITEMAP) {
-    const all = await sitemapUrls();
+  let sitemapPending = USE_SITEMAP;
+  const sitemapDone = !USE_SITEMAP ? Promise.resolve() : sitemapUrls().then((all) => {
     sitemapListed = all.filter((u) => { try { return new URL(u).origin === origin; } catch { return false; } });
     const added = sitemapListed.filter((u) => enqueue(u)).length;
     console.log(`Sitemap: ${all.length} URLs listed, ${sitemapListed.length} on ${origin}, ${added} added to the queue`);
-  }
+  }, () => { }).finally(() => { sitemapPending = false; });
 
   // Crawl with CONCURRENCY workers sharing one queue. A worker stops when the
   // queue is empty and no other worker is still busy (and could add more).
@@ -353,12 +449,13 @@ async function main() {
   const imageOccurrences = []; // one per <img> per page (pages that loaded with 2xx only)
   const pageText = new Map(); // url -> visible text lines (2xx pages only); kept out of report.json
   let active = 0;
+  let pageRetries = 0;
   const worker = async () => {
     for (;;) {
       if (MAX_PAGES && visited.size >= MAX_PAGES) { if (queue.length) capReached = true; return; }
       const url = queue.shift();
       if (!url) {
-        if (!active) return;
+        if (!active && !sitemapPending) return;
         await sleep(50);
         continue;
       }
@@ -367,7 +464,15 @@ async function main() {
       active++;
       try {
         console.log(MAX_PAGES ? `Crawling (${n}/${MAX_PAGES}): ${url}` : `Crawling (${n}, ${queue.length} queued): ${url}`);
-        const [raw, rendered] = await Promise.all([fetchRaw(url), fetchRendered(context, url)]);
+        let [raw, rendered] = await Promise.all([fetchRaw(url), fetchRendered(context, url)]);
+        // Asked to slow down (429 / 503): wait as the server asked (the pause doubles each
+        // time), then try the page again, up to 3 more times.
+        for (let retry = 0; retry < 3 && ([429, 503].includes(raw.status) || [429, 503].includes(rendered.status)); retry++) {
+          throttle.note(url, [429, 503].includes(raw.status) ? raw.status : rendered.status);
+          pageRetries++;
+          await throttle.wait(url);
+          [raw, rendered] = await Promise.all([fetchRaw(url), fetchRendered(context, url)]);
+        }
 
         // Only compare titles when both sides produced a real page. A redirect, a 404
         // or a failed render has no body to compare, and a missing title is "" on both sides.
@@ -384,65 +489,72 @@ async function main() {
               wordCount: rendered.wordCount,
               head: rendered.head || null,
               brokenLinks: rendered.brokenLinks,
+              timing: rendered.timing || null, // ms to load the page, ms waiting for it to settle, and whether it hit --settle-ms
             },
             jsChangedTitle: rawIsPage && renderedOk && (raw.title || "") !== (rendered.title || ""),
           },
         });
 
         if (rendered.status >= 200 && rendered.status < 300) {
-          for (const img of rendered.images) imageOccurrences.push({ pageUrl: url, ...img });
+          for (const img of rendered.images) {
+            imageOccurrences.push({ pageUrl: url, ...img });
+            if (img.src) scheduleImage(img.src);
+          }
           pageText.set(url, rendered.textLines);
         }
 
         for (const link of rendered.links || []) {
-          if (!foundOn.has(link)) foundOn.set(link, new Set());
+          if (!foundOn.has(link)) { foundOn.set(link, new Set()); scheduleLink(link); }
           foundOn.get(link).add(url);
           if (new URL(link).origin === origin) enqueue(link);
         }
       } finally {
         active--;
       }
-      if (DELAY_MS) await sleep(DELAY_MS); // be polite to the server
+      await throttle.wait(url); // a server that answered 429 / 503 gets a pause before its next page
     }
   };
   await Promise.all(Array.from({ length: CONCURRENCY }, worker));
+  await sitemapDone;
   report.push(...crawled.sort((a, b) => a.n - b.n).map((c) => c.entry));
   await context.close();
   await browser.close();
+  mark("pages");
 
-  // Check every distinct link target once.
+  // http -> https and www / non-www checks, started now and read later.
+  const siteChecksStarted = siteLevelChecks(startUrl, checkLinkPaced, { maxHops: MAX_HOPS });
+  siteChecksStarted.catch(() => { });
+
+  // Every distinct link target was checked once, starting while the crawl ran;
+  // wait for the ones still in flight.
   const targets = [...foundOn.keys()];
-  console.log(`\nChecking ${targets.length} distinct links directly...`);
   let checked = 0;
-  const links = await mapPool(targets, LINK_CONCURRENCY, async (target) => {
-    const result = await checkLink(target);
-    if (++checked % 100 === 0) console.log(`  ${checked}/${targets.length} links checked`);
-    if (DELAY_MS) await sleep(DELAY_MS); // be polite to the server
-    return {
+  for (const t of targets) linkChecks.get(t).then(() => { checked++; });
+  await Promise.resolve();
+  console.log(`\nChecking ${targets.length} distinct links directly (${checked} already done during the crawl)...`);
+  const links = await Promise.all(targets.map(async (target) => {
+    const { result, redirect } = await linkChecks.get(target);
+    const entry = {
       url: target,
       type: new URL(target).origin === origin ? "internal" : "external",
       ...result,
       foundOn: [...foundOn.get(target)],
     };
-  });
+    delete entry.retryAfter;
+    if (redirect) entry.redirect = redirect;
+    return entry;
+  }));
 
-  // Follow every redirecting link to its end.
+  // Every redirecting link was followed to its end as part of its check.
   const redirecting = links.filter((l) => l.classification === "redirect");
   console.log(`Following ${redirecting.length} redirecting links to their destination...`);
-  await mapPool(redirecting, LINK_CONCURRENCY, async (l) => {
-    const result = await followRedirects(l.url, checkLink, { maxHops: MAX_HOPS, delayMs: DELAY_MS });
-    const c = classifyRedirect(result);
-    l.redirect = { ...c, issueType: redirectIssueType(c) };
-  });
+  mark("links");
 
   // ---------- images ----------
   const imageSummary = summarizeImages(imageOccurrences);
   console.log(`Checking ${imageSummary.length} distinct images (${imageOccurrences.length} <img> tags)...`);
-  const imageChecks = await mapPool(imageSummary, LINK_CONCURRENCY, async (img) => {
-    const c = await checkImage(img.url);
-    if (DELAY_MS) await sleep(DELAY_MS); // be polite to the server
-    return c;
-  });
+  const imageChecks = await Promise.all(imageSummary.map((img) => scheduleImage(img.url)));
+  mark("images");
   const imageEntries = imageSummary.map((img, i) => {
     const check = imageChecks[i];
     const findings = imageFindings(img, check);
@@ -482,18 +594,24 @@ async function main() {
     .sort((a, b) => b.redirectingLinks - a.redirectingLinks);
 
   // http -> https and www / non-www checks on the start URL's host.
-  const siteChecks = await siteLevelChecks(startUrl, checkLink, { maxHops: MAX_HOPS, delayMs: DELAY_MS });
+  const siteChecks = await siteChecksStarted;
 
   // ---------- SEO, social sharing and page setup (everything read from the head) ----------
   // Rules run on the rendered page (what a browser, and Google, ends up with).
   // Raw is compared so we can say when a tag exists only after JavaScript runs.
   const linkByUrl = new Map(links.map((l) => [l.url, l]));
   const canonicalChecks = new Map();
-  const targetResult = async (target) => {
-    if (linkByUrl.has(target)) return linkByUrl.get(target);
-    if (!canonicalChecks.has(target)) canonicalChecks.set(target, await checkLink(target));
+  const targetResult = (target) => {
+    if (linkByUrl.has(target)) return Promise.resolve(linkByUrl.get(target));
+    if (!canonicalChecks.has(target)) canonicalChecks.set(target, checks.add(() => checkLinkPaced(target)));
     return canonicalChecks.get(target);
   };
+  // Start every canonical-target check at once; the loop below reads the results.
+  for (const p of report) {
+    const c = p.rendered.head?.canonicals?.[0];
+    if (!c) continue;
+    try { const t = new URL(c, p.url).href; if (!sameUrl(t, p.url)) targetResult(t).catch(() => { }); } catch { /* bad href: headIssues flags it */ }
+  }
 
   const metaPages = [];
   for (const p of report) {
@@ -530,10 +648,10 @@ async function main() {
   const imageCheckByUrl = new Map(imageEntries.map((e) => [e.url, e]));
   console.log(`Checking ${ogPages.size} distinct share images (og:image)...`);
   const ogImages = await mapPool([...ogPages], LINK_CONCURRENCY, async ([url, pages]) => {
-    const check = imageCheckByUrl.get(url) || await checkImage(url);
-    if (!imageCheckByUrl.has(url) && DELAY_MS) await sleep(DELAY_MS);
+    const check = imageCheckByUrl.get(url) || await scheduleImage(url);
     return { url, pages, check: { status: check.status, classification: check.classification, finalUrl: check.finalUrl ?? null, error: check.error } };
   });
+  mark("seo");
   const ogFindings = ogImageFindings(ogImages);
 
   const byType = {};
@@ -577,6 +695,7 @@ async function main() {
     soft.push({ url: d.url, foundOn: [...pagesLinking], via: "redirect-target", title: raw.head.title, h1s: raw.head.h1s, wordCount: raw.wordCount, ...r });
   }
   const softFlagged = soft.filter((s) => s.flagged);
+  mark("soft404");
   await writeFile("soft404.json", JSON.stringify({
     summary: { pagesAnalysed: soft.length, flagged: softFlagged.length },
     pages: soft.filter((s) => s.signals.length),
@@ -617,6 +736,7 @@ async function main() {
     onProgress: ({ done, total }) => { if (copyProvider && (done % 20 === 0 || done === total)) console.log(`  ${done}/${total} pages proofread`); },
   });
   if (copyProvider) await writeFile(AI_CACHE_FILE, JSON.stringify(aiCache));
+  mark("content");
   content.copy = {
     pagesChecked: copyResult.stats.pagesChecked,
     aiPagesChecked: copyResult.stats.aiPagesChecked,
@@ -659,6 +779,14 @@ async function main() {
     redirectsToError: kindCount("redirect-to-error"),
     singleRedirects: redirecting.filter((l) => !l.redirect.issueType).length,
     siteChecks: siteChecks.skipped ? `skipped (${siteChecks.skipped})` : `${siteChecks.findings.length} finding(s)`,
+    render: FULL_RENDER ? "full (images, video and fonts loaded)" : "fast (images, video and fonts not downloaded)",
+    seconds: { total: Math.round((Date.now() - t0) / 100) / 10, ...timings },
+    pageTiming: (() => {
+      const t = report.map((p) => p.rendered.timing).filter(Boolean);
+      const avg = (k) => (t.length ? Math.round(t.reduce((a, x) => a + x[k], 0) / t.length) : 0);
+      return { averageLoadMs: avg("loadMs"), averageSettleMs: avg("settleMs"), pagesWaitedFullSettle: t.filter((x) => x.waitedFull).length };
+    })(),
+    slowDowns: { ...throttle.stats(), pageRetries },
   };
 
   await writeFile("report.json", JSON.stringify(report, null, 2));
