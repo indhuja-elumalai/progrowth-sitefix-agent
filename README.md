@@ -184,6 +184,7 @@ progrowth-sitefix-agent/
 │   ├── explain-templates.js           standard plain-language guidance for every issue type (used when AI is off)
 │   ├── explain.js                     AI explanations and suggested fixes, with guardrails and a cache
 │   ├── chat.js                        answers questions from one report only; checks every cited issue id
+│   ├── history.js                     past inspections in history/<run-id>/: save, list, open, delete
 │   ├── report-html.js                 the printable report (HTML that report.js turns into the PDF)
 │   ├── ai-provider.js                 the only code that talks to an AI: OpenAI or the mock, from .env
 │   ├── ai-mock.js                     the mock AI (no key, no network) for demos, tests and CI
@@ -202,6 +203,7 @@ progrowth-sitefix-agent/
 │   ├── triage.test.js                 priority, effort, owner; every type has a rule and guidance
 │   ├── explain.test.js                guardrails (invented URLs, bad ids, value lengths), fallbacks, cache
 │   ├── chat.test.js                   context selection, cited-id checks, error handling
+│   ├── history.test.js                save, report matching, pruning, delete stays deleted, safe file names
 │   ├── ai-provider.test.js            .env loading, config, OpenAI request format and retries (fake server)
 │   └── report-html.test.js            report sections, escaping, screenshots, caps (npm test runs them all)
 ├── ui/                                chat-first internal website audit agent UI
@@ -297,12 +299,31 @@ What you get:
    page?"). Answers use only this inspection's data, cite the issues they
    used (click a citation to open that issue), and say so when the report
    does not cover something. A URL in the box still starts a new inspection.
+8. **Past inspections.** Every finished inspection is listed in the sidebar
+   (Today, Yesterday, then by date) with its time, issue count and pages.
+   Click one to reopen it with its PDF, screenshots and the questions you
+   asked about it. The list and the open inspection survive a page reload
+   and a server restart. Hover an inspection and click the bin to delete
+   it (click again to confirm); "Delete all" clears the list. On a phone,
+   the menu button at the top left opens the list.
+
+History is kept on disk in `history/<run-id>/` (ignored by git): the issue
+registry, the explained report, the PDF, the screenshots and the chat. The
+newest 50 are kept (`SITEFIX_HISTORY_MAX` changes that). Crawls run from the
+terminal (`node crawl.js` then `node report.js`) are added the next time the
+UI loads the list. A deleted inspection is remembered in
+`history/deleted.json`, so it is not added back from the files in the
+project root.
 
 Guardrails in `ui/server.js`: it listens on `127.0.0.1` only (set
 `SITEFIX_UI_HOST` to change that), runs one inspection at a time (every run
 writes `issues.json` in the project root), and only returns results for a
 run that exited cleanly, so a failed crawl never shows the previous site's
-issues.
+issues. History ids must look like `run-YYYYMMDDTHHMMSS` and only
+`report.pdf` and `shots/ISS-xxxxxxxxxx.jpg` can be read from an inspection
+folder, so no request can reach other files. Deleting needs `DELETE`, which
+the server never allows from another website (its CORS preflight allows
+only GET and POST).
 
 To change the page, edit `ui/build-index.js` and run
 `node ui/build-index.js` to regenerate `ui/index.html`. Commit both.
@@ -884,6 +905,29 @@ text filters above. Real finds such as "atleast" were kept.
 
 Not covered yet: readability scores, tone and brand voice (judgement calls),
 and text inside images.
+
+### Day 17: inspection history in the UI
+
+New `lib/history.js` and history endpoints in `ui/server.js`. Each finished
+inspection is copied into `history/<run-id>/` with its registry, report,
+PDF, only its own screenshots and its chat, so the sidebar keeps past
+inspections across reloads and restarts. Inspections can be reopened (PDF,
+screenshots and earlier questions included) and deleted one at a time or all
+at once, with a two-click confirm instead of a pop-up.
+
+- A report is only attached to the crawl it was made from (matching run id).
+- Deleted inspections stay deleted: they are never re-imported from the
+  latest crawl files.
+- Questions are answered from the inspection on screen, not always the
+  latest one, and are saved with it.
+- Files are written to a temp file then renamed, so a crash never leaves a
+  half-written JSON file.
+
+Tests: 187 to 197 (10 new in `test/history.test.js`). Checked in a browser
+against the fixture with the mock AI: two inspections listed, the open one
+restored after a reload, an older one reopened with its chat, screenshot and
+PDF (both 200), deleted with the two-click confirm, and still gone after a
+reload; phone width opens the list from the menu button.
 
 ## 13. Security principles
 
