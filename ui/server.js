@@ -20,6 +20,8 @@
 //   GET    /api/history/:id/shots/:name  → one of its screenshots
 //   DELETE /api/history/:id              → delete one inspection
 //   DELETE /api/history                  → delete all inspections
+//   GET    /report/:id                   → the web report for one inspection (lib/web-report.js)
+//   GET    /report/:id/download          → the same report as one file, screenshots built in
 // DELETE is same-origin only: the CORS preflight below never allows it.
 //
 // A run is: crawl.js, then (if the crawl succeeded) report.js, both streamed over SSE.
@@ -35,6 +37,7 @@ import { loadEnv } from "../lib/env.js";
 import { aiConfig, providerFromConfig } from "../lib/ai-provider.js";
 import { answerQuestion } from "../lib/chat.js";
 import { createHistory, isRunId } from "../lib/history.js";
+import { buildWebReport, reportFileName } from "../lib/web-report.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, ".."); // project root
@@ -297,6 +300,39 @@ const server = createServer(async (req, res) => {
     }
     const result = await answerQuestion({ question: body.question, report: await currentReport(), provider });
     return json(res, 200, result);
+  }
+
+  // Web report: /report/:id opens in the browser, /report/:id/download saves one file.
+  const reportMatch = method === "GET" && pathname.match(/^\/report\/([^/]+)(\/download)?$/);
+  if (reportMatch) {
+    const [, id, download] = reportMatch;
+    const page = (status, title, text) => {
+      res.writeHead(status, { "Content-Type": "text/html; charset=utf-8" });
+      res.end(`<!doctype html><meta charset="utf-8"><title>${title}</title><body style="font-family:system-ui,sans-serif;max-width:560px;margin:80px auto;padding:0 20px;color:#1d1d1f"><h1 style="font-size:22px">${title}</h1><p>${text}</p><p><a href="/">Back to SiteFix</a></p>`);
+    };
+    if (!isRunId(id)) return page(400, "Not a valid report link", "This link does not point to a SiteFix inspection.");
+    const saved = await history.load(id);
+    if (!saved) return page(404, "Report not found", "This inspection was deleted, or the link is wrong.");
+    if (!saved.report) return page(404, "No report for this inspection", "The report step did not finish for this inspection, so there are no explanations to show. Run the inspection again to get a full report.");
+    const base = `/api/history/${encodeURIComponent(id)}/`;
+    if (!download) {
+      const html = buildWebReport({
+        report: saved.report,
+        shotSrc: (i) => (i.screenshot ? base + i.screenshot : null),
+        links: { download: `/report/${encodeURIComponent(id)}/download`, pdf: saved.meta.hasPdf ? `${base}report.pdf` : null },
+      });
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
+      return res.end(html);
+    }
+    // One file to send to a client: screenshots built in as data: URIs, no links back here.
+    const shots = new Map();
+    for (const t of saved.report.types || []) for (const i of t.issues || []) {
+      if (!i.screenshot) continue;
+      try { shots.set(i.id, `data:image/jpeg;base64,${(await readFile(history.file(id, i.screenshot))).toString("base64")}`); } catch { /* missing screenshot: shown without one */ }
+    }
+    const html = buildWebReport({ report: saved.report, standalone: true, shotSrc: (i) => shots.get(i.id) || null });
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Content-Disposition": `attachment; filename="${reportFileName(saved.report)}"` });
+    return res.end(html);
   }
 
   // API: inspection history
