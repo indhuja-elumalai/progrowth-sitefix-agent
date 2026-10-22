@@ -11,3 +11,4 @@ audit-report/
 .sitefix-ai-cache.json
 # local crawl logs and scratch files
 *-run.txt
+history/
