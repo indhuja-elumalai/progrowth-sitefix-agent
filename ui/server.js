@@ -11,7 +11,16 @@
 //   GET  /api/report.pdf → the PDF report
 //   GET  /api/shots/:id  → one screenshot from the report
 //   GET  /api/ai-status  → whether AI is on, which provider and model
-//   POST /api/ask        → { question } → an answer from the last report only
+//   POST /api/ask        → { question, inspectionId? } → an answer from that inspection only
+//
+// History (lib/history.js): every finished inspection is kept in history/<run-id>/.
+//   GET    /api/history                  → past inspections, newest first
+//   GET    /api/history/:id              → { meta, registry, report, chat }
+//   GET    /api/history/:id/report.pdf   → that inspection's PDF
+//   GET    /api/history/:id/shots/:name  → one of its screenshots
+//   DELETE /api/history/:id              → delete one inspection
+//   DELETE /api/history                  → delete all inspections
+// DELETE is same-origin only: the CORS preflight below never allows it.
 //
 // A run is: crawl.js, then (if the crawl succeeded) report.js, both streamed over SSE.
 // The crawl writes issues.json (and the other files) to the project root; report.js
@@ -25,10 +34,12 @@ import path from "node:path";
 import { loadEnv } from "../lib/env.js";
 import { aiConfig, providerFromConfig } from "../lib/ai-provider.js";
 import { answerQuestion } from "../lib/chat.js";
+import { createHistory, isRunId } from "../lib/history.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, ".."); // project root
 const REPORT_DIR = path.join(ROOT, "audit-report");
+const history = createHistory({ root: ROOT, max: Number(process.env.SITEFIX_HISTORY_MAX) || undefined });
 
 loadEnv(path.join(ROOT, ".env"));
 const AI = aiConfig();
@@ -165,9 +176,16 @@ const server = createServer(async (req, res) => {
       const report = spawn("node", ["report.js"], { cwd: ROOT, stdio: ["ignore", "pipe", "pipe"] });
       report.stdout.on("data", onData);
       report.stderr.on("data", onData);
-      report.on("close", (rcode) => {
+      report.on("close", async (rcode) => {
         entry.reportCode = rcode;
         broadcast(`__REPORT__:${rcode}`);
+        // Keep this inspection: it stays in the sidebar after a reload or restart.
+        try {
+          const meta = await history.sync();
+          if (meta) { entry.inspectionId = meta.id; broadcast(`__SAVED__:${meta.id}`); }
+        } catch (err) {
+          broadcast(`Could not save this inspection to history: ${err.message}`);
+        }
         finish(0);
       });
     });
@@ -264,11 +282,52 @@ const server = createServer(async (req, res) => {
     return json(res, 200, { enabled: Boolean(provider), provider: provider ? provider.name : "none", model: provider ? provider.model : null, problem: provider ? null : AI.problem });
   }
 
-  // API: ask a question about the latest report
+  // API: ask a question about one inspection (the latest one when no id is given).
+  // The question and answer are saved with that inspection.
   if (method === "POST" && pathname === "/api/ask") {
     const body = await parseBody(req);
+    if (body.inspectionId !== undefined && body.inspectionId !== null) {
+      if (!isRunId(body.inspectionId)) return json(res, 400, { error: "Bad inspection id" });
+      const saved = await history.load(body.inspectionId);
+      if (!saved) return json(res, 404, { error: "That inspection was deleted" });
+      if (!saved.report) return json(res, 200, { answer: "This inspection has no explained report (the report step did not finish), so I cannot answer questions about it. Run it again to chat about it.", issueIds: [], source: "none" });
+      const result = await answerQuestion({ question: body.question, report: saved.report, provider });
+      if (String(body.question || "").trim()) await history.appendChat(body.inspectionId, { question: String(body.question).trim().slice(0, 500), answer: result.answer, issueIds: result.issueIds || [], source: result.source });
+      return json(res, 200, result);
+    }
     const result = await answerQuestion({ question: body.question, report: await currentReport(), provider });
     return json(res, 200, result);
+  }
+
+  // API: inspection history
+  if (pathname === "/api/history" || pathname.startsWith("/api/history/")) {
+    const parts = pathname.split("/").slice(3); // [id, ...file]
+    const id = parts[0];
+    try {
+      if (!id) {
+        if (method === "GET") { await history.sync(); return json(res, 200, { inspections: await history.list() }); }
+        if (method === "DELETE") { if (activeRunId) return json(res, 409, { error: "Wait for the running inspection to finish." }); return json(res, 200, { deleted: await history.removeAll() }); }
+        return json(res, 405, { error: "Method not allowed" });
+      }
+      if (!isRunId(id)) return json(res, 400, { error: "Bad inspection id" });
+      if (parts.length === 1) {
+        if (method === "GET") { const saved = await history.load(id); return saved ? json(res, 200, saved) : json(res, 404, { error: "Inspection not found" }); }
+        if (method === "DELETE") return (await history.remove(id)) ? json(res, 200, { deleted: id }) : json(res, 404, { error: "Inspection not found" });
+        return json(res, 405, { error: "Method not allowed" });
+      }
+      if (method !== "GET") return json(res, 405, { error: "Method not allowed" });
+      const file = history.file(id, parts.slice(1).join("/"));
+      if (file.endsWith(".pdf")) {
+        try {
+          const data = await readFile(file);
+          res.writeHead(200, { "Content-Type": "application/pdf", "Content-Disposition": `inline; filename="sitefix-${id}.pdf"` });
+          return res.end(data);
+        } catch { return json(res, 404, { error: "No PDF was made for this inspection" }); }
+      }
+      return serveFile(res, file);
+    } catch (err) {
+      return json(res, /^bad /.test(err.message) ? 400 : 500, { error: err.message });
+    }
   }
 
   res.writeHead(404, { "Content-Type": "text/plain" });
