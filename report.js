@@ -6,7 +6,8 @@
 // 3. Explanations and suggested fixes: AI with guardrails, or standard guidance
 //    when AI is off or an answer fails a check (lib/explain.js).
 // 4. Screenshots of the affected pages, with the broken link or image outlined.
-// 5. Writes audit-report/explained.json, report.html and sitefix-report.pdf.
+// 5. Writes audit-report/explained.json, report.html, sitefix-report.pdf and
+//    web-report.html (the interactive report as one file, screenshots built in).
 //
 // AI settings come from the environment or a .env file (see lib/ai-provider.js).
 
@@ -19,6 +20,7 @@ import { aiConfig, providerFromConfig } from "./lib/ai-provider.js";
 import { triage, triageSummary } from "./lib/triage.js";
 import { explainIssues } from "./lib/explain.js";
 import { buildReportHtml } from "./lib/report-html.js";
+import { buildWebReport } from "./lib/web-report.js";
 
 const args = process.argv.slice(2);
 const flag = (name) => args.includes(`--${name}`);
@@ -131,6 +133,7 @@ async function main() {
     for (const [id, file] of shotFiles) if (existsSync(file)) shots.set(id, `data:image/jpeg;base64,${(await readFile(file)).toString("base64")}`);
     const html = buildReportHtml({ report, shots });
     await writeFile(path.join(OUT, "report.html"), html);
+    await writeFile(path.join(OUT, "web-report.html"), buildWebReport({ report, standalone: true, shotSrc: (i) => shots.get(i.id) || null }));
     const browser = await chromium.launch();
     const page = await browser.newPage();
     await page.setContent(html, { waitUntil: "load" });
@@ -140,7 +143,7 @@ async function main() {
     const s = report.summary;
     console.log(`  ${issues.length} issues: ${s.byPriority.P1} P1, ${s.byPriority.P2} P2, ${s.byPriority.P3} P3, ${s.quickWins} quick wins; ${stats.aiTypes} of ${stats.types} types explained by AI, ${shots.size} screenshots`);
     if (stats.problems.length) console.log(`  ${stats.problems.length} AI check(s) failed (standard guidance used there), e.g. ${stats.problems[0]}`);
-    console.log(`\nReport ready: ${OUT}/sitefix-report.pdf (data in ${OUT}/explained.json)`);
+    console.log(`\nReport ready: ${OUT}/sitefix-report.pdf and ${OUT}/web-report.html (data in ${OUT}/explained.json)`);
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname)) main();
