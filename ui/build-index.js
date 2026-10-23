@@ -3,6 +3,7 @@
 import { writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { suggestQuestions } from "../lib/suggest.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const out = path.join(__dirname, "index.html");
@@ -73,8 +74,6 @@ const CSS = `
   .h-del svg{width:14px;height:14px}
   @media(hover:none){.h-del{opacity:1}}
   .icon-btn.menu-btn{display:none;left:12px;right:auto}
-  .sidebar-footer{padding:12px 18px 16px;border-top:1px solid var(--border);font-size:11.5px;color:var(--text-3);line-height:1.6}
-  .ver-badge{display:inline-block;background:var(--surface-3);color:var(--text-2);border-radius:var(--radius-xl);padding:1px 8px;font-size:10.5px;font-weight:500;margin-top:4px}
 
   /* Main + header (centered contact-style header) */
   #main{flex:1;display:flex;flex-direction:column;overflow:hidden;background:var(--bg);position:relative}
@@ -145,6 +144,57 @@ const CSS = `
   .det-pill.done{background:var(--accent-dim);color:var(--text-1)}
   .det-pill.done .pdot{background:var(--success)}
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+
+  /* Live inspection card */
+  .prog-card.live .prog-hdr{padding:14px 16px 10px}
+  .p-txt{flex:1;min-width:0}
+  .p-time{font-size:12.5px;color:var(--text-3);font-variant-numeric:tabular-nums;flex-shrink:0}
+  .pbar{height:6px;margin:0 16px;border-radius:6px;background:var(--surface-2);overflow:hidden}
+  .pfill{height:100%;width:2%;border-radius:6px;background:var(--accent);transition:width .4s ease}
+  .prog-card.err .pfill{background:var(--high)}
+  .p-nums{display:flex;justify-content:space-between;gap:10px;padding:6px 16px 10px;font-size:12px;color:var(--text-2);font-variant-numeric:tabular-nums}
+  .p-eta{color:var(--text-3)}
+  .steps{list-style:none;display:flex;flex-wrap:wrap;gap:6px;padding:0 16px 12px}
+  .steps li{display:flex;align-items:center;gap:6px;padding:3px 10px 3px 8px;border-radius:var(--radius-xl);background:var(--surface-1);font-size:12px;color:var(--text-3)}
+  .steps .sdot{width:7px;height:7px;border-radius:50%;background:var(--border-mid)}
+  .steps li.active{color:var(--text-1);background:var(--surface-2)}
+  .steps li.active .sdot{background:var(--medium);animation:pulse 1s infinite}
+  .steps li.done{color:var(--text-1);background:var(--accent-dim)}
+  .steps li.done .sdot{background:var(--success)}
+  .steps li.failed .sdot{background:var(--high)}
+  .steps .sval{color:var(--text-3);font-variant-numeric:tabular-nums}
+  .live-issues{border-top:1px solid var(--border);padding:10px 16px 12px}
+  .li-head{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:12px;color:var(--text-3);margin-bottom:6px}
+  .li-head b{font-weight:600;color:var(--text-2);margin-right:2px}
+  .sev-n{font-size:11.5px;font-weight:600;padding:1px 8px;border-radius:var(--radius-xl);font-variant-numeric:tabular-nums}
+  .sev-n.high{background:var(--high-bg);color:var(--high)}.sev-n.medium{background:var(--medium-bg);color:var(--medium)}.sev-n.low{background:var(--low-bg);color:var(--low)}
+  .li-note{margin-left:auto;font-size:11px}
+  .feed{list-style:none;display:flex;flex-direction:column;gap:2px}
+  .feed li{display:flex;align-items:center;gap:8px;font-size:12.5px;padding:3px 0;animation:feedin .35s ease}
+  .feed .fd{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+  .feed .fd.high{background:var(--high)}.feed .fd.medium{background:var(--medium)}.feed .fd.low{background:var(--low)}
+  .feed .fl{color:var(--text-1);flex-shrink:0}
+  .feed .fu{font-family:var(--font-mono);font-size:11.5px;color:var(--text-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+  .feed-empty{font-size:12px;color:var(--text-3)}
+  @keyframes feedin{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+  .log-toggle{display:block;width:100%;text-align:left;border:none;border-top:1px solid var(--border);background:transparent;color:var(--text-3);font-size:12px;padding:8px 16px}
+  .log-toggle:hover{color:var(--text-1);background:var(--surface-1)}
+  .prog-card.live .prog-log{border-top:none}
+  .live-row .history-item{font-weight:500}
+  .h-spin{width:9px;height:9px;border:2px solid var(--surface-3);border-top-color:var(--medium);border-radius:50%;flex-shrink:0;animation:spin .8s linear infinite}
+  .h-spin.done{border-color:var(--success);animation:none}
+  .h-spin.err{border-color:var(--high);animation:none}
+
+  /* Suggested questions */
+  .suggest{margin-top:12px;display:flex;flex-direction:column;gap:6px;align-items:flex-start}
+  .sg-note{font-size:12.5px;color:var(--text-3)}
+  .sg-chips{display:flex;flex-wrap:wrap;gap:6px}
+  .sq{border:1px solid var(--accent-border);background:var(--accent-dim);color:var(--text-1);border-radius:var(--radius-xl);font-size:13px;padding:5px 12px;cursor:pointer;transition:background var(--t),transform var(--t)}
+  .sq:hover{background:rgba(184,255,0,.32);transform:translateY(-1px)}
+  .queued{color:var(--text-2)}
+  .queued::before{content:"";display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--medium);margin-right:7px;vertical-align:1px;animation:pulse 1s infinite}
+  .queued.answered::before{background:var(--success);animation:none}
+  .queued.missed::before{background:var(--high);animation:none}
 
   /* Summary card */
   .rpt-hdr{padding:14px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px}
@@ -252,7 +302,6 @@ const CSS = `
   .fix-to{color:var(--success);font-weight:500;margin-top:2px;overflow-wrap:anywhere}
   .fix-why{color:var(--text-3);font-size:12px;margin-top:3px}
   .iss-item.flash{box-shadow:inset 3px 0 0 var(--accent)}
-  .ai-status{display:block;margin-top:6px}
   .ai-ph{margin-top:10px;padding:8px 12px;border:1px dashed var(--border-mid);border-radius:var(--radius-sm);font-size:12px;color:var(--text-3);display:flex;align-items:center;gap:8px}
   .ai-ph svg{width:13px;height:13px;flex-shrink:0;opacity:.6}
 
@@ -298,7 +347,7 @@ const HTML = String.raw`<!DOCTYPE html>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>SiteFix — Website Audit Agent</title>
-  <meta name="description" content="SiteFix is an internal website audit agent that inspects any client site, runs deterministic detectors, and presents findings in a clean, structured report." />
+  <meta name="description" content="SiteFix inspects every page of a website, finds what is broken or missing, and explains what to fix first and how." />
   <style>${CSS}</style>
 </head>
 <body>
@@ -327,11 +376,6 @@ const HTML = String.raw`<!DOCTYPE html>
     <div class="history-list" id="hist" aria-label="Inspection history">
       <div class="hist-empty">Loading&hellip;</div>
     </div>
-    <div class="sidebar-footer">
-      Phase 1 &middot; Detection only<br/>
-      <span class="ai-status" id="ai-status">AI: checking&hellip;</span>
-      <span class="ver-badge">v0.6 &middot; Day 10/12</span>
-    </div>
   </aside>
 
   <main id="main">
@@ -354,7 +398,7 @@ const HTML = String.raw`<!DOCTYPE html>
         <div id="empty-state">
           <div class="empty-av" aria-hidden="true"><svg viewBox="0 0 16 16" fill="none" stroke="#1d1d1f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5l3 3"/></svg></div>
           <h1 class="empty-title">SiteFix</h1>
-          <p class="empty-desc">Send a website URL and I&rsquo;ll crawl it, run the detectors and report every issue I find, with evidence.</p>
+          <p class="empty-desc">Send a website address and I&rsquo;ll check every page, then show you what to fix first, why it matters and how to fix it.</p>
           <div class="cap-row" aria-label="What gets checked">
             <span class="cap-pill">Broken links &amp; HTTP</span>
             <span class="cap-pill">Redirects</span>
@@ -371,9 +415,9 @@ const HTML = String.raw`<!DOCTYPE html>
 
     <div id="input-area">
       <div class="inp-wrap">
-        <input type="text" id="url-input" placeholder="Website URL"
+        <input type="text" id="url-input" placeholder="Website address, e.g. example.com"
           autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" enterkeyhint="send"
-          aria-label="Website URL to inspect" aria-describedby="inp-hint" autofocus/>
+          aria-label="Website address to inspect, or a question about the report" aria-describedby="inp-hint" autofocus/>
         <button id="inspect-btn" aria-label="Start inspection" title="Inspect">
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13V3M3.5 7.5L8 3l4.5 4.5"/></svg>
           <span class="sr-only">Inspect site</span>
@@ -381,9 +425,7 @@ const HTML = String.raw`<!DOCTYPE html>
       </div>
       <div class="inp-hint" id="inp-hint">
         <span id="inp-err" role="alert"></span>
-        <span id="inp-ok">Paste a URL to inspect it, or ask about the last report &middot; try the fixture:
-          <span class="url-chip" id="fixture-chip" role="button" tabindex="0" title="Inspect the local fixture site">localhost:4000</span>
-        </span>
+        <span id="inp-ok">Paste a website address to inspect it, or ask a question about the report on screen.</span>
       </div>
     </div>
   </main>
@@ -401,7 +443,6 @@ const urlIn=S('#url-input'),inspBtn=S('#inspect-btn'),chatIn=S('#chat-inner'),
       chatA=S('#chat-area'),empty=S('#empty-state'),hist=S('#hist'),
       tbTitle=S('#tb-title'),inpErr=S('#inp-err'),inpOk=S('#inp-ok');
 
-S('#fixture-chip').addEventListener('click',()=>{if(running)return;urlIn.value='http://localhost:4000/';start();});
 
 function validateUrl(r){
   const s=r.trim();
@@ -411,22 +452,26 @@ function validateUrl(r){
   if(!['http:','https:'].includes(u.protocol))return{ok:false,msg:'Only http:// or https:// supported.'};
   return{ok:true,url:u.href};
 }
-urlIn.addEventListener('keydown',e=>{if(e.key==='Enter'&&!running)submit();});
+urlIn.addEventListener('keydown',e=>{if(e.key==='Enter')submit();});
 urlIn.addEventListener('input',()=>{urlIn.classList.remove('invalid');inpErr.style.display='none';inpOk.style.display='';syncBtn();});
-function syncBtn(){inspBtn.disabled=running||!urlIn.value.trim();if(typeof syncHistButtons==='function'&&hist)syncHistButtons();}
+function syncBtn(){inspBtn.disabled=!urlIn.value.trim();if(typeof syncHistButtons==='function'&&hist)syncHistButtons();}
 syncBtn();
-inspBtn.addEventListener('click',()=>{if(!running)submit();});
+inspBtn.addEventListener('click',()=>submit());
 // One box for both: a URL starts an inspection, anything else is a question about the last report.
 function looksLikeUrl(s){s=s.trim();return !/\s/.test(s)&&(/^https?:\/\//i.test(s)||/^(localhost|127\.0\.0\.1)(:|\/|$)/i.test(s)||/^[\w-]+(\.[\w-]+)+(:\d+)?(\/|$)/.test(s));}
-function submit(){const v=urlIn.value.trim();if(!v)return;if(looksLikeUrl(v))start();else ask(v);}
-fetch('/api/ai-status').then(r=>r.json()).then(a=>{S('#ai-status').textContent=a.enabled?'AI: on ('+a.model+')':'AI: off \u2014 add a key to .env';}).catch(()=>{S('#ai-status').textContent='AI: unknown';});
-S('#clear-btn').addEventListener('click',()=>{if(!running)clear();});
-S('#new-btn').addEventListener('click',()=>{if(running)return;clear();closeSide();urlIn.focus();});
+function submit(){
+  const v=urlIn.value.trim();if(!v)return;
+  if(!looksLikeUrl(v)){ask(v);return;}
+  if(running){inpErr.textContent='An inspection is already running. You can open past inspections meanwhile.';inpErr.style.display='inline';inpOk.style.display='none';return;}
+  start();
+}
+S('#clear-btn').addEventListener('click',()=>clear());
+S('#new-btn').addEventListener('click',()=>{clear();closeSide();urlIn.focus();});
 S('#menu-btn').addEventListener('click',()=>document.body.classList.toggle('show-side'));
 function closeSide(){document.body.classList.remove('show-side');}
 document.addEventListener('click',e=>{if(document.body.classList.contains('show-side')&&!e.target.closest('#sidebar,#menu-btn'))closeSide();});
 
-function clear(){current=null;store.set(null);markActive();urlIn.placeholder='Website URL';chatIn.innerHTML='';chatIn.appendChild(empty);empty.style.display='';tbTitle.textContent='Website audit agent';lastTs=0;urlIn.value='';urlIn.classList.remove('invalid');inpErr.style.display='none';inpOk.style.display='';running=false;syncBtn();}
+function clear(){current=null;store.set(null);markActive();urlIn.placeholder='Website address, e.g. example.com';chatIn.innerHTML='';chatIn.appendChild(empty);empty.style.display='';tbTitle.textContent='Website audit agent';lastTs=0;urlIn.value='';urlIn.classList.remove('invalid');inpErr.style.display='none';inpOk.style.display='';viewingLive=false;if(typeof renderLiveRow==='function')renderLiveRow();syncBtn();}
 
 function addMsg(role,html,ts){
   if(empty.parentNode===chatIn)empty.style.display='none';
@@ -442,100 +487,289 @@ function dayLabel(d){const diff=Math.round((dayStart(new Date())-dayStart(d))/86
 function fmtTime(d){return(d instanceof Date?d:new Date(d)).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'});}
 function scroll(){requestAnimationFrame(()=>{chatA.scrollTop=chatA.scrollHeight;});}
 
-const DETS=[{id:'links',lbl:'Links & HTTP'},{id:'redirect',lbl:'Redirects'},{id:'images',lbl:'Images'},{id:'metadata',lbl:'SEO & tags'},{id:'content',lbl:'Content'},{id:'soft404',lbl:'Soft 404s'},{id:'registry',lbl:'Issue registry'},{id:'ai',lbl:'Explanations'},{id:'pdf',lbl:'PDF report'}];
+// ---------- suggested questions ----------
+// The same function as lib/suggest.js (copied in when this page is built).
+${suggestQuestions.toString()}
+function suggestRow(qs,note,onPick,cls){
+  if(!qs.length)return null;
+  const w=el('div','suggest '+(cls||''));
+  w.innerHTML=(note?'<div class="sg-note">'+note+'</div>':'')+'<div class="sg-chips">'+qs.map(q=>'<button type="button" class="sq">'+esc(q)+'</button>').join('')+'</div>';
+  w.querySelectorAll('.sq').forEach(b=>b.addEventListener('click',()=>onPick(b.textContent,b,w)));
+  return w;
+}
+function keepLast(node){if(node&&node.isConnected){chatIn.appendChild(node);scroll();}}
+// While an inspection runs: questions picked or typed now are answered when the report is ready.
+function refreshLiveSuggest(){
+  if(!live||live.done||!viewingLive)return;
+  const row=suggestRow(suggestQuestions(live.types,live.asked,4),'While you wait, pick a question. I&rsquo;ll answer it as soon as the report is ready.',q=>queueQuestion(q),'live-sg');
+  if(live.sgEl&&live.sgEl.isConnected){if(row)live.sgEl.replaceWith(row);else live.sgEl.remove();}
+  else if(row)chatIn.appendChild(row);
+  live.sgEl=row;
+}
+function queueQuestion(q){
+  live.asked.push(q);
+  const u=addMsg('user',esc(q)).parentNode;
+  const b=addMsg('agent','<span class="queued">Noted. I&rsquo;ll answer this as soon as the report is ready.</span>');
+  live.queue.push({q,user:u,bot:b.parentNode,bubble:b});
+  refreshLiveSuggest();keepLast(live.sgEl);
+}
+// After a finished inspection: suggestions based on what it found.
+function showResultSuggest(asked){
+  if(!current||!current.sgTypes||!current.sgTypes.length)return;
+  if(current.sgEl)current.sgEl.remove();
+  current.asked=(current.asked||[]).concat(asked||[]);
+  const cur=current;
+  const row=suggestRow(suggestQuestions(cur.sgTypes,cur.asked,4),'Ask me about this report:',(q,b,w)=>{b.remove();if(!w.querySelector('.sq'))w.remove();ask(q).then(()=>keepLast(w));},'after');
+  if(row)chatIn.appendChild(row);
+  cur.sgEl=row;
+}
+// Answer the questions asked while the inspection ran, in order, saved with it.
+async function answerQueue(run,show){
+  if(!run.queue||!run.queue.length)return;
+  if(run.sgEl)run.sgEl.remove();
+  const id=run.savedId||null;
+  if(show){
+    for(const it of run.queue){it.bubble.innerHTML='<span class="queued answered">Answered below &darr;</span>';}
+    addMsg('agent','You asked '+run.queue.length+' question'+(run.queue.length===1?'':'s')+' while I worked. Here '+(run.queue.length===1?'is the answer':'are the answers')+':');
+  }
+  for(const it of run.queue){
+    let bbl=null;
+    if(show){addMsg('user',esc(it.q));bbl=addMsg('agent','<span class="typing" aria-label="Thinking"><i></i><i></i><i></i></span>');}
+    try{
+      const r=await fetch('/api/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(id?{question:it.q,inspectionId:id}:{question:it.q})});
+      const d=await r.json();
+      if(bbl)bbl.innerHTML=answerHtml(d);
+    }catch{if(bbl)bbl.innerHTML='<span style="color:var(--high)">I couldn&rsquo;t get an answer just now. Please ask again.</span>';}
+    if(show)scroll();
+  }
+  if(show&&current){current.asked=(current.asked||[]).concat(run.queue.map(x=>x.q));showResultSuggest([]);}
+}
 
-function buildProg(url){
-  const c=el('div','prog-card');
-  c.innerHTML='<div class="prog-hdr"><div class="spin" id="ps"></div><div><div class="prog-title">Inspection running&hellip;</div><div class="prog-sub" id="psub">Crawling <span style="font-family:var(--font-mono);font-size:11px">'+esc(url)+'</span></div></div></div>'+'<div class="prog-log" id="plog" role="log"></div>'+'<div class="det-list">'+DETS.map(d=>'<div class="det-pill" id="pill-'+d.id+'"><span class="pdot"></span>'+esc(d.lbl)+'</div>').join('')+'</div>';
+// ---------- live inspection ----------
+// The crawler and report send structured progress (lib/progress.js) over the stream:
+// pages done and found, checks done, the current step, issues found so far and time
+// left. The card shows it; the raw log is one click away. An inspection keeps running
+// while past inspections are opened, and a reloaded page picks it up again.
+const STEPS=[{id:'crawl',lbl:'Pages'},{id:'checks',lbl:'Links & images'},{id:'seo',lbl:'SEO & content'},{id:'spelling',lbl:'Spelling'},{id:'report',lbl:'Explanations & screenshots'},{id:'pdf',lbl:'Reports'}];
+const PHASE_STEP={crawl:0,links:1,images:1,seo:2,content:2,spelling:3,crawled:4,report:4,pdf:5,'report-done':6};
+const BASE_TITLE=document.title;
+let live=null,viewingLive=false;
+function hostOf(u){try{return new URL(u).host;}catch{return u;}}
+function fmtDur(ms){const s=Math.max(0,Math.floor(ms/1000));return Math.floor(s/60)+':'+String(s%60).padStart(2,'0');}
+function fmtEta(ms){if(ms==null)return '';const s=Math.round(ms/1000);if(s<5)return 'almost done';if(s<60)return 'about '+s+' s left';return 'about '+Math.round(s/60)+' min left';}
+function pctOf(p){
+  const ph=p.phase,pg=p.pages||{},tot=Math.max(pg.found||0,pg.sitemap||0,pg.done||0,1),capT=pg.cap?Math.min(tot,pg.cap):tot,frac=(o)=>o&&o.total?Math.min(1,o.done/o.total):1;
+  if(ph==='crawl')return 2+66*Math.min(1,(pg.done||0)/capT);
+  if(ph==='links'||ph==='images')return 68+6*frac(p.checks);
+  if(ph==='seo'||ph==='content')return 75;
+  if(ph==='spelling')return 76+8*frac(p.step);
+  if(ph==='crawled')return 85;
+  if(ph==='report')return 85+12*frac(p.step);
+  if(ph==='pdf')return 97;
+  if(ph==='report-done')return 100;
+  return 2;
+}
+function subOf(p){
+  const st=p.step||{};
+  switch(p.phase){
+    case 'crawl':return 'Crawling pages'+(p.current?' &middot; <span style="font-family:var(--font-mono);font-size:11px">'+esc(shortPath(p.current))+'</span>':'');
+    case 'links':case 'images':return 'Finishing link and image checks';
+    case 'seo':return 'Reading titles, tags and headings';
+    case 'content':return 'Checking page content';
+    case 'spelling':return 'Checking spelling and grammar'+(st.total?' ('+st.done+'/'+st.total+' pages)':'');
+    case 'crawled':return 'Crawl finished &middot; preparing the report';
+    case 'report':{const e=p.explain||{},sh=p.shots||{};return 'Writing explanations'+(e.total?' ('+e.done+'/'+e.total+')':'')+' and taking screenshots'+(sh.total?' ('+sh.done+'/'+sh.total+')':'');}
+    case 'pdf':return 'Building the PDF and web report';
+    case 'report-done':return 'Report ready';
+    default:return 'Starting&hellip;';
+  }
+}
+function buildLiveCard(url){
+  const c=el('div','prog-card live');
+  c.innerHTML='<div class="prog-hdr"><div class="spin ps"></div><div class="p-txt"><div class="prog-title">Inspecting '+esc(hostOf(url))+'</div><div class="prog-sub p-sub">Starting&hellip;</div></div><div class="p-time" title="Time so far">0:00</div></div>'+
+    '<div class="pbar" role="progressbar" aria-label="Inspection progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="2"><div class="pfill"></div></div>'+
+    '<div class="p-nums"><span class="p-count">Looking for pages&hellip;</span><span class="p-eta"></span></div>'+
+    '<ol class="steps">'+STEPS.map((x,i)=>'<li data-step="'+i+'"><span class="sdot"></span>'+esc(x.lbl)+'<span class="sval"></span></li>').join('')+'</ol>'+
+    '<div class="live-issues"><div class="li-head"><b>Found so far</b><span class="sev-n high">0 high</span><span class="sev-n medium">0 medium</span><span class="sev-n low">0 low</span><span class="li-note">live preview, final list at the end</span></div>'+
+    '<ul class="feed" aria-live="off"></ul><div class="feed-empty">Nothing yet. Problems appear here the moment they are found.</div></div>'+
+    '<button class="log-toggle" type="button" aria-expanded="false">Show details</button><div class="prog-log" role="log" hidden></div>';
+  const tog=S('.log-toggle',c),log=S('.prog-log',c);
+  tog.addEventListener('click',()=>{const open=log.hidden;log.hidden=!open;tog.textContent=open?'Hide details':'Show details';tog.setAttribute('aria-expanded',String(open));if(open)log.scrollTop=log.scrollHeight;});
   return c;
 }
 function logLine(c,line){
-  const log=S('#plog',c),d=el('div','log-line');
+  const log=S('.prog-log',c),d=el('div','log-line');
   if(/^\s*(crawling|checking|following)\b/i.test(line))d.classList.add('ok');
   else if(/summary|done\.|issue registry|===/i.test(line))d.classList.add('hl');
   else if(/warning|error/i.test(line))d.classList.add('err2');
   else if(/broken|404|loop|chain/i.test(line))d.classList.add('warn');
-  d.textContent=line;log.appendChild(d);log.scrollTop=log.scrollHeight;
+  d.textContent=line;log.appendChild(d);
+  while(log.childElementCount>600)log.firstChild.remove();
+  if(!log.hidden)log.scrollTop=log.scrollHeight;
 }
-function setPill(c,id,st){const p=S('#pill-'+id,c);if(p)p.className='det-pill '+st;}
-function progDone(c,reg){
-  const sp=S('#ps',c),sb=S('#psub',c);
-  if(sp)sp.classList.add('done');
-  if(sb)sb.innerHTML='Completed &middot; '+reg.counts.total+' issue'+(reg.counts.total!==1?'s':'')+' found';
-  DETS.forEach(d=>setPill(c,d.id,'done'));
+function updateLive(p){
+  if(!live)return;
+  live.progress=p;
+  const c=live.card,pct=Math.round(pctOf(p)),pg=p.pages||{},iss=p.issues||{};
+  S('.pfill',c).style.width=pct+'%';S('.pbar',c).setAttribute('aria-valuenow',String(pct));
+  S('.p-sub',c).innerHTML=subOf(p);
+  const tot=Math.max(pg.found||0,pg.sitemap||0,pg.done||0);
+  let count;
+  if(p.phase==='crawl'){
+    if(pg.cap)count=(pg.done||0)+' of '+Math.min(tot,pg.cap)+' pages (page limit '+pg.cap+')';
+    else count=(pg.done||0)+' of '+(pg.found>pg.done?'at least ':'')+tot+' pages';
+  }else count=(pg.done||0)+' page'+(pg.done===1?'':'s')+' crawled';
+  if(p.checks&&p.checks.total)count+=' &middot; '+p.checks.done+'/'+p.checks.total+' links and images checked';
+  S('.p-count',c).innerHTML=count;
+  S('.p-eta',c).textContent=p.phase==='crawl'?fmtEta(p.etaMs):'';
+  const cur=PHASE_STEP[p.phase]??0;
+  S('.steps',c).querySelectorAll('li').forEach((li,i)=>{
+    li.className=i<cur?'done':i===cur?'active':'';
+    let v='';
+    if(i===0&&(pg.done||cur===0))v=cur===0?(pg.done||0)+'/'+(pg.cap?Math.min(tot,pg.cap):tot):String(pg.done||0);
+    if(i===1&&p.checks&&p.checks.total)v=p.checks.done+'/'+p.checks.total;
+    if(i===3&&p.phase==='spelling'&&p.step&&p.step.total)v=p.step.done+'/'+p.step.total;
+    if(i===4&&p.explain&&p.explain.total)v=p.explain.done+'/'+p.explain.total+' &middot; '+((p.shots&&p.shots.done)||0)+'/'+((p.shots&&p.shots.total)||0);
+    S('.sval',li).innerHTML=v?' '+v:'';
+  });
+  S('.sev-n.high',c).textContent=(iss.high||0)+' high';S('.sev-n.medium',c).textContent=(iss.medium||0)+' medium';S('.sev-n.low',c).textContent=(iss.low||0)+' low';
+  if(p.final&&p.phase==='crawled')S('.li-note',c).textContent='final count';
+  if(!document.hidden||!live.done)document.title='('+pct+'%) Inspecting '+hostOf(live.url)+' — SiteFix';
+  renderLiveRow();
 }
-function progErr(c,msg){const sp=S('#ps',c),sb=S('#psub',c);if(sp)sp.classList.add('err');if(sb)sb.innerHTML='<span style="color:var(--high)">Error: '+esc(msg)+'</span>';}
+function addFinding(f){
+  if(!live)return;
+  if(!live.types.includes(f.type)){live.types.push(f.type);refreshLiveSuggest();}
+  const feed=S('.feed',live.card),li=el('li');
+  li.title=f.detail||'';
+  li.innerHTML='<span class="fd '+esc(f.severity)+'"></span><span class="fl">'+esc(issueLabel(f.type))+'</span><span class="fu">'+esc(shortPath(f.url||''))+'</span>';
+  feed.prepend(li);
+  while(feed.childElementCount>6)feed.lastChild.remove();
+  S('.feed-empty',live.card).hidden=true;
+}
+function tick(){if(!live||live.done)return;S('.p-time',live.card).textContent=fmtDur(Date.now()-live.startedAt);renderLiveRow();}
+setInterval(tick,1000);
 
-async function streamSSE(runId,card){
+// The running (or just finished) inspection at the top of the sidebar.
+function renderLiveRow(){
+  if(!hist)return;
+  let row=hist.querySelector('.live-row');
+  if(!live){if(row){row.previousElementSibling&&row.previousElementSibling.classList.contains('live-day')&&row.previousElementSibling.remove();row.remove();}return;}
+  if(!row){
+    const day=el('div','hist-day live-day','Now');
+    row=el('div','hist-row live-row');
+    const btn=el('button','history-item');btn.type='button';
+    btn.addEventListener('click',()=>{if(live&&live.done&&live.savedId&&!viewingLive){const id=live.savedId;live=null;renderLiveRow();openInspection(id);}else showLive();});
+    row.appendChild(btn);hist.prepend(row);hist.prepend(day);
+  }
+  const p=live.progress||{},pct=Math.round(pctOf(p));
+  const state=live.failed?'err':live.done?'done':'';
+  const meta=live.failed?'Failed &middot; open to see why':live.done?'Finished '+fmtDur(live.endedAt-live.startedAt)+(viewingLive?'':' &middot; open the results'):pct+'% &middot; '+fmtDur(Date.now()-live.startedAt)+((p.pages&&p.pages.done)?' &middot; '+p.pages.done+' pages':'');
+  row.querySelector('.history-item').innerHTML='<span class="h-spin '+state+'" aria-hidden="true"></span><span class="h-txt"><span class="h-url">'+esc(hostOf(live.url))+'</span><span class="h-meta">'+meta+'</span></span>';
+  row.classList.toggle('active',viewingLive);
+}
+// Show the running inspection (after browsing a past one, or after a reload).
+function showLive(){
+  if(!live)return;
+  closeSide();
+  clear();
+  viewingLive=true;
+  tbTitle.textContent=live.url;
+  addMsg('user',esc(live.url),live.startedAt);
+  addMsg('agent','On it. I&rsquo;ll crawl the site, run the checks and show problems as I find them.',live.startedAt);
+  urlIn.placeholder='Ask a question; I&rsquo;ll answer when the report is ready'.replace('&rsquo;','\u2019');
+  chatIn.appendChild(live.card);
+  for(const it of live.queue){chatIn.appendChild(it.user);chatIn.appendChild(it.bot);}
+  live.sgEl=null;refreshLiveSuggest();
+  markActive();renderLiveRow();scroll();
+}
+
+function streamRun(){
   return new Promise(res=>{
-    const es=new EventSource('/api/stream/'+runId);
+    const es=new EventSource('/api/stream/'+live.runId);
     es.addEventListener('message',e=>{
-      const{line}=JSON.parse(e.data);
+      const m=JSON.parse(e.data);
+      if(m.progress){updateLive(m.progress);return;}
+      if(m.finding){addFinding(m.finding);return;}
+      const line=m.line||'';
       if(line.startsWith('__DONE__:')){es.close();res(Number(line.slice(9)));return;}
-      if(line.startsWith('__REPORT__:')){card.dataset.report=line.slice(11);return;}
-      if(line.startsWith('__SAVED__:')){card.dataset.saved=line.slice(10);return;}
-      logLine(card,line);
-      if(/checking \d+ distinct links/i.test(line))setPill(card,'links','running');
-      else if(/following \d+ redirect/i.test(line))setPill(card,'redirect','running');
-      else if(/checking \d+ distinct images/i.test(line)){setPill(card,'links','done');setPill(card,'redirect','done');setPill(card,'images','running');}
-      else if(/=== seo, social/i.test(line)){setPill(card,'links','done');setPill(card,'redirect','done');setPill(card,'images','done');setPill(card,'metadata','running');}
-      else if(/=== content/i.test(line)){setPill(card,'metadata','done');setPill(card,'content','running');}
-      else if(/soft 404/i.test(line)){setPill(card,'metadata','done');setPill(card,'content','done');setPill(card,'soft404','running');}
-      else if(/issue registry/i.test(line)){setPill(card,'soft404','done');setPill(card,'registry','running');}
-      else if(/done\. see issues/i.test(line))setPill(card,'registry','done');
-      else if(/=== ai explanations/i.test(line)){setPill(card,'registry','done');setPill(card,'ai','running');}
-      else if(/=== screenshots/i.test(line)){setPill(card,'ai','done');setPill(card,'pdf','running');}
-      else if(/^report ready/i.test(line))setPill(card,'pdf','done');
-      scroll();
+      if(line.startsWith('__REPORT__:')){live.reportCode=line.slice(11);return;}
+      if(line.startsWith('__SAVED__:')){live.savedId=line.slice(10);return;}
+      logLine(live.card,line);
     });
     es.addEventListener('error',()=>{es.close();res(-1);});
   });
 }
 
+function failLive(msg){
+  const c=live.card;c.classList.add('err');
+  S('.ps',c).classList.add('err');S('.p-sub',c).innerHTML='<span style="color:var(--high)">'+esc(msg)+'</span>';
+  const a=S('.steps li.active',c);if(a)a.className='failed';
+  live.done=true;live.failed=true;live.endedAt=Date.now();
+  if(live.sgEl)live.sgEl.remove();
+  for(const it of live.queue){it.bubble.innerHTML='<span class="queued missed">I couldn&rsquo;t answer this because the inspection didn&rsquo;t finish.</span>';}
+  const log=S('.prog-log',c),tog=S('.log-toggle',c);if(log.hidden)tog.click();
+}
+
+// Follow a run to the end, then show its results (or, when another inspection is on
+// screen, mark it finished in the sidebar).
+async function followRun(){
+  const run=live;
+  const code=await streamRun();
+  running=false;syncBtn();
+  if(live!==run)return;
+  try{
+    if(code!==0)throw new Error(code===-1?'the connection to SiteFix was lost':'the inspection stopped with an error; the details are below');
+    const r=await fetch('/api/results?runId='+encodeURIComponent(run.runId));
+    const reg=await r.json();
+    if(!r.ok)throw new Error(reg.error||'issues.json not found');
+    let report=null;
+    if(run.reportCode==='0'){try{const rr=await fetch('/api/report');if(rr.ok)report=await rr.json();}catch{}}
+    run.done=true;run.endedAt=Date.now();
+    const c=run.card;S('.ps',c).classList.add('done');S('.pfill',c).style.width='100%';
+    S('.p-sub',c).innerHTML='Completed in '+fmtDur(run.endedAt-run.startedAt)+' &middot; '+reg.counts.total+' issue'+(reg.counts.total!==1?'s':'')+' found';
+    S('.steps',c).querySelectorAll('li').forEach(li=>li.className='done');
+    if(!report&&run.reportCode!==undefined){const l=S('.steps li[data-step="4"]',c);if(l)l.className='failed';}
+    S('.p-eta',c).textContent='';
+    const shown=viewingLive;
+    if(shown){renderResults(reg,run.url,report,run.savedId||null);if(run.savedId)store.set(run.savedId);}
+    await loadHistory();
+    await answerQueue(run,shown&&viewingLive);
+    if(viewingLive){live=null;renderLiveRow();markActive();}
+    else renderLiveRow();
+    document.title=document.hidden?'✓ Report ready — SiteFix':BASE_TITLE;
+  }catch(e){
+    failLive('Could not finish: '+e.message);
+    if(viewingLive)addMsg('agent','<span style="color:var(--high)">&#9888; '+esc(e.message)+'</span>');
+    document.title=BASE_TITLE;
+    renderLiveRow();
+  }
+}
+document.addEventListener('visibilitychange',()=>{if(!document.hidden&&!running)document.title=BASE_TITLE;});
+
+function beginLive(runId,url,startedAt){
+  live={runId,url,startedAt:startedAt?new Date(startedAt).getTime():Date.now(),card:buildLiveCard(url),progress:null,done:false,types:[],asked:[],queue:[],sgEl:null};
+  running=true;syncBtn();
+  showLive();
+  followRun();
+}
+
 async function start(){
   const v=validateUrl(urlIn.value);
   if(!v.ok){urlIn.classList.add('invalid');inpErr.textContent=v.msg;inpErr.style.display='inline';inpOk.style.display='none';return;}
-  // Each inspection gets its own conversation: leave the one on screen (it stays in the list).
-  if(current||chatIn.querySelector('.prog-card'))clear();
-  running=true;inspBtn.disabled=true;urlIn.classList.remove('invalid');inpErr.style.display='none';syncHistButtons();
   const siteUrl=v.url;
-  urlIn.value='';syncBtn();
-  tbTitle.textContent=siteUrl;
-  addMsg('user',esc(siteUrl));
-  addMsg('agent','On it. I\'ll crawl the site, run the detectors and report what I find.');
-  const prog=buildProg(siteUrl);
-  if(empty.parentNode===chatIn)empty.style.display='none';
-  chatIn.appendChild(prog);scroll();
-  let runId;
+  clear();
+  running=true;syncBtn();
   try{
     const r=await fetch('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:siteUrl})});
     const d=await r.json();
     if(!r.ok||!d.runId)throw new Error(d.error||'Failed to start crawl');
-    runId=d.runId;
+    beginLive(d.runId,siteUrl);
   }catch(e){
-    progErr(prog,e.message);
-    addMsg('agent','<span style="color:var(--high)">&#9888; Could not start the crawler: '+esc(e.message)+'</span><br><span style="font-size:12.5px;color:var(--text-2)">Make sure the UI server is running (<code style="font-family:var(--font-mono)">node ui/server.js</code>) and Playwright is installed.</span>');
-    running=false;syncBtn();return;
+    running=false;syncBtn();
+    addMsg('user',esc(siteUrl));
+    addMsg('agent','<span style="color:var(--high)">&#9888; I couldn&rsquo;t start the inspection: '+esc(e.message)+'</span><br><span style="font-size:12.5px;color:var(--text-2)">Please try again in a moment.</span>');
   }
-  const code=await streamSSE(runId,prog);
-  try{
-    if(code!==0)throw new Error('crawler exited with code '+code+' (see the log above)');
-    const r=await fetch('/api/results?runId='+encodeURIComponent(runId));
-    const reg=await r.json();
-    if(!r.ok)throw new Error(reg.error||'issues.json not found');
-    let report=null;
-    if(prog.dataset.report==='0'){try{const rr=await fetch('/api/report');if(rr.ok)report=await rr.json();}catch{}}
-    progDone(prog,reg);
-    if(!report&&prog.dataset.report!==undefined)setPill(prog,'ai','err'),setPill(prog,'pdf','err');
-    const savedId=prog.dataset.saved||null;
-    renderResults(reg,siteUrl,report,savedId);
-    if(savedId)store.set(savedId);
-    await loadHistory();
-  }catch(e){
-    progErr(prog,'Could not load results: '+e.message);
-    addMsg('agent','<span style="color:var(--high)">&#9888; Could not read results: '+esc(e.message)+'</span>');
-  }
-  running=false;syncBtn();
 }
 
 const PRI={P1:0,P2:1,P3:2};
@@ -551,8 +785,8 @@ function renderResults(reg,siteUrl,report,id,meta){
   const run=reg.run||{},counts=reg.counts||{},bySev=counts.bySeverity||{};
   const cats=[...new Set(issues.map(i=>i.category))];
   chatIn.appendChild(buildSummaryCard(siteUrl,run,counts,bySev,cats,report,current));scroll();
-  urlIn.placeholder='Ask about this report, or paste another URL';
-  if(!issues.length){addMsg('agent','<span style="color:var(--success)">&#10003; No issues detected.</span> The site looks clean based on the detectors that ran.');return;}
+  urlIn.placeholder='Ask about this report, or paste another website address';
+  if(!issues.length){addMsg('agent','<span style="color:var(--success)">&#10003; No issues detected.</span> The site looks clean on every check that ran.');return;}
   const s=report&&report.summary;
   addMsg('agent','Done. I found <strong>'+counts.total+' issue'+(counts.total!==1?'s':'')+'</strong> in '+cats.length+' categor'+(cats.length!==1?'ies':'y')+(s?' &middot; <strong>'+s.byPriority.P1+'</strong> to fix first, '+s.quickWins+' quick win'+(s.quickWins!==1?'s':''):'')+'. Open a category to see its issues, or ask me anything about this report.');
   const grouped=groupBy(issues,i=>i.category);
@@ -561,6 +795,8 @@ function renderResults(reg,siteUrl,report,id,meta){
   const wrap=el('div','issue-list');
   sorted.forEach(cat=>wrap.appendChild(buildGrp(cat,grouped[cat].sort((a,b)=>(PRI[a.priority]??3)-(PRI[b.priority]??3)))));
   chatIn.appendChild(wrap);scroll();
+  current.sgTypes=[...new Set(issues.map(i=>i.type))];
+  showResultSuggest([]);
 }
 
 function buildSummaryCard(siteUrl,run,counts,bySev,cats,report,cur){
@@ -568,7 +804,7 @@ function buildSummaryCard(siteUrl,run,counts,bySev,cats,report,cur){
   const card=el('div','rpt-card');
   const sa=run.startedAt?new Date(run.startedAt):null,fa=run.finishedAt?new Date(run.finishedAt):null;
   const dur=sa&&fa?Math.round((fa-sa)/1000):null;
-  const catMap={'HTTP and URLs':'Links & Redirects','Soft 404s':'Soft 404 detector','SEO: indexing':'Canonical & robots','SEO: titles & descriptions':'Titles & headings','Social sharing':'Open Graph','Page setup':'Viewport & language','Images':'Image checks','Content':'Content checks'};
+  const catMap={'HTTP and URLs':'Links & Redirects','Soft 404s':'Soft 404 check','SEO: indexing':'Canonical & robots','SEO: titles & descriptions':'Titles & headings','Social sharing':'Open Graph','Page setup':'Viewport & language','Images':'Image checks','Content':'Content checks'};
   card.innerHTML=
     '<div class="rpt-hdr">'+
       '<div class="rpt-sicon" aria-hidden="true"><svg viewBox="0 0 20 20" fill="none" stroke="#515154" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="16" height="14" rx="2"/><path d="M2 7h16"/><circle cx="5.5" cy="5" r=".8" fill="black" stroke="none"/><circle cx="8" cy="5" r=".8" fill="black" stroke="none"/></svg></div>'+
@@ -586,7 +822,7 @@ function buildSummaryCard(siteUrl,run,counts,bySev,cats,report,cur){
     '<div class="rpt-actions">'+
       (report&&cur.id?'<a class="btn primary" href="/report/'+encodeURIComponent(cur.id)+'" target="_blank" rel="noopener"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2.5" width="12" height="11" rx="1.5"/><path d="M2 5.5h12M5 8.5h6M5 11h4"/></svg>Open web report</a><a class="btn" href="/report/'+encodeURIComponent(cur.id)+'/download"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2.5v8M4.5 7L8 10.5 11.5 7M3 13.5h10"/></svg>Download</a>':'')+
       '<a class="btn'+(report&&cur.id?'':' primary')+'" href="'+esc(cur.base)+'report.pdf" target="_blank" rel="noopener"'+(pdfOk?'':' aria-disabled="true"')+'><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2H4.5A1.5 1.5 0 003 3.5v9A1.5 1.5 0 004.5 14h7a1.5 1.5 0 001.5-1.5V6z"/><path d="M9 2v4h4"/></svg>PDF</a>'+
-      (report?'<span class="rpt-meta" style="align-self:center">'+(report.ai.provider!=='none'?'Explained by AI ('+esc(report.ai.model)+')':'Standard guidance (AI off)')+'</span>':'<span class="rpt-meta" style="align-self:center">PDF report not available for this run</span>')+
+      (report?'':'<span class="rpt-meta" style="align-self:center">The reports could not be created for this inspection</span>')+
     '</div>';
   return card;
 }
@@ -611,14 +847,13 @@ function buildItem(iss){
   const item=el('div','iss-item');
   item.dataset.id=iss.id;
   item.setAttribute('role','button');item.setAttribute('tabindex','0');item.setAttribute('aria-expanded','false');
-  const fcLabel={deterministic:'Auto-fixable','ai-proposed':'AI-proposable','not-automatable':'Manual'}[iss.fixClass]||iss.fixClass;
   item.innerHTML=
     '<div class="iss-bar '+iss.severity+'" aria-hidden="true"></div>'+
     '<div class="iss-body">'+
       '<div class="iss-top"><div class="iss-type">'+esc(issueLabel(iss.type))+'</div><span class="iss-sev '+iss.severity+'">'+iss.severity+'</span></div>'+
       '<div class="iss-url" title="'+esc(iss.affectedUrl)+'">'+esc(iss.affectedUrl)+'</div>'+
       '<div class="iss-detail">'+esc(iss.detail)+'</div>'+
-      (iss.priority?'<span class="chip '+iss.priority+'" title="'+esc(iss.priorityReason||'')+'">'+iss.priority+'</span><span class="chip">'+esc(iss.effort)+' fix</span><span class="chip">'+esc(iss.owner)+'</span>'+(iss.quickWin?'<span class="chip qw">Quick win</span>':''):'<span class="iss-fix '+iss.fixClass+'">'+esc(fcLabel)+'</span>')+
+      (iss.priority?'<span class="chip '+iss.priority+'" title="'+esc(iss.priorityReason||'')+'">'+iss.priority+'</span><span class="chip">'+esc(iss.effort)+' fix</span><span class="chip">'+esc(iss.owner)+'</span>'+(iss.quickWin?'<span class="chip qw">Quick win</span>':''):'')+
     '</div>'+
     '<span class="iss-chv" aria-hidden="true"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="3,5 7,9 11,5"/></svg></span>';
   const ev=buildEvidence(iss);
@@ -695,7 +930,7 @@ function buildEvidence(iss){
     if(t.fixSteps&&t.fixSteps.length)a+='<div class="ai-k">How to fix</div><ol class="ai-steps">'+t.fixSteps.map(x=>'<li>'+esc(x)+'</li>').join('')+'</ol>';
     if(iss.suggestedValue)a+='<div class="ai-k">'+esc(t.valueLabel||'Suggested value')+'</div><div class="val-box"><span class="v">'+esc(iss.suggestedValue)+'</span><button class="copy" type="button" data-copy="'+esc(iss.suggestedValue)+'">Copy</button></div>';
     if(iss.screenshot){const src=(current?current.base:'/api/')+iss.screenshot;a+='<div class="ai-k">Screenshot</div><a href="'+esc(src)+'" target="_blank" rel="noopener"><img class="ev-shot" src="'+esc(src)+'" alt="" loading="lazy"></a>';}
-    a+='<div class="ai-src">'+(iss.explanationSource==='ai'?'Written by AI from this evidence and checked automatically':'SiteFix standard guidance')+' &middot; priority: '+esc(iss.priorityReason||iss.priority)+'</div></div>';
+    a+='<div class="ai-src">'+(iss.explanationSource==='ai'?'Written by AI from this evidence and checked automatically':'SiteFix guidance')+' &middot; priority: '+esc(iss.priorityReason||iss.priority)+'</div></div>';
     h=a+h;
   }else{
     h+='<div class="ai-ph"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="7" cy="7" r="5.5"/><path d="M7 4.5v2.5l1.5 1.5"/></svg>Explanation and fix appear here once the report step has run</div>';
@@ -704,7 +939,7 @@ function buildEvidence(iss){
 }
 
 function issueLabel(t){
-  const m={'http-4xx-internal':'Internal link returns 4xx','http-4xx-external':'External link returns 4xx','link-unreachable':'Link unreachable','redirect-loop':'Redirect loop','redirect-chain':'Redirect chain','redirect-to-error':'Redirect ends in error','https-missing-redirect':'HTTP \u2192 HTTPS redirect missing','www-variant-not-redirected':'www/non-www not unified','soft-404':'Soft 404 (false 200 OK)','title-missing':'Missing <title> tag','title-multiple':'Multiple <title> tags','title-too-long':'Title too long','title-too-short':'Title too short','title-duplicate':'Duplicate title','description-missing':'Missing meta description','description-multiple':'Multiple meta descriptions','description-too-long':'Meta description too long','description-too-short':'Meta description too short','description-duplicate':'Duplicate meta description','h1-missing':'Missing H1','h1-multiple':'Multiple H1 tags','metadata-js-only':'Metadata only available after JS','canonical-missing':'Missing canonical tag','canonical-multiple':'Multiple canonical tags','canonical-broken-target':'Canonical points to broken URL','canonical-redirect':'Canonical points to redirect','image-broken':'Broken image','image-alt-missing':'Image has no alt text','image-alt-unhelpful':'Alt text does not describe the image','image-alt-too-long':'Alt text too long','image-mixed-content':'HTTP image on an HTTPS page','image-oversized':'Image file too large','heading-skip':'Heading levels skip','robots-noindex':'Hidden from search (noindex)','robots-nofollow':'Links not followed (nofollow)','og-missing':'No Open Graph tags','og-incomplete':'Open Graph tags incomplete','og-image-broken':'Share image broken','viewport-missing':'No viewport tag (not mobile-friendly)','lang-missing':'No page language set','content-thin':'Thin page (little text)','content-duplicate':'Near-duplicate page','content-placeholder':'Placeholder text on a live page','content-repeated-word':'Repeated word','copy-spelling':'Spelling mistakes','copy-grammar':'Grammar mistakes'};
+  const m={'http-4xx-internal':'Broken link to your own page','http-4xx-external':'Broken link to another website','link-unreachable':'Link could not be reached','redirect-loop':'Redirect loop','redirect-chain':'Redirect chain','redirect-to-error':'Redirect ends in error','https-missing-redirect':'HTTP \u2192 HTTPS redirect missing','www-variant-not-redirected':'www/non-www not unified','soft-404':'Error page that says it is fine','title-missing':'Missing <title> tag','title-multiple':'Multiple <title> tags','title-too-long':'Title too long','title-too-short':'Title too short','title-duplicate':'Duplicate title','description-missing':'Missing meta description','description-multiple':'Multiple meta descriptions','description-too-long':'Meta description too long','description-too-short':'Meta description too short','description-duplicate':'Duplicate meta description','h1-missing':'Missing H1','h1-multiple':'Multiple H1 tags','metadata-js-only':'Tags only appear after JavaScript runs','canonical-missing':'Missing canonical tag','canonical-multiple':'Multiple canonical tags','canonical-broken-target':'Canonical points to broken URL','canonical-redirect':'Canonical points to redirect','image-broken':'Broken image','image-alt-missing':'Image has no alt text','image-alt-unhelpful':'Alt text does not describe the image','image-alt-too-long':'Alt text too long','image-mixed-content':'HTTP image on an HTTPS page','image-oversized':'Image file too large','heading-skip':'Heading levels skip','robots-noindex':'Hidden from search (noindex)','robots-nofollow':'Links not followed (nofollow)','og-missing':'No Open Graph tags','og-incomplete':'Open Graph tags incomplete','og-image-broken':'Share image broken','viewport-missing':'No viewport tag (not mobile-friendly)','lang-missing':'No page language set','content-thin':'Thin page (little text)','content-duplicate':'Near-duplicate page','content-placeholder':'Placeholder text on a live page','content-repeated-word':'Repeated word','copy-spelling':'Spelling mistakes','copy-grammar':'Grammar mistakes'};
   return m[t]||t.replace(/-/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
 }
 function catIcon(c){
@@ -732,14 +967,16 @@ function answerHtml(d){
   return h;
 }
 async function ask(q){
-  if(!current){addMsg('user',esc(q));addMsg('agent','Inspect a site first, or open a past inspection from the list, then ask me about it.');urlIn.value='';syncBtn();return;}
+  if(!current&&live&&!live.done&&viewingLive){urlIn.value='';syncBtn();queueQuestion(q);return;}
+  if(!current){addMsg('user',esc(q));addMsg('agent',viewingLive?'I can answer questions about this site once the inspection finishes. Meanwhile you can open a past inspection from the list and ask about that one.':'Inspect a site first, or open a past inspection from the list, then ask me about it.');urlIn.value='';syncBtn();return;}
   urlIn.value='';syncBtn();
   addMsg('user',esc(q));
   const bbl=addMsg('agent','<span class="typing" aria-label="Thinking"><i></i><i></i><i></i></span>');
   try{
     const r=await fetch('/api/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:q,inspectionId:current.id})});
     bbl.innerHTML=answerHtml(await r.json());
-  }catch(e){bbl.innerHTML='<span style="color:var(--high)">Could not reach the SiteFix server: '+esc(e.message)+'</span>';}
+  }catch(e){bbl.innerHTML='<span style="color:var(--high)">I couldn&rsquo;t get an answer just now. Please try again.</span>';}
+  if(current){current.asked=(current.asked||[]).concat(q);keepLast(current.sgEl);}
   scroll();
 }
 // Open the issue's category and the issue itself, then scroll to it.
@@ -767,7 +1004,7 @@ async function loadHistory(){
 const TRASH='<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 4.5h11M6.5 4.5V3h3v1.5M4 4.5l.7 8.6a1 1 0 001 .9h4.6a1 1 0 001-.9l.7-8.6"/></svg>';
 function renderHist(){
   S('#hist-clear').hidden=history_.length<2;
-  if(!history_.length){hist.innerHTML='<div class="hist-empty">No inspections yet. Finished inspections are kept here, even after a reload.</div>';return;}
+  if(!history_.length){hist.innerHTML='<div class="hist-empty">No inspections yet. Finished inspections are kept here, even after a reload.</div>';renderLiveRow();return;}
   hist.innerHTML='';
   let day='';
   history_.forEach(m=>{
@@ -779,16 +1016,15 @@ function renderHist(){
     const btn=el('button','history-item');btn.type='button';
     btn.title=(m.url||m.host)+(m.startedAt?' — '+new Date(m.startedAt).toLocaleString():'');
     btn.innerHTML='<span class="h-dot'+dot+'" aria-hidden="true"></span><span class="h-txt"><span class="h-url">'+esc(m.host||m.url)+'</span><span class="h-meta">'+esc(when)+' &middot; '+(m.total?m.total+' issue'+(m.total!==1?'s':''):'Clean')+(m.pagesCrawled?' &middot; '+m.pagesCrawled+' page'+(m.pagesCrawled!==1?'s':''):'')+'</span></span>';
-    btn.disabled=running;
     btn.addEventListener('click',()=>openInspection(m.id));
     const del=el('button','h-del',TRASH);del.type='button';
     del.setAttribute('aria-label','Delete inspection of '+(m.host||m.url)+' from '+(m.startedAt?new Date(m.startedAt).toLocaleString():''));
     del.title='Delete this inspection';
-    del.disabled=running;
     del.addEventListener('click',e=>{e.stopPropagation();twoStep(del,'Delete',()=>removeInspection(m.id));});
     row.appendChild(btn);row.appendChild(del);hist.appendChild(row);
   });
   markActive();
+  renderLiveRow();
 }
 function markActive(){hist.querySelectorAll('.hist-row').forEach(r=>{const on=Boolean(current&&current.id&&r.dataset.id===current.id);r.classList.toggle('active',on);const b=r.querySelector('.history-item');if(b){if(on)b.setAttribute('aria-current','true');else b.removeAttribute('aria-current');}});}
 // First click arms the button ("Delete"), a second click within 3 seconds confirms. No pop-up dialog.
@@ -813,7 +1049,6 @@ S('#hist-clear').addEventListener('click',e=>{const b=e.currentTarget;if(running
 function alertHist(msg){const n=el('div','hist-empty');n.style.color='var(--high)';n.textContent=msg;hist.prepend(n);setTimeout(()=>n.remove(),4000);}
 
 async function openInspection(id){
-  if(running)return;
   closeSide();
   let saved;
   try{const r=await fetch('/api/history/'+encodeURIComponent(id));saved=await r.json();if(!r.ok)throw new Error(saved.error);}
@@ -825,13 +1060,21 @@ async function openInspection(id){
   addMsg('user',esc(url),meta.startedAt);
   renderResults(registry,url,report,id,meta);
   for(const c of chat){addMsg('user',esc(c.question),c.at);addMsg('agent',answerHtml(c),c.at);}
+  showResultSuggest(chat.map(c=>c.question));
   // Start at the top of the inspection (addMsg scrolls to the bottom on the next frame).
   requestAnimationFrame(()=>requestAnimationFrame(()=>{chatA.style.scrollBehavior='auto';chatA.scrollTop=0;chatA.style.scrollBehavior='';}));
 }
-function syncHistButtons(){hist.querySelectorAll('.history-item,.h-del').forEach(b=>{b.disabled=running;});S('#hist-clear').disabled=running;}
+function syncHistButtons(){S('#hist-clear').disabled=running;} // "Delete all" waits for the running inspection
 
-// On load: list past inspections and reopen the one that was open before the reload.
-loadHistory().then(()=>{const id=store.get();if(id&&history_.some(m=>m.id===id))openInspection(id);});
+// On load: list past inspections; follow an inspection that is still running (the page
+// was reloaded mid-run), else reopen the one that was open before the reload.
+(async()=>{
+  await loadHistory();
+  let act={};
+  try{act=await (await fetch('/api/run/active')).json();}catch{}
+  if(act.runId){beginLive(act.runId,act.url,act.startedAt);return;}
+  const id=store.get();if(id&&history_.some(m=>m.id===id))openInspection(id);
+})();
 </script>
 </body>
 </html>`;
