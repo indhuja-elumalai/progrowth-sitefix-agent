@@ -78,6 +78,7 @@ import { analyzeSoft404, visibleWordCount } from "./lib/soft404.js";
 import { followRedirects, classifyRedirect, redirectIssueType, siteLevelChecks } from "./lib/redirects.js";
 import { pickImageSrc, isDecorative, summarizeImages, imageFindings, formatBytes, IMAGE_LIMITS } from "./lib/images.js";
 import { createThrottle, createPool } from "./lib/throttle.js";
+import { createProgress } from "./lib/progress.js";
 
 // ---------- command line ----------
 const args = process.argv.slice(2);
@@ -117,6 +118,12 @@ const SKIP_CRAWL = /\.(pdf|jpe?g|png|gif|webp|svg|ico|zip|mp4|mp3|docx?|xlsx?|pp
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const throttle = createThrottle({ perHost: PER_HOST, baseDelayMs: DELAY_MS });
+// Live progress for the UI (one JSON line at a time, see lib/progress.js); only when
+// the UI server asks for it, so the command-line output stays readable.
+const progress = createProgress({ enabled: process.env.SITEFIX_PROGRESS === "1" });
+// A finding seen while crawling, sent to the UI's live feed. The real list is built at
+// the end (issue registry); this only lets the user see problems as they turn up.
+const preview = (type, url, detail) => progress.finding({ type, severity: CATALOG[type]?.severity || "low", url, detail });
 const checks = createPool(LINK_CONCURRENCY); // every link and image check, started as soon as it is found
 
 // Files a page render never needs: the checks read <img> tags from the page and
@@ -428,9 +435,32 @@ async function main() {
   const imageChecksByUrl = new Map(); // image url -> promise of the image check
   // Each check starts now and is awaited later; .catch marks it handled so a failure
   // surfaces where it is awaited instead of stopping the crawl mid-way.
-  const started = (p) => { p.catch(() => { }); return p; };
-  const scheduleLink = (url) => { if (!linkChecks.has(url)) linkChecks.set(url, started(checks.add(() => checkAndFollow(url)))); return linkChecks.get(url); };
-  const scheduleImage = (url) => { if (!imageChecksByUrl.has(url)) imageChecksByUrl.set(url, started(checks.add(() => checkImage(url)))); return imageChecksByUrl.get(url); };
+  const counted = (p) => { progress.set({ checks: { total: progress.state.checks.total + 1 } }); p.then(() => progress.set({ checks: { done: progress.state.checks.done + 1 } }), () => progress.set({ checks: { done: progress.state.checks.done + 1 } })); return p; };
+  const started = (p) => { p.catch(() => { }); return counted(p); };
+  const scheduleLink = (url) => {
+    if (!linkChecks.has(url)) {
+      const p = started(checks.add(() => checkAndFollow(url)));
+      p.then(({ result, redirect }) => {
+        const internal = new URL(url).origin === origin;
+        if (result.classification === "broken") preview(internal ? "http-4xx-internal" : "http-4xx-external", url, `Link returns ${result.status}`);
+        else if (result.classification === "unreachable") preview("link-unreachable", url, `Link could not be reached (${result.error || "no response"})`);
+        if (redirect?.issueType) preview(redirect.issueType, url, `${redirect.hops} redirect hop(s)${redirect.finalStatus ? `, ends with ${redirect.finalStatus}` : ""}`);
+      }, () => { });
+      linkChecks.set(url, p);
+    }
+    return linkChecks.get(url);
+  };
+  const scheduleImage = (url) => {
+    if (!imageChecksByUrl.has(url)) {
+      const p = started(checks.add(() => checkImage(url)));
+      p.then((c) => {
+        if (c.classification === "broken") preview("image-broken", url, `Image returns ${c.status ?? c.error}`);
+        else if (c.bytes > IMAGE_LIMITS.maxBytes) preview("image-oversized", url, `${formatBytes(c.bytes)} (limit ${formatBytes(IMAGE_LIMITS.maxBytes)})`);
+      }, () => { });
+      imageChecksByUrl.set(url, p);
+    }
+    return imageChecksByUrl.get(url);
+  };
   const browser = await chromium.launch();
   const context = await browser.newContext(); // one context: pages share the HTTP cache
   const queue = [];
@@ -443,6 +473,7 @@ async function main() {
     return true;
   };
   enqueue(startUrl);
+  progress.set({ phase: "crawl", pages: { done: 0, found: 1, cap: MAX_PAGES } });
   let capReached = false;
 
   // The sitemap is read while the first pages are already being crawled; workers
@@ -452,6 +483,7 @@ async function main() {
   const sitemapDone = !USE_SITEMAP ? Promise.resolve() : sitemapUrls().then((all) => {
     sitemapListed = all.filter((u) => { try { return new URL(u).origin === origin; } catch { return false; } });
     const added = sitemapListed.filter((u) => enqueue(u)).length;
+    progress.set({ pages: { sitemap: sitemapListed.length, found: queued.size } });
     console.log(`Sitemap: ${all.length} URLs listed, ${sitemapListed.length} on ${origin}, ${added} added to the queue`);
   }, () => { }).finally(() => { sitemapPending = false; });
 
@@ -507,6 +539,10 @@ async function main() {
           },
         });
 
+        if (rendered.status >= 200 && rendered.status < 300 && rendered.head) {
+          // Problems visible in this page's own head, for the live feed.
+          for (const i of [...headIssues(rendered.head), ...robotsIssues(rendered.head, raw.xRobotsTag), ...headingIssues(rendered.head), ...socialIssues(rendered.head), ...pageSetupIssues(rendered.head)]) preview(i.type, url, i.detail);
+        }
         if (rendered.status >= 200 && rendered.status < 300) {
           for (const img of rendered.images) {
             imageOccurrences.push({ pageUrl: url, ...img });
@@ -522,6 +558,7 @@ async function main() {
         }
       } finally {
         active--;
+        progress.set({ pages: { done: crawled.length, found: queued.size }, current: url });
       }
       await throttle.wait(url); // a server that answered 429 / 503 gets a pause before its next page
     }
@@ -532,6 +569,7 @@ async function main() {
   await context.close();
   await browser.close();
   mark("pages");
+  progress.set({ phase: "links", current: null, pages: { done: crawled.length, found: crawled.length } });
 
   // http -> https and www / non-www checks, started now and read later.
   const siteChecksStarted = siteLevelChecks(startUrl, checkLinkPaced, { maxHops: MAX_HOPS });
@@ -561,12 +599,14 @@ async function main() {
   const redirecting = links.filter((l) => l.classification === "redirect");
   console.log(`Following ${redirecting.length} redirecting links to their destination...`);
   mark("links");
+  progress.set({ phase: "images" });
 
   // ---------- images ----------
   const imageSummary = summarizeImages(imageOccurrences);
   console.log(`Checking ${imageSummary.length} distinct images (${imageOccurrences.length} <img> tags)...`);
   const imageChecks = await Promise.all(imageSummary.map((img) => scheduleImage(img.url)));
   mark("images");
+  progress.set({ phase: "seo" });
   const imageEntries = imageSummary.map((img, i) => {
     const check = imageChecks[i];
     const findings = imageFindings(img, check);
@@ -708,6 +748,7 @@ async function main() {
   }
   const softFlagged = soft.filter((s) => s.flagged);
   mark("soft404");
+  progress.set({ phase: "content" });
   await writeFile("soft404.json", JSON.stringify({
     summary: { pagesAnalysed: soft.length, flagged: softFlagged.length },
     pages: soft.filter((s) => s.signals.length),
@@ -721,6 +762,7 @@ async function main() {
     .filter((p) => is2xx(p.raw.status) && is2xx(p.rendered.status) && pageText.has(p.url))
     .map((p) => ({ url: p.url, foundOn: [...(foundOn.get(p.url) || [])], lines: pageText.get(p.url), skipThin: softUrls.has(p.url) }));
   const contentResult = contentFindings(contentInput);
+  progress.set({ phase: "spelling", step: { done: 0, total: contentInput.length } });
   const cCount = (t) => contentResult.findings.filter((f) => f.type === t).length;
   const content = {
     pagesAnalysed: contentInput.length,
@@ -745,7 +787,10 @@ async function main() {
     provider: copyProvider,
     cache: { get: (k) => aiCache[k], set: (k, v) => { aiCache[k] = v; } },
     allowWords,
-    onProgress: ({ done, total }) => { if (copyProvider && (done % 20 === 0 || done === total)) console.log(`  ${done}/${total} pages proofread`); },
+    onProgress: ({ done, total }) => {
+      progress.set({ step: { done, total } });
+      if (copyProvider && (done % 20 === 0 || done === total)) console.log(`  ${done}/${total} pages proofread`);
+    },
   });
   if (copyProvider) await writeFile(AI_CACHE_FILE, JSON.stringify(aiCache));
   mark("content");
@@ -766,6 +811,8 @@ async function main() {
     links, siteChecks, metaPages, softPages: soft, imageFindings: imgFindings, findings: [...ogFindings, ...contentResult.findings, ...copyResult.findings],
   });
   const registryProblems = validateRegistry(registry);
+  // The real totals, replacing the live estimate.
+  progress.set({ phase: "crawled", final: true, issues: { ...registry.counts.bySeverity, total: registry.counts.total }, pages: { done: visited.size, found: visited.size } });
   await writeFile("issues.json", JSON.stringify(registry, null, 2));
 
   const count = (c) => links.filter((l) => l.classification === c).length;

@@ -16,7 +16,7 @@ test("cover, category table, fix-first list and one section per type", () => {
     assert.match(html, /Fix these first/);
     assert.match(html, /<h2>Broken image<\/h2>/);
     assert.match(html, /How to fix/);
-    assert.match(html, /Explanations written by AI \(mock\)/);
+    assert.match(html, /Explanations are written by AI/);
 });
 
 test("everything from the data is escaped (no HTML injection from page content)", () => {

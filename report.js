@@ -22,6 +22,9 @@ import { triage, triageSummary } from "./lib/triage.js";
 import { explainIssues, groupByType } from "./lib/explain.js";
 import { buildReportHtml } from "./lib/report-html.js";
 import { buildWebReport } from "./lib/web-report.js";
+import { createProgress } from "./lib/progress.js";
+
+const progress = createProgress({ enabled: process.env.SITEFIX_PROGRESS === "1" });
 
 const args = process.argv.slice(2);
 const flag = (name) => args.includes(`--${name}`);
@@ -50,6 +53,7 @@ function pickShots(types, max) {
     return picks;
 }
 
+let shotProgress = () => { };
 async function takeShots(picks, dir) {
     const shots = new Map();
     if (!picks.length) return shots;
@@ -88,6 +92,7 @@ async function takeShots(picks, dir) {
             } catch { /* page unreachable: no screenshot */ }
             await page.close();
             console.log(`  screenshot ${++done}/${picks.length}`);
+            shotProgress(done, picks.length);
         }
     }));
     await browser.close();
@@ -113,10 +118,18 @@ async function main() {
     else console.log(`  AI off (${flag("no-ai") ? "--no-ai" : config.problem}): using standard guidance; ${picks.length} screenshots`);
     const cacheData = (await readJson(CACHE_FILE)) || {};
     const cache = { get: (k) => cacheData[k], set: (k, v) => { cacheData[k] = v; } };
+    const typeCount = new Set(issues.map((i) => i.type)).size;
+    const work = { explained: 0, shots: 0 };
+    const sendReportProgress = () => progress.set({ phase: "report", step: { done: work.explained + work.shots, total: typeCount + picks.length }, explain: { done: work.explained, total: typeCount }, shots: { done: work.shots, total: picks.length } });
+    shotProgress = (done) => { work.shots = done; sendReportProgress(); };
+    sendReportProgress();
     const [{ types, stats }, shotFiles] = await Promise.all([
         explainIssues({
             issues, provider, cache,
-            onProgress: ({ done, total, type, source, problems }) => console.log(`  ${done}/${total} ${type}: ${source === "ai" ? "AI" : "standard"}${problems.length ? ` (${problems.length} check(s) failed: ${problems[0]})` : ""}`),
+            onProgress: ({ done, total, type, source, problems }) => {
+                work.explained = done; sendReportProgress();
+                console.log(`  ${done}/${total} ${type}: ${source === "ai" ? "AI" : "standard"}${problems.length ? ` (${problems.length} check(s) failed: ${problems[0]})` : ""}`);
+            },
         }),
         takeShots(picks, path.join(OUT, "shots")),
     ]);
@@ -137,6 +150,7 @@ async function main() {
     await writeFile(path.join(OUT, "explained.json"), JSON.stringify(report, null, 2));
 
     console.log("\n=== PDF report ===");
+    progress.set({ phase: "pdf" });
     const shots = new Map();
     for (const [id, file] of shotFiles) if (existsSync(file)) shots.set(id, `data:image/jpeg;base64,${(await readFile(file)).toString("base64")}`);
     const html = buildReportHtml({ report, shots });
@@ -151,6 +165,7 @@ async function main() {
     const s = report.summary;
     console.log(`  ${issues.length} issues: ${s.byPriority.P1} P1, ${s.byPriority.P2} P2, ${s.byPriority.P3} P3, ${s.quickWins} quick wins; ${stats.aiTypes} of ${stats.types} types explained by AI, ${shots.size} screenshots`);
     if (stats.problems.length) console.log(`  ${stats.problems.length} AI check(s) failed (standard guidance used there), e.g. ${stats.problems[0]}`);
+    progress.set({ phase: "report-done", final: true });
     console.log(`\nReport ready: ${OUT}/sitefix-report.pdf and ${OUT}/web-report.html (data in ${OUT}/explained.json)`);
 }
 

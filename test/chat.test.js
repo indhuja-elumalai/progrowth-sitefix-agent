@@ -56,7 +56,7 @@ test("GUARDRAIL: ids mentioned only in the text are picked up; empty or broken a
 
 test("answerQuestion: no report, no key, and a working provider", async () => {
     assert.match((await answerQuestion({ question: "hi", report: null, provider: null })).answer, /Inspect a site first/);
-    assert.match((await answerQuestion({ question: "hi", report, provider: null })).answer, /OPENAI_API_KEY/);
+    assert.match((await answerQuestion({ question: "hi", report, provider: null })).answer, /AI answers aren't switched on/);
     const r = await answerQuestion({ question: "Which images are broken?", report, provider: mockProvider(mockRespond) });
     assert.equal(r.source, "mock");
     assert.deepEqual(r.issueIds[0], "ISS-aaaaaaaaaa");

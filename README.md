@@ -184,6 +184,8 @@ progrowth-sitefix-agent/
 │   ├── content.js                     content rules: boilerplate removal, thin pages, near-duplicates (MinHash), placeholder text, repeated words
 │   ├── images.js                      image rules: pick the real src, decorative or not, alt text, size, mixed content
 │   ├── issues.js                      issue schema, severity and fix-class catalog, registry builder and validator
+│   ├── progress.js                    live progress lines from crawl.js / report.js to the UI: counts, steps, findings, time left
+│   ├── suggest.js                     suggested questions from the kinds of problems found (the page carries a copy)
 │   ├── throttle.js                    per-site request limits that slow down by themselves on 429 / 503
 │   ├── triage.js                      priority (P1/P2/P3), who fixes it, effort, quick wins
 │   ├── explain-templates.js           standard plain-language guidance for every issue type (used when AI is off)
@@ -212,6 +214,8 @@ progrowth-sitefix-agent/
 │   ├── history.test.js                save, report matching, pruning, delete stays deleted, safe file names
 │   ├── ai-provider.test.js            .env loading, config, OpenAI request format and retries (fake server)
 │   ├── report-html.test.js            report sections, escaping, screenshots, caps
+│   ├── suggest.test.js                question order, no repeats, every issue type covered, self-contained copy
+│   ├── progress.test.js               progress messages, finding counts and cap, time-left estimate, line parsing
 │   ├── throttle.test.js               per-site limits, backing off on 429 / 503, Retry-After, the check pool
 │   └── web-report.test.js             filter data, escaping, no network in the downloaded file, fix-first order (npm test runs them all)
 ├── ui/                                chat-first internal website audit agent UI
@@ -283,9 +287,25 @@ What you get:
 
 1. **One input.** The URL box is focused on load. Press Enter (or the round arrow button)
    to send; the box clears like a sent message. Bare domains get `https://` added (`http://` for localhost).
-2. **Live progress.** `crawl.js` output streams into the chat over
-   Server-Sent Events (`/api/stream/:runId`), with a pill per detector
-   (links, redirects, metadata, soft 404, issue registry).
+2. **Live progress.** A progress card shows the real numbers as the inspection
+   runs: a progress bar, pages done out of pages found (or the sitemap size,
+   whichever is larger), links and images checked, an estimate of the time
+   left (from the pages per second over the last 30 seconds), the time so far,
+   and the step it is on (Pages, Links & images, SEO & content, Spelling,
+   Explanations & screenshots, Reports). Below it, problems appear the moment
+   they are found (broken links and images, redirect loops, missing titles,
+   noindex...), with a running count by severity; the final list replaces the
+   count at the end. "Show details" opens the raw log. The browser tab shows
+   the percentage, and "Report ready" when it finishes in the background.
+   Past inspections can be opened while one runs: it stays at the top of the
+   list under "Now" with its percentage, and one click brings it back. A page
+   reload during an inspection picks it up again.
+   Under the card, suggested questions change with what is being found (a
+   broken image brings "Which images are broken?"). A question picked or typed
+   during the inspection is queued and answered by AI as soon as the report is
+   ready, then saved with the inspection. Finished inspections show
+   suggestions too, based on what they found, leaving out questions already
+   asked.
 3. **Summary card.** Start URL, pages crawled, time taken, whether the page
    cap was hit, and counts by severity.
 4. **Issue cards grouped by category.** Each shows the issue type, severity,
@@ -932,6 +952,58 @@ text filters above. Real finds such as "atleast" were kept.
 
 Not covered yet: readability scores, tone and brand voice (judgement calls),
 and text inside images.
+
+### Day 21: live progress
+
+New `lib/progress.js`. When the UI starts an inspection it sets
+`SITEFIX_PROGRESS=1`, and `crawl.js` and `report.js` then also print one-line
+JSON messages (`@@sitefix {...}`): the step, pages done and found, sitemap size,
+page cap, checks done, issues found so far by severity, time left, the page
+being read, and each problem as it is found. Messages are sent at most every
+250 ms (at once on a new step), the first 400 problems go to the feed, and the
+final totals from the issue registry replace the live count. From the command
+line nothing changes. `ui/server.js` forwards them as their own stream messages
+(not log lines), keeps the latest state so a reloaded page can reattach
+(`GET /api/run/active`), and now reads output line by line, so a message split
+across two chunks is never broken.
+
+The live feed is a preview: it shows what each page's head, each link check and
+each image check reports as soon as it is known. Rules that need the whole site
+(duplicates, near-duplicate content, soft 404s, spelling) only appear in the
+final list.
+
+Tests: 212 to 220 (8 new in `test/progress.test.js`). Checked in a browser on
+the 200-page benchmark: at 6 seconds the card read "27 of at least 203 pages,
+160/161 links and images checked, about 33 s left" with the first problems in
+the feed; a past inspection opened mid-run while the sidebar kept the live run
+at the top; a page reload mid-run reattached; the finished run showed the
+summary card (24 issues) and moved into the history list; phone width fits;
+no console errors. Fixture 30 of 30.
+
+### Day 21b: questions while it runs, and client-facing wording
+
+`lib/suggest.js` picks up to four questions from the kinds of problems found:
+"What should I fix first?", then the two most serious kinds found so far, then
+"What are the quick wins?". `ui/build-index.js` copies the same function into
+the page, so the browser and the tests use one piece of code. Questions asked
+during an inspection are queued ("Noted. I'll answer this as soon as the
+report is ready."), answered in order once the report exists, and saved with
+the inspection; if the inspection fails, the queued questions say so.
+
+Nothing internal is shown to the people using SiteFix any more: no build or
+phase labels, no AI provider or model names (in the UI, the web report or the
+PDF), no "detector", no test-site shortcut, and no setup instructions in
+messages. Issue names use plain words ("Broken link to your own page" instead
+of "Internal link returns 4xx"). When AI answers are not switched on, the chat
+says what it can still answer instead of naming a settings file; setup stays in
+this README and the server console.
+
+Tests: 220 to 226 (6 new in `test/suggest.test.js`). Checked in a browser on
+the benchmark: the chips changed when the first broken link was found; one
+picked and one typed question were queued, answered after the report and still
+there after a reload; the chips after the report left them out; no internal
+words in the page text before, during or after an inspection; no console
+errors. The generated web report and PDF contain no provider or model names.
 
 ### Day 20: settle check fix (real-site follow-up)
 
