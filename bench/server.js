@@ -1,7 +1,8 @@
 // A synthetic site for measuring crawl speed: like a real marketing site, every page
 // has heavy images, a web font, an analytics script that never lets the network go
-// quiet, a carousel that moves forever and a number that counts up, and every
-// response takes a little while. A few problems are planted so a
+// quiet, a carousel that moves forever, a number that counts up, a cookie banner,
+// tracking tags added to the head for 3 seconds and a slow tracking script that
+// holds back the "load" event, and every response takes a little while. A few problems are planted so a
 // faster crawl can be checked for finding exactly the same issues.
 //
 // Usage: node bench/server.js [--pages 200] [--port 4100] [--latency 120] [--limit-rps 0]
@@ -11,7 +12,8 @@
 //   http://localhost:4101/         a second host for external links
 //
 // Planted: a link to a missing page (/p/9999), a missing image, a redirect (/old),
-// one external link that is a 404, and hero images over 300 KB.
+// one external link that is a 404, hero images over 300 KB, and on /p/50 a noindex
+// tag that JavaScript adds 0.6 s after the page loads (a slow check must still see it).
 
 import { createServer } from "node:http";
 
@@ -60,6 +62,10 @@ function page(i) {
 <meta property="og:title" content="${title}"><meta property="og:description" content="${desc}"><meta property="og:image" content="${BASE}/img/hero-${i % 20}.jpg">
 <style>@font-face{font-family:Bench;src:url(/font.woff2) format("woff2")}body{font-family:Bench,sans-serif;max-width:900px;margin:auto}img{max-width:100%}</style>
 <script>setInterval(function(){fetch("/beacon?t="+Date.now()).catch(function(){})},300)</script>
+<script async src="/tracker.js"></script>
+<script>(function(){var n=0,t=setInterval(function(){var e=document.createElement(n%2?"script":"link");if(n%2){e.src="/beacon?tag="+n;e.async=true}else{e.rel="prefetch";e.href="/p/"+(n+1)}document.head.appendChild(e);if(++n>=8)clearInterval(t)},400);
+setTimeout(function(){var d=document.createElement("div");d.textContent="Cookie preferences: we use cookies to improve your visit, measure traffic and personalise content. You can accept all cookies or choose which ones to allow.";document.body.appendChild(d)},200);})();</script>
+${i === 50 ? '<script>setTimeout(function(){var m=document.createElement("meta");m.name="robots";m.content="noindex";document.head.appendChild(m)},600)</script>' : ""}
 <script>document.addEventListener("DOMContentLoaded",function(){var s=document.getElementById("slides"),i=0,c=document.getElementById("count"),n=0;
 setInterval(function(){i=(i+1)%3;s.style.transform="translateX(-"+(i*100)+"%)";s.className="slides s"+i;},120);
 var t=setInterval(function(){n+=37;c.textContent=String(n);if(n>=1850)clearInterval(t);},25);});</script></head>
@@ -80,6 +86,7 @@ createServer(async (req, res) => {
         res.writeHead(200, { "content-type": "application/xml" });
         return res.end(`<?xml version="1.0"?><urlset>${[`${BASE}/`, ...Array.from({ length: PAGES }, (_, k) => `${BASE}/p/${k + 1}`)].map((l) => `<url><loc>${l}</loc></url>`).join("")}</urlset>`);
     }
+    if (p === "/tracker.js") { await sleep(3500); res.writeHead(200, { "content-type": "text/javascript" }); return res.end("window.tracked=1;"); }
     if (p === "/font.woff2") { await sleep(150); res.writeHead(200, { "content-type": "font/woff2", "content-length": FONT.length }); return res.end(req.method === "HEAD" ? undefined : FONT); }
     if (p === "/old") { await sleep(LATENCY / 2); res.writeHead(301, { location: "/p/2" }); return res.end(); }
     let m;
