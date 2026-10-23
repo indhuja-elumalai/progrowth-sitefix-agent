@@ -164,7 +164,8 @@ progrowth-sitefix-agent/
 │       └── fixture-selfcheck.yml      unit tests, then crawl and score the fixture on every change
 ├── bench/                             speed benchmark
 │   ├── server.js                      a 200-page site with heavy images, a web font, never-idle analytics and slow responses
-│   └── time.js                        times crawl.js step by step against any URL
+│   ├── time.js                        times crawl.js step by step against any URL
+│   └── settle-diag.js                 shows what keeps changing on a page that never "settles"
 ├── fixture/                           controlled test site with planted faults
 │   ├── generate-site.js               writes the 24 HTML pages and the small images into site/
 │   ├── server.js                      serves them with real HTTP redirects (and generates the oversized test image)
@@ -932,6 +933,32 @@ text filters above. Real finds such as "atleast" were kept.
 Not covered yet: readability scores, tone and brand voice (judgement calls),
 and text inside images.
 
+### Day 20: settle check fix (real-site follow-up)
+
+On progrowth.services the Day 19 crawl took 48 s for 173 pages, down from
+164 s, but 121 pages still waited the full 1.5 s limit
+(`summary.pageTiming.pagesWaitedFullSettle`). `bench/settle-diag.js` showed why:
+tracking scripts (Facebook, LinkedIn, Google Ads, Clarity, Warmly, Matomo) and
+prefetch links kept being added to the head for 3+ seconds, and slow third-party
+scripts held back the browser's "load" event, which the check waited for.
+
+The settle check now only watches the head tags the rules read (title, meta,
+canonical and alternate links, page language) and no longer waits for the
+"load" event. The benchmark site now does what progrowth.services does (tracking
+tags added for 3 s, a tracking script that holds "load" back 3.5 s, a cookie
+banner), plus a planted noindex that JavaScript adds 0.6 s after load:
+
+| Benchmark, 203 pages | Before Day 19 | Day 19 | Day 20 |
+|---|---|---|---|
+| Whole crawl | 118.1 s | 50.8 s | 30.6 s (3.9x faster than before Day 19) |
+| Pages that hit the 1.5 s limit | (all waited for network idle) | 202 | 0 |
+| Average wait for a page to settle | | 1.54 s | 0.61 s |
+
+Results are identical across all three: the same 24 issues (including the
+JavaScript-added noindex), the same 210 link results, and the same title,
+description, canonical, robots, Open Graph, language, headings and word count on
+all 203 pages. Fixture 30 of 30.
+
 ### Day 19: faster crawl
 
 What made the crawl slow, and what changed (`crawl.js`, `lib/throttle.js`, `report.js`):
@@ -939,7 +966,7 @@ What made the crawl slow, and what changed (`crawl.js`, `lib/throttle.js`, `repo
 | Before | Now |
 |---|---|
 | Every page render downloaded its images, video and fonts, which no check uses (images are checked separately) | Those files are not downloaded during rendering; CSS and JavaScript still load, so the page reads the same. The browser cache stays on |
-| Every page waited for the network to go quiet, up to 1.5 s; analytics and chat widgets never go quiet, so most pages waited the full 1.5 s | A page is read once it has loaded and its content (links, images, head, amount of text) has not changed for 0.4 s, still at most 1.5 s. Carousels, counters, rotating headline words and analytics do not hold it up; a section loaded by JavaScript (text changing by more than 2%) does |
+| Every page waited for the network to go quiet, up to 1.5 s; analytics and chat widgets never go quiet, so most pages waited the full 1.5 s | A page is read once its content has not changed for 0.4 s, still at most 1.5 s. Content means what the checks read: links, images, the head tags the SEO and social rules use (title, meta, canonical and alternate links, language) and the amount of text. Carousels, counters, rotating headline words, analytics requests, tracking scripts added to the head and slow scripts holding back the "load" event do not hold it up; a section or tag added by JavaScript does (see Day 20) |
 | A fixed 150 ms pause after every request | No fixed pause; each site gets at most 6 checks at once, the pause grows by itself when a site answers 429 / 503, and a refused page is retried up to 3 times |
 | Sitemap first, then crawl pages, then check links, then follow redirects, then check images, then canonical and site checks: one after another | The sitemap is read while the first pages are crawled; links and images are checked (and redirects followed) as soon as they are found; canonical targets and the http / www checks all start together |
 | 4 pages and 8 link checks at a time | 8 pages and 16 checks at a time |
