@@ -5,7 +5,9 @@
 //   GET  /               → ui/index.html
 //   GET  /api/status     → { ready: true }
 //   POST /api/run        → starts a crawl, returns { runId }
-//   GET  /api/stream/:id → SSE stream of crawl progress lines
+//   GET  /api/stream/:id → SSE stream of the run: log lines, plus { progress } and
+//                          { finding } messages from lib/progress.js
+//   GET  /api/run/active → the inspection running now ({ runId, url, startedAt }) or {}
 //   GET  /api/results    → reads issues.json from cwd and returns it
 //   GET  /api/report     → audit-report/explained.json (priorities, explanations, fixes)
 //   GET  /api/report.pdf → the PDF report
@@ -38,6 +40,7 @@ import { aiConfig, providerFromConfig } from "../lib/ai-provider.js";
 import { answerQuestion } from "../lib/chat.js";
 import { createHistory, isRunId } from "../lib/history.js";
 import { buildWebReport, reportFileName } from "../lib/web-report.js";
+import { parseProgressLine } from "../lib/progress.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, ".."); // project root
@@ -134,7 +137,7 @@ const server = createServer(async (req, res) => {
     }
 
     const runId = makeRunId();
-    const entry = { id: runId, url: siteUrl, lines: [], done: false, exitCode: null, subscribers: new Set() };
+    const entry = { id: runId, url: siteUrl, startedAt: new Date().toISOString(), lines: [], progress: null, findings: [], done: false, exitCode: null, subscribers: new Set() };
     runs.set(runId, entry);
 
     // Start the crawler as a child process
@@ -143,21 +146,40 @@ const server = createServer(async (req, res) => {
     const crawlArgs = ["crawl.js", siteUrl];
     if (maxPages > 0) crawlArgs.push("--max-pages", String(maxPages));
     activeRunId = runId;
-    const child = spawn("node", crawlArgs, { cwd: ROOT, stdio: ["ignore", "pipe", "pipe"] });
+    // SITEFIX_PROGRESS=1: the crawler and report also print structured progress lines.
+    const childEnv = { ...process.env, SITEFIX_PROGRESS: "1" };
+    const child = spawn("node", crawlArgs, { cwd: ROOT, stdio: ["ignore", "pipe", "pipe"], env: childEnv });
 
-    function broadcast(line) {
-      entry.lines.push(line);
+    function send(msg) {
       for (const sub of entry.subscribers) {
-        try { sub.write(`data: ${JSON.stringify({ line })}\n\n`); } catch { /* ignore */ }
+        try { sub.write(`data: ${JSON.stringify(msg)}\n\n`); } catch { /* ignore */ }
       }
+    }
+    function broadcast(line) {
+      const p = parseProgressLine(line);
+      if (p && p.kind === "progress") {
+        // The report step starts its own counts; keep the crawl's issue totals.
+        entry.progress = p.phase && ["report", "pdf", "report-done"].includes(p.phase) && entry.progress ? { ...p, issues: entry.progress.issues, pages: entry.progress.pages } : p;
+        return send({ progress: entry.progress });
+      }
+      if (p && p.kind === "finding") {
+        if (entry.findings.length < 400) entry.findings.push(p);
+        return send({ finding: p });
+      }
+      entry.lines.push(line);
+      if (entry.lines.length > 5000) entry.lines.splice(0, entry.lines.length - 5000); // keep memory bounded on huge sites
+      send({ line });
     }
 
-    function onData(chunk) {
-      const text = chunk.toString();
-      for (const line of text.split("\n")) {
-        if (line.trim()) broadcast(line);
-      }
-    }
+    // Output arrives in chunks that can end in the middle of a line: keep the tail.
+    const lineReader = () => {
+      let tail = "";
+      return (chunk) => {
+        const parts = (tail + chunk.toString()).split("\n");
+        tail = parts.pop();
+        for (const line of parts) if (line.trim()) broadcast(line);
+      };
+    };
 
     function finish(code) {
       entry.done = true;
@@ -170,15 +192,15 @@ const server = createServer(async (req, res) => {
       entry.subscribers.clear();
     }
 
-    child.stdout.on("data", onData);
-    child.stderr.on("data", onData);
+    child.stdout.on("data", lineReader());
+    child.stderr.on("data", lineReader());
     child.on("close", (code) => {
       if (code !== 0) return finish(code);
       // The crawl worked: build the explained report and PDF. A report failure
       // does not hide the crawl results; the UI shows them without the extras.
-      const report = spawn("node", ["report.js"], { cwd: ROOT, stdio: ["ignore", "pipe", "pipe"] });
-      report.stdout.on("data", onData);
-      report.stderr.on("data", onData);
+      const report = spawn("node", ["report.js"], { cwd: ROOT, stdio: ["ignore", "pipe", "pipe"], env: childEnv });
+      report.stdout.on("data", lineReader());
+      report.stderr.on("data", lineReader());
       report.on("close", async (rcode) => {
         entry.reportCode = rcode;
         broadcast(`__REPORT__:${rcode}`);
@@ -209,10 +231,12 @@ const server = createServer(async (req, res) => {
       "Access-Control-Allow-Origin": "*",
     });
 
-    // Replay buffered lines
+    // Replay what happened so far (a page reload reattaches to a running inspection).
     for (const line of entry.lines) {
       res.write(`data: ${JSON.stringify({ line })}\n\n`);
     }
+    for (const finding of entry.findings) res.write(`data: ${JSON.stringify({ finding })}\n\n`);
+    if (entry.progress) res.write(`data: ${JSON.stringify({ progress: entry.progress })}\n\n`);
 
     if (entry.done) {
       res.write(`data: ${JSON.stringify({ line: `__DONE__:${entry.exitCode}` })}\n\n`);
@@ -222,6 +246,12 @@ const server = createServer(async (req, res) => {
     entry.subscribers.add(res);
     req.on("close", () => entry.subscribers.delete(res));
     return; // keep open
+  }
+
+  // API: the inspection running now, so a reloaded page can follow it again
+  if (method === "GET" && pathname === "/api/run/active") {
+    const entry = activeRunId ? runs.get(activeRunId) : null;
+    return json(res, 200, entry ? { runId: entry.id, url: entry.url, startedAt: entry.startedAt } : {});
   }
 
   // API: return the current issues.json
