@@ -185,11 +185,14 @@ async function fetchRaw(url) {
   }
 }
 
-// Wait until the page has loaded and its content has stopped changing for QUIET_MS,
-// at most SETTLE_MS. "Content" is what the checks read: links, images, the head, and
-// the amount of text. Text counts as changed when it grows or shrinks by more than 2%
-// (a section loaded by JavaScript); a number counting up, a rotating headline word,
-// a moving carousel or never-ending analytics requests do not hold the page up.
+// Wait until the page's content has stopped changing for QUIET_MS, at most SETTLE_MS.
+// "Content" is what the checks read: the links, the images, the head tags the SEO
+// and social rules use (title, meta, canonical / alternate links, the page language)
+// and the amount of text. Text counts as changed when it grows or shrinks by more than
+// 2% (a section loaded by JavaScript, a cookie banner). Ignored on purpose, because on
+// real sites they never stop: tracking and chat scripts adding <script>, <style> and
+// prefetch tags to the head, slow scripts that hold back the browser's "load" event,
+// carousels, counters, rotating headline words and analytics requests.
 // Returns { ms, full } so the run can report how many pages hit the limit.
 async function settle(page) {
   if (SETTLE_MS <= 0) return { ms: 0, full: false };
@@ -200,9 +203,18 @@ async function settle(page) {
   }
   const full = await page.evaluate(({ quiet, max }) => new Promise((resolve) => {
     const start = performance.now();
+    const headTags = () => {
+      const h = document.head;
+      if (!h) return "";
+      const parts = [document.documentElement.getAttribute("lang") || "", document.title];
+      for (const e of h.querySelectorAll("meta, link[rel]")) {
+        if (e.tagName === "LINK" && !/\b(canonical|alternate)\b/i.test(e.getAttribute("rel") || "")) continue;
+        parts.push(e.outerHTML);
+      }
+      return parts.join("\n");
+    };
     const read = () => ({
-      ready: document.readyState,
-      shape: [document.links.length, document.images.length, document.head ? document.head.innerHTML.length : 0].join("|"),
+      shape: [document.links.length, document.images.length, headTags()].join("|"),
       text: document.body ? document.body.textContent.length : 0,
     });
     let base = read();
@@ -210,8 +222,8 @@ async function settle(page) {
     const tick = () => {
       const now = performance.now();
       const r = read();
-      if (r.ready !== base.ready || r.shape !== base.shape || Math.abs(r.text - base.text) > Math.max(40, base.text * 0.02)) { base = r; since = now; }
-      if (document.readyState === "complete" && now - since >= quiet) resolve(false);
+      if (r.shape !== base.shape || Math.abs(r.text - base.text) > Math.max(40, base.text * 0.02)) { base = r; since = now; }
+      if (now - since >= quiet) resolve(false);
       else if (now - start >= max) resolve(true);
       else setTimeout(tick, 50);
     };
