@@ -187,6 +187,7 @@ progrowth-sitefix-agent/
 │   ├── issues.js                      issue schema, severity and fix-class catalog, registry builder and validator
 │   ├── progress.js                    live progress lines from crawl.js / report.js to the UI: counts, steps, findings, time left
 │   ├── suggest.js                     suggested questions from the kinds of problems found (the page carries a copy)
+│   ├── live-answers.js                instant answers about the inspection itself: how it works, why it takes long, time left, found so far
 │   ├── throttle.js                    per-site request limits that slow down by themselves on 429 / 503
 │   ├── trackers.js                    tracking, advertising and chat scripts not loaded while pages are read
 │   ├── triage.js                      priority (P1/P2/P3), who fixes it, effort, quick wins
@@ -216,6 +217,7 @@ progrowth-sitefix-agent/
 │   ├── history.test.js                save, report matching, pruning, delete stays deleted, safe file names
 │   ├── ai-provider.test.js            .env loading, config, OpenAI request format and retries (fake server)
 │   ├── report-html.test.js            report sections, escaping, screenshots, caps
+│   ├── live-answers.test.js           which questions are answered at once, the live numbers in them, self-contained copy
 │   ├── suggest.test.js                question order, no repeats, every issue type covered, self-contained copy
 │   ├── progress.test.js               progress messages, finding counts and cap, time-left estimate, line parsing
 │   ├── trackers.test.js               the trackers seen on progrowth.services are matched; site scripts, forms, maps never are
@@ -958,6 +960,115 @@ text filters above. Real finds such as "atleast" were kept.
 Not covered yet: readability scores, tone and brand voice (judgement calls),
 and text inside images.
 
+### Day 17: inspection history in the UI
+
+New `lib/history.js` and history endpoints in `ui/server.js`. Each finished
+inspection is copied into `history/<run-id>/` with its registry, report,
+PDF, only its own screenshots and its chat, so the sidebar keeps past
+inspections across reloads and restarts. Inspections can be reopened (PDF,
+screenshots and earlier questions included) and deleted one at a time or all
+at once, with a two-click confirm instead of a pop-up.
+
+- A report is only attached to the crawl it was made from (matching run id).
+- Deleted inspections stay deleted: they are never re-imported from the
+  latest crawl files.
+- Questions are answered from the inspection on screen, not always the
+  latest one, and are saved with it.
+- Files are written to a temp file then renamed, so a crash never leaves a
+  half-written JSON file.
+
+Tests: 187 to 197 (10 new in `test/history.test.js`). Checked in a browser
+against the fixture with the mock AI: two inspections listed, the open one
+restored after a reload, an older one reopened with its chat, screenshot and
+PDF (both 200), deleted with the two-click confirm, and still gone after a
+reload; phone width opens the list from the menu button.
+
+### Day 18: web report
+
+New `lib/web-report.js`, two routes in `ui/server.js` (`/report/:id` and
+`/report/:id/download`) and `audit-report/web-report.html` from `report.js`.
+The page is rendered on the server, so all of it is readable with JavaScript
+off; a small inline script adds the filters, search, expand all, copy and
+"jump to issue" from the "Fix these first" list. Every piece of text from the
+crawled site is escaped, the start URL is only made a link when it is http(s),
+and the downloaded file has no links back to the SiteFix server.
+
+Tests: 197 to 205 (8 new in `test/web-report.test.js`). Checked in a browser
+against the fixture: the counts after each filter match the report (30 all,
+9 P1, 13 quick wins, 5 images), search narrows to the three alt-text types,
+an empty search shows "No issues match", a "Fix these first" entry opens its
+issue, all 25 screenshots load, and the downloaded file (4.6 MB with 25
+screenshots) works offline at phone width with zero network requests.
+
+### Day 19: faster crawl
+
+What made the crawl slow, and what changed (`crawl.js`, `lib/throttle.js`, `report.js`):
+
+| Before | Now |
+|---|---|
+| Every page render downloaded its images, video and fonts, which no check uses (images are checked separately) | Those files are not downloaded during rendering; CSS and JavaScript still load, so the page reads the same. The browser cache stays on |
+| Every page waited for the network to go quiet, up to 1.5 s; analytics and chat widgets never go quiet, so most pages waited the full 1.5 s | A page is read once its content has not changed for 0.4 s, still at most 1.5 s. Content means what the checks read: links, images, the head tags the SEO and social rules use (title, meta, canonical and alternate links, language) and the amount of text. Carousels, counters, rotating headline words, analytics requests, tracking scripts added to the head and slow scripts holding back the "load" event do not hold it up; a section or tag added by JavaScript does (see Day 20) |
+| A fixed 150 ms pause after every request | No fixed pause; each site gets at most 6 checks at once, the pause grows by itself when a site answers 429 / 503, and a refused page is retried up to 3 times |
+| Sitemap first, then crawl pages, then check links, then follow redirects, then check images, then canonical and site checks: one after another | The sitemap is read while the first pages are crawled; links and images are checked (and redirects followed) as soon as they are found; canonical targets and the http / www checks all start together |
+| 4 pages and 8 link checks at a time | 8 pages and 16 checks at a time |
+| Report: AI explanations, then screenshots; each screenshot waited for the network to go quiet (up to 2.5 s) | Both at the same time; 6 AI calls and 6 screenshots at a time; screenshots wait for the page's images (the load event), not the network; AI proofreading 8 pages at a time |
+
+Measured with `bench/` (200 pages with heavy images, a web font, analytics that
+never stops, a carousel that moves forever, a number that counts up and 120 ms
+responses), same machine, `--no-ai`:
+
+| | Before | After |
+|---|---|---|
+| Whole crawl, 203 pages | 116.7 s | 25.7 s (4.5x faster) |
+| Rendering pages | 96.8 s | 25.1 s; average wait for a page to settle 0.45 s, no page hit the 1.5 s limit |
+| Checking links, redirects and images after the crawl | 19.9 s | under 0.1 s (done during the crawl) |
+| Same site, limited to 15 pages a second (429 when exceeded) | not measured | 58.5 s, 60 slow-downs, 43 page retries, every page read |
+
+Results are the same: on the benchmark all issues are identical before and
+after (type, page, severity, detail and found-on pages), all 210 link results
+are identical, and the rate-limited run finds the same issues. Fixture: 30 of
+30, 0 false positives, in 3.7 s. Tests: 205 to 212 (7 new in
+`test/throttle.test.js`).
+
+A first version that counted any change to the page (including animations) as
+"still changing" was only 2.4x faster on this benchmark, and 2.6x on
+progrowth.services (164 s to 63 s): pages with carousels or counters waited the
+full 1.5 s. That is why the settle check now looks at content only.
+
+Every run now records, in `links.json`, how long each step took
+(`summary.seconds`), the average page load and settle time and how many pages
+hit the settle limit (`summary.pageTiming`), and how often a site asked to slow
+down (`summary.slowDowns`). To measure a site yourself: `node bench/time.js
+https://your-site.com` prints the time of each step; add `--full-render` to
+compare with the old loading behaviour. `node bench/server.js` serves the
+benchmark site on port 4100.
+
+### Day 20: settle check fix (real-site follow-up)
+
+On progrowth.services the Day 19 crawl took 48 s for 173 pages, down from
+164 s, but 121 pages still waited the full 1.5 s limit
+(`summary.pageTiming.pagesWaitedFullSettle`). `bench/settle-diag.js` showed why:
+tracking scripts (Facebook, LinkedIn, Google Ads, Clarity, Warmly, Matomo) and
+prefetch links kept being added to the head for 3+ seconds, and slow third-party
+scripts held back the browser's "load" event, which the check waited for.
+
+The settle check now only watches the head tags the rules read (title, meta,
+canonical and alternate links, page language) and no longer waits for the
+"load" event. The benchmark site now does what progrowth.services does (tracking
+tags added for 3 s, a tracking script that holds "load" back 3.5 s, a cookie
+banner), plus a planted noindex that JavaScript adds 0.6 s after load:
+
+| Benchmark, 203 pages | Before Day 19 | Day 19 | Day 20 |
+|---|---|---|---|
+| Whole crawl | 118.1 s | 50.8 s | 30.6 s (3.9x faster than before Day 19) |
+| Pages that hit the 1.5 s limit | (all waited for network idle) | 202 | 0 |
+| Average wait for a page to settle | | 1.54 s | 0.61 s |
+
+Results are identical across all three: the same 24 issues (including the
+JavaScript-added noindex), the same 210 link results, and the same title,
+description, canonical, robots, Open Graph, language, headings and word count on
+all 203 pages. Fixture 30 of 30.
+
 ### Day 21: live progress
 
 New `lib/progress.js`. When the UI starts an inspection it sets
@@ -1010,6 +1121,39 @@ there after a reload; the chips after the report left them out; no internal
 words in the page text before, during or after an inspection; no console
 errors. The generated web report and PDF contain no provider or model names.
 
+### Day 22: a conversation during the inspection
+
+The inspection now reads like a conversation (modelled on a reference chat the
+team liked): an opening message ("I'll check example.com the way a visitor
+would... Nothing on the site gets changed."), short updates at the moments that
+matter (sitemap found, first serious problem spotted, halfway, all pages read,
+writing the report), and at the end "Found N issues. I'd fix these first" with
+the top three, a line on what was checked, and a link card to the web report.
+The progress card and the detailed summary stay below for anyone who wants
+them.
+
+Questions about the inspection itself are answered at once, without AI, from
+the live numbers (`lib/live-answers.js`, copied into the page like
+`lib/suggest.js`): how the crawl works, why it takes this long (site size,
+the server's page load time, real-browser rendering, slow-downs, current pace),
+how long is left, what is checked, what has been found so far, and whether the
+site is changed. After the inspection the same questions use the run's own
+timings. Questions about the results ("What should I fix first?") are still
+answered by AI as soon as the report is ready. The suggestion chips offer both,
+and the ones that need the report say "after the report". `crawl.js` now also
+sends the average page load time and the number of slow-downs with its
+progress, so the "why so long" answer can name the real cause.
+
+Tests: 226 to 234 (8 new in `test/live-answers.test.js`). Checked in a browser
+on the 200-page benchmark: "How does the crawl work?" answered in 72 ms and
+"why is it taking so long?" in 66 ms while crawling, with the live page count,
+sitemap size, checks and page load time; "what have you found so far" listed
+the most serious kinds first; the sitemap and first-problem updates appeared on
+their own; a results question was answered after the report; the closing
+messages and report card appeared (the card's link opens the web report); "how
+long did it take" after the run answered from the run's timings; phone width
+fits; no internal wording; no console errors.
+
 ### Day 23: fewer requests (real-site follow-up)
 
 After the settle fix, progrowth.services pages still took about 4 s each to load
@@ -1052,115 +1196,6 @@ pages the same original-HTML facts (status, redirect target, title, head, word
 count) and the same rendered facts (title, description, canonical, robots, Open
 Graph, language, headings, word count). The plain benchmark is unchanged at
 30.4 s. Fixture 30 of 30. Tests: 226 to 229 (3 new in `test/trackers.test.js`).
-
-### Day 20: settle check fix (real-site follow-up)
-
-On progrowth.services the Day 19 crawl took 48 s for 173 pages, down from
-164 s, but 121 pages still waited the full 1.5 s limit
-(`summary.pageTiming.pagesWaitedFullSettle`). `bench/settle-diag.js` showed why:
-tracking scripts (Facebook, LinkedIn, Google Ads, Clarity, Warmly, Matomo) and
-prefetch links kept being added to the head for 3+ seconds, and slow third-party
-scripts held back the browser's "load" event, which the check waited for.
-
-The settle check now only watches the head tags the rules read (title, meta,
-canonical and alternate links, page language) and no longer waits for the
-"load" event. The benchmark site now does what progrowth.services does (tracking
-tags added for 3 s, a tracking script that holds "load" back 3.5 s, a cookie
-banner), plus a planted noindex that JavaScript adds 0.6 s after load:
-
-| Benchmark, 203 pages | Before Day 19 | Day 19 | Day 20 |
-|---|---|---|---|
-| Whole crawl | 118.1 s | 50.8 s | 30.6 s (3.9x faster than before Day 19) |
-| Pages that hit the 1.5 s limit | (all waited for network idle) | 202 | 0 |
-| Average wait for a page to settle | | 1.54 s | 0.61 s |
-
-Results are identical across all three: the same 24 issues (including the
-JavaScript-added noindex), the same 210 link results, and the same title,
-description, canonical, robots, Open Graph, language, headings and word count on
-all 203 pages. Fixture 30 of 30.
-
-### Day 19: faster crawl
-
-What made the crawl slow, and what changed (`crawl.js`, `lib/throttle.js`, `report.js`):
-
-| Before | Now |
-|---|---|
-| Every page render downloaded its images, video and fonts, which no check uses (images are checked separately) | Those files are not downloaded during rendering; CSS and JavaScript still load, so the page reads the same. The browser cache stays on |
-| Every page waited for the network to go quiet, up to 1.5 s; analytics and chat widgets never go quiet, so most pages waited the full 1.5 s | A page is read once its content has not changed for 0.4 s, still at most 1.5 s. Content means what the checks read: links, images, the head tags the SEO and social rules use (title, meta, canonical and alternate links, language) and the amount of text. Carousels, counters, rotating headline words, analytics requests, tracking scripts added to the head and slow scripts holding back the "load" event do not hold it up; a section or tag added by JavaScript does (see Day 20) |
-| A fixed 150 ms pause after every request | No fixed pause; each site gets at most 6 checks at once, the pause grows by itself when a site answers 429 / 503, and a refused page is retried up to 3 times |
-| Sitemap first, then crawl pages, then check links, then follow redirects, then check images, then canonical and site checks: one after another | The sitemap is read while the first pages are crawled; links and images are checked (and redirects followed) as soon as they are found; canonical targets and the http / www checks all start together |
-| 4 pages and 8 link checks at a time | 8 pages and 16 checks at a time |
-| Report: AI explanations, then screenshots; each screenshot waited for the network to go quiet (up to 2.5 s) | Both at the same time; 6 AI calls and 6 screenshots at a time; screenshots wait for the page's images (the load event), not the network; AI proofreading 8 pages at a time |
-
-Measured with `bench/` (200 pages with heavy images, a web font, analytics that
-never stops, a carousel that moves forever, a number that counts up and 120 ms
-responses), same machine, `--no-ai`:
-
-| | Before | After |
-|---|---|---|
-| Whole crawl, 203 pages | 116.7 s | 25.7 s (4.5x faster) |
-| Rendering pages | 96.8 s | 25.1 s; average wait for a page to settle 0.45 s, no page hit the 1.5 s limit |
-| Checking links, redirects and images after the crawl | 19.9 s | under 0.1 s (done during the crawl) |
-| Same site, limited to 15 pages a second (429 when exceeded) | not measured | 58.5 s, 60 slow-downs, 43 page retries, every page read |
-
-Results are the same: on the benchmark all issues are identical before and
-after (type, page, severity, detail and found-on pages), all 210 link results
-are identical, and the rate-limited run finds the same issues. Fixture: 30 of
-30, 0 false positives, in 3.7 s. Tests: 205 to 212 (7 new in
-`test/throttle.test.js`).
-
-A first version that counted any change to the page (including animations) as
-"still changing" was only 2.4x faster on this benchmark, and 2.6x on
-progrowth.services (164 s to 63 s): pages with carousels or counters waited the
-full 1.5 s. That is why the settle check now looks at content only.
-
-Every run now records, in `links.json`, how long each step took
-(`summary.seconds`), the average page load and settle time and how many pages
-hit the settle limit (`summary.pageTiming`), and how often a site asked to slow
-down (`summary.slowDowns`). To measure a site yourself: `node bench/time.js
-https://your-site.com` prints the time of each step; add `--full-render` to
-compare with the old loading behaviour. `node bench/server.js` serves the
-benchmark site on port 4100.
-
-### Day 18: web report
-
-New `lib/web-report.js`, two routes in `ui/server.js` (`/report/:id` and
-`/report/:id/download`) and `audit-report/web-report.html` from `report.js`.
-The page is rendered on the server, so all of it is readable with JavaScript
-off; a small inline script adds the filters, search, expand all, copy and
-"jump to issue" from the "Fix these first" list. Every piece of text from the
-crawled site is escaped, the start URL is only made a link when it is http(s),
-and the downloaded file has no links back to the SiteFix server.
-
-Tests: 197 to 205 (8 new in `test/web-report.test.js`). Checked in a browser
-against the fixture: the counts after each filter match the report (30 all,
-9 P1, 13 quick wins, 5 images), search narrows to the three alt-text types,
-an empty search shows "No issues match", a "Fix these first" entry opens its
-issue, all 25 screenshots load, and the downloaded file (4.6 MB with 25
-screenshots) works offline at phone width with zero network requests.
-
-### Day 17: inspection history in the UI
-
-New `lib/history.js` and history endpoints in `ui/server.js`. Each finished
-inspection is copied into `history/<run-id>/` with its registry, report,
-PDF, only its own screenshots and its chat, so the sidebar keeps past
-inspections across reloads and restarts. Inspections can be reopened (PDF,
-screenshots and earlier questions included) and deleted one at a time or all
-at once, with a two-click confirm instead of a pop-up.
-
-- A report is only attached to the crawl it was made from (matching run id).
-- Deleted inspections stay deleted: they are never re-imported from the
-  latest crawl files.
-- Questions are answered from the inspection on screen, not always the
-  latest one, and are saved with it.
-- Files are written to a temp file then renamed, so a crash never leaves a
-  half-written JSON file.
-
-Tests: 187 to 197 (10 new in `test/history.test.js`). Checked in a browser
-against the fixture with the mock AI: two inspections listed, the open one
-restored after a reload, an older one reopened with its chat, screenshot and
-PDF (both 200), deleted with the two-click confirm, and still gone after a
-reload; phone width opens the list from the menu button.
 
 ## 13. Security principles
 

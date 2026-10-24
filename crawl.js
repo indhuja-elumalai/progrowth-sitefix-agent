@@ -533,6 +533,7 @@ async function main() {
   const pageText = new Map(); // url -> visible text lines (2xx pages only); kept out of report.json
   let active = 0;
   let pageRetries = 0;
+  let loadSum = 0, loadCount = 0; // average page load time, for the live progress
   const worker = async () => {
     for (;;) {
       if (MAX_PAGES && visited.size >= MAX_PAGES) { if (queue.length) capReached = true; return; }
@@ -606,7 +607,9 @@ async function main() {
         if (fromCrawl.has(url) && raw.status >= 400) preview("http-4xx-internal", url, `Link returns ${raw.status}`);
       } finally {
         active--;
-        progress.set({ pages: { done: crawled.length, found: queued.size }, current: url });
+        const lt = crawled.length && crawled[crawled.length - 1].entry.rendered.timing;
+        if (lt && crawled[crawled.length - 1].entry.url === url) { loadSum += lt.loadMs; loadCount++; }
+        progress.set({ pages: { done: crawled.length, found: queued.size }, current: url, avgLoadMs: loadCount ? Math.round(loadSum / loadCount) : null, slowDowns: throttle.stats().slowDowns });
       }
       await throttle.wait(url); // a server that answered 429 / 503 gets a pause before its next page
     }

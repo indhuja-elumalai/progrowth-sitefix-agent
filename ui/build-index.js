@@ -4,6 +4,7 @@ import { writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { suggestQuestions } from "../lib/suggest.js";
+import { answerProcessQuestion } from "../lib/live-answers.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const out = path.join(__dirname, "index.html");
@@ -195,6 +196,21 @@ const CSS = `
   .queued::before{content:"";display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--medium);margin-right:7px;vertical-align:1px;animation:pulse 1s infinite}
   .queued.answered::before{background:var(--success);animation:none}
   .queued.missed::before{background:var(--high);animation:none}
+
+  .sq.later::after{content:" · after the report";color:var(--text-3);font-size:11.5px}
+  /* Report link card (like a link preview in Messages) */
+  .rcard{display:block;width:min(440px,100%);margin-top:10px;border-radius:var(--radius-lg);overflow:hidden;border:1px solid var(--border);background:var(--bg);text-decoration:none;color:inherit;box-shadow:0 1px 2px rgba(0,0,0,.05);transition:transform var(--t),box-shadow var(--t)}
+  .rcard:hover{transform:translateY(-1px);box-shadow:0 6px 18px rgba(0,0,0,.08)}
+  .rc-top{display:flex;gap:12px;padding:16px 16px 14px;background:linear-gradient(135deg,var(--surface-1),var(--bg));min-height:150px}
+  .rc-txt{flex:1;min-width:0;display:flex;flex-direction:column}
+  .rc-made{font-size:11px;color:var(--text-3)}
+  .rc-title{font-family:Georgia,"Times New Roman",serif;font-size:24px;line-height:1.15;letter-spacing:-.01em;margin-top:8px;overflow-wrap:anywhere}
+  .rc-brand{margin-top:auto;padding-top:12px;font-family:Georgia,"Times New Roman",serif;font-size:19px}
+  .rc-shot{width:150px;flex-shrink:0;border-radius:8px;border:1px solid var(--border);background:var(--bg) center top/cover no-repeat}
+  .rc-bot{padding:9px 14px;background:var(--surface-2);border-top:1px solid var(--border)}
+  .rc-bot b{display:block;font-size:13.5px;font-weight:600}
+  .rc-bot span{font-size:12px;color:var(--text-3)}
+  .ans ol{margin:6px 0 0 20px}.ans ol li{margin:4px 0}
 
   /* Summary card */
   .rpt-hdr{padding:14px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px}
@@ -498,20 +514,54 @@ function suggestRow(qs,note,onPick,cls){
   return w;
 }
 function keepLast(node){if(node&&node.isConnected){chatIn.appendChild(node);scroll();}}
-// While an inspection runs: questions picked or typed now are answered when the report is ready.
+// Questions about the inspection itself are answered at once, from the live numbers
+// (the same function as lib/live-answers.js, copied in when this page is built).
+${answerProcessQuestion.toString()}
+function liveCtx(){
+  const p=(live&&live.progress)||{};
+  return {running:true,site:live.url,phase:p.phase||'crawl',pages:p.pages,checks:p.checks,issues:p.issues,elapsedMs:Date.now()-live.startedAt,etaMs:p.etaMs,avgLoadMs:p.avgLoadMs,slowDowns:p.slowDowns,findings:live.findings,label:issueLabel};
+}
+function doneCtx(){
+  const l=(current&&current.report&&current.report.summaries&&current.report.summaries.links)||{},run=(current&&current.run)||{};
+  return {running:false,site:run.startUrl,pages:{done:run.pagesCrawled||l.pagesCrawled||0},seconds:l.seconds,avgLoadMs:l.pageTiming&&l.pageTiming.averageLoadMs,label:issueLabel};
+}
+// A message in the running inspection's conversation: kept with the run, so it is
+// still there after opening a past inspection and coming back.
+function liveSay(role,html){
+  const w=el('div','chat-msg '+role),bbl=el('div','msg-bbl');
+  bbl.innerHTML=html;w.appendChild(bbl);
+  live.thread.push(w);
+  if(viewingLive){if(empty.parentNode===chatIn)empty.style.display='none';chatIn.appendChild(w);keepLast(live.sgEl);scroll();}
+  return bbl;
+}
+function narrate(key,html){if(!live||live.said[key])return;live.said[key]=1;liveSay('agent',html);}
+// While an inspection runs: questions about the inspection are answered now; questions
+// about the results are answered as soon as the report is ready.
+function liveChips(){
+  const asked=new Set(live.asked.map(x=>x.toLowerCase()));
+  const elapsed=Date.now()-live.startedAt,p=live.progress||{};
+  const now=['How does the crawl work?',live.findings.length?'What have you found so far?':'What are you checking?','How long is left?',elapsed>20000?'Why is it taking this long?':'Will this change my site?'].filter(q=>!asked.has(q.toLowerCase()));
+  const later=suggestQuestions(live.types,live.asked,2);
+  return {now:now.slice(0,3),later};
+}
 function refreshLiveSuggest(){
   if(!live||live.done||!viewingLive)return;
-  const row=suggestRow(suggestQuestions(live.types,live.asked,4),'While you wait, pick a question. I&rsquo;ll answer it as soon as the report is ready.',q=>queueQuestion(q),'live-sg');
+  const c=liveChips(),sig=c.now.concat(c.later).join('|');
+  if(live.sgEl&&live.sgEl.isConnected&&live.sgSig===sig)return;
+  live.sgSig=sig;
+  const row=suggestRow(c.now.concat(c.later),'Ask me anything while I work. I&rsquo;ll answer what I can right away, and questions about the results as soon as the report is ready.',q=>liveAsk(q),'live-sg');
+  if(row)row.querySelectorAll('.sq').forEach((b,i)=>{if(i>=c.now.length){b.classList.add('later');b.title='Answered when the report is ready';}});
   if(live.sgEl&&live.sgEl.isConnected){if(row)live.sgEl.replaceWith(row);else live.sgEl.remove();}
   else if(row)chatIn.appendChild(row);
   live.sgEl=row;
 }
-function queueQuestion(q){
+function liveAsk(q){
   live.asked.push(q);
-  const u=addMsg('user',esc(q)).parentNode;
-  const b=addMsg('agent','<span class="queued">Noted. I&rsquo;ll answer this as soon as the report is ready.</span>');
-  live.queue.push({q,user:u,bot:b.parentNode,bubble:b});
-  refreshLiveSuggest();keepLast(live.sgEl);
+  liveSay('user',esc(q));
+  const instant=answerProcessQuestion(q,liveCtx());
+  if(instant)liveSay('agent',answerHtml({answer:instant.answer}));
+  else{const b=liveSay('agent','<span class="queued">Good question. I&rsquo;ll answer it as soon as the report is ready.</span>');live.queue.push({q,bubble:b});}
+  live.sgSig=null;refreshLiveSuggest();keepLast(live.sgEl);
 }
 // After a finished inspection: suggestions based on what it found.
 function showResultSuggest(asked){
@@ -635,10 +685,18 @@ function updateLive(p){
   S('.sev-n.high',c).textContent=(iss.high||0)+' high';S('.sev-n.medium',c).textContent=(iss.medium||0)+' medium';S('.sev-n.low',c).textContent=(iss.low||0)+' low';
   if(p.final&&p.phase==='crawled')S('.li-note',c).textContent='final count';
   if(!document.hidden||!live.done)document.title='('+pct+'%) Inspecting '+hostOf(live.url)+' — SiteFix';
+  // Short updates in the conversation at the moments that matter.
+  if(pg.sitemap)narrate('sitemap','Found your sitemap: '+pg.sitemap+' page'+(pg.sitemap===1?'':'s')+' listed. I&rsquo;ll check those, plus anything they link to.');
+  if(p.phase==='crawl'&&tot>=40&&pg.done>=tot/2)narrate('half','Halfway through the pages: '+pg.done+' of '+(pg.found>pg.done?'at least ':'')+tot+' read.');
+  if(['links','images','seo','content','spelling'].includes(p.phase))narrate('pages','All '+(pg.done||0)+' pages read. Now comparing pages with each other and checking spelling.');
+  if(p.phase==='report')narrate('report','Writing up what I found: what to fix first, why it matters and how, with screenshots.');
+  if(p.phase!==live.lastPhase){live.lastPhase=p.phase;live.sgSig=null;refreshLiveSuggest();}
   renderLiveRow();
 }
 function addFinding(f){
   if(!live)return;
+  if(live.findings.length<400)live.findings.push(f);
+  if(f.severity==='high')narrate('first','First problem spotted: '+esc(issueLabel(f.type))+' <span style="font-family:var(--font-mono);font-size:12px">'+esc(shortPath(f.url||''))+'</span>. I&rsquo;ll keep going and put everything in the report.');
   if(!live.types.includes(f.type)){live.types.push(f.type);refreshLiveSuggest();}
   const feed=S('.feed',live.card),li=el('li');
   li.title=f.detail||'';
@@ -647,7 +705,7 @@ function addFinding(f){
   while(feed.childElementCount>6)feed.lastChild.remove();
   S('.feed-empty',live.card).hidden=true;
 }
-function tick(){if(!live||live.done)return;S('.p-time',live.card).textContent=fmtDur(Date.now()-live.startedAt);renderLiveRow();}
+function tick(){if(!live||live.done)return;S('.p-time',live.card).textContent=fmtDur(Date.now()-live.startedAt);renderLiveRow();if(Date.now()-live.startedAt>20000)refreshLiveSuggest();}
 setInterval(tick,1000);
 
 // The running (or just finished) inspection at the top of the sidebar.
@@ -676,11 +734,11 @@ function showLive(){
   viewingLive=true;
   tbTitle.textContent=live.url;
   addMsg('user',esc(live.url),live.startedAt);
-  addMsg('agent','On it. I&rsquo;ll crawl the site, run the checks and show problems as I find them.',live.startedAt);
-  urlIn.placeholder='Ask a question; I&rsquo;ll answer when the report is ready'.replace('&rsquo;','\u2019');
+  addMsg('agent','I&rsquo;ll check '+esc(hostOf(live.url))+' the way a visitor would: every page, link and image, plus titles, tags, content and spelling. Nothing on the site gets changed.',live.startedAt);
+  urlIn.placeholder='Ask me anything while I work';
   chatIn.appendChild(live.card);
-  for(const it of live.queue){chatIn.appendChild(it.user);chatIn.appendChild(it.bot);}
-  live.sgEl=null;refreshLiveSuggest();
+  for(const w of live.thread)chatIn.appendChild(w);
+  live.sgEl=null;live.sgSig=null;refreshLiveSuggest();
   markActive();renderLiveRow();scroll();
 }
 
@@ -748,7 +806,7 @@ async function followRun(){
 document.addEventListener('visibilitychange',()=>{if(!document.hidden&&!running)document.title=BASE_TITLE;});
 
 function beginLive(runId,url,startedAt){
-  live={runId,url,startedAt:startedAt?new Date(startedAt).getTime():Date.now(),card:buildLiveCard(url),progress:null,done:false,types:[],asked:[],queue:[],sgEl:null};
+  live={runId,url,startedAt:startedAt?new Date(startedAt).getTime():Date.now(),card:buildLiveCard(url),progress:null,done:false,types:[],asked:[],queue:[],sgEl:null,sgSig:null,thread:[],findings:[],said:{},lastPhase:null};
   running=true;syncBtn();
   showLive();
   followRun();
@@ -780,15 +838,28 @@ function renderResults(reg,siteUrl,report,id,meta){
   if(report)for(const t of report.types){typeInfo.set(t.type,t);for(const i of t.issues)extra.set(i.id,i);}
   const issues=(reg.issues||[]).map(i=>({...i,...(extra.get(i.id)||{}),_type:typeInfo.get(i.type)||null}));
   const base=id?'/api/history/'+encodeURIComponent(id)+'/':'/api/';
-  current={id:id||null,byId:new Map(issues.map(i=>[i.id,i])),report,base,hasPdf:meta?meta.hasPdf:Boolean(report)};
+  current={id:id||null,byId:new Map(issues.map(i=>[i.id,i])),report,base,hasPdf:meta?meta.hasPdf:Boolean(report),run:reg.run||{}};
   markActive();
   const run=reg.run||{},counts=reg.counts||{},bySev=counts.bySeverity||{};
   const cats=[...new Set(issues.map(i=>i.category))];
-  chatIn.appendChild(buildSummaryCard(siteUrl,run,counts,bySev,cats,report,current));scroll();
   urlIn.placeholder='Ask about this report, or paste another website address';
-  if(!issues.length){addMsg('agent','<span style="color:var(--success)">&#10003; No issues detected.</span> The site looks clean on every check that ran.');return;}
+  if(!issues.length){
+    addMsg('agent','<span style="color:var(--success)">&#10003; No issues found.</span> I checked '+(run.pagesCrawled||0)+' page'+(run.pagesCrawled===1?'':'s')+' and the site looks clean on every check. Nothing changed on the site.');
+    chatIn.appendChild(buildSummaryCard(siteUrl,run,counts,bySev,cats,report,current));scroll();
+    return;
+  }
   const s=report&&report.summary;
-  addMsg('agent','Done. I found <strong>'+counts.total+' issue'+(counts.total!==1?'s':'')+'</strong> in '+cats.length+' categor'+(cats.length!==1?'ies':'y')+(s?' &middot; <strong>'+s.byPriority.P1+'</strong> to fix first, '+s.quickWins+' quick win'+(s.quickWins!==1?'s':''):'')+'. Open a category to see its issues, or ask me anything about this report.');
+  if(report&&id){
+    // Like a person reporting back: what to fix first, what was checked, then the report.
+    const first=fixFirstList(issues);
+    addMsg('agent','Found <strong>'+counts.total+' issue'+(counts.total!==1?'s':'')+'</strong>. I&rsquo;d fix these first:<div class="ans"><ol>'+first.map(i=>'<li><b>'+esc(i._type?i._type.title:issueLabel(i.type))+'</b>: '+esc(firstLine(i))+'</li>').join('')+'</ol></div>');
+    const sm=report.summaries||{},l=sm.links||{},im=sm.images||{};
+    addMsg('agent','The report includes screenshots and suggested fixes. I checked '+(run.pagesCrawled||l.pagesCrawled||0)+' pages'+(l.linksChecked?', '+l.linksChecked+' links':'')+(im.imagesFound?' and '+im.imagesFound+' images':'')+' across the site. Nothing changed on the site.');
+    chatIn.appendChild(reportCard(siteUrl,run,counts.total,issues,id));scroll();
+  }else{
+    addMsg('agent','Done. I found <strong>'+counts.total+' issue'+(counts.total!==1?'s':'')+'</strong> in '+cats.length+' categor'+(cats.length!==1?'ies':'y')+(s?' &middot; <strong>'+s.byPriority.P1+'</strong> to fix first, '+s.quickWins+' quick win'+(s.quickWins!==1?'s':''):'')+'. Open a category to see its issues, or ask me anything about this report.');
+  }
+  chatIn.appendChild(buildSummaryCard(siteUrl,run,counts,bySev,cats,report,current));scroll();
   const grouped=groupBy(issues,i=>i.category);
   const order=['HTTP and URLs','Images','Soft 404s','SEO: indexing','SEO: titles & descriptions','Content','Social sharing','Page setup'];
   const sorted=[...order.filter(c=>grouped[c]),...Object.keys(grouped).filter(c=>!order.includes(c))];
@@ -799,6 +870,28 @@ function renderResults(reg,siteUrl,report,id,meta){
   showResultSuggest([]);
 }
 
+// The three things to fix first: P1 issues, then quick wins; one per kind of problem.
+function fixFirstList(issues){
+  const seen=new Set(),eff={easy:0,medium:1,hard:2};
+  return issues.filter(i=>i.priority==='P1'||i.quickWin)
+    .sort((a,b)=>(PRI[a.priority]??3)-(PRI[b.priority]??3)||(b.quickWin-a.quickWin)||(eff[a.effort]??3)-(eff[b.effort]??3))
+    .filter(i=>{if(seen.has(i.type))return false;seen.add(i.type);return true;}).slice(0,3);
+}
+function firstLine(i){
+  const n=(i._type&&i._type.issues)?i._type.issues.length:1;
+  let t=String(i.explanation||i.detail||'').replace(/\s*\((https?:\/\/[^)]*)\)\.?$/,'.').trim();
+  if(t.length>170)t=t.slice(0,167).replace(/\s+\S*$/,'')+'\u2026';
+  return t+(n>1?' ('+n+' found)':'');
+}
+// A link preview to the web report, like a shared link in Messages.
+function reportCard(siteUrl,run,total,issues,id){
+  const shot=issues.find(i=>i.screenshot&&i.priority==='P1')||issues.find(i=>i.screenshot);
+  const when=run.startedAt?new Date(run.startedAt).toLocaleDateString([],{day:'numeric',month:'short'}):'';
+  const host=hostOf(siteUrl).replace(/^www\./,'');
+  const a=el('a','rcard');a.href='/report/'+encodeURIComponent(id);a.target='_blank';a.rel='noopener';
+  a.innerHTML='<div class="rc-top"><div class="rc-txt"><span class="rc-made">SiteFix report &middot; '+esc(when)+'</span><span class="rc-title">'+esc(host)+': '+total+' issue'+(total!==1?'s':'')+' to fix</span><span class="rc-brand">SiteFix</span></div>'+(shot?'<div class="rc-shot" style="background-image:url(&quot;'+esc(current.base+shot.screenshot)+'&quot;)"></div>':'')+'</div><div class="rc-bot"><b>'+esc(host)+': '+total+' issue'+(total!==1?'s':'')+' to fix</b><span>Web report with screenshots and fixes</span></div>';
+  return a;
+}
 function buildSummaryCard(siteUrl,run,counts,bySev,cats,report,cur){
   const pdfOk=report&&cur.hasPdf;
   const card=el('div','rpt-card');
@@ -967,7 +1060,11 @@ function answerHtml(d){
   return h;
 }
 async function ask(q){
-  if(!current&&live&&!live.done&&viewingLive){urlIn.value='';syncBtn();queueQuestion(q);return;}
+  if(!current&&live&&!live.done&&viewingLive){urlIn.value='';syncBtn();liveAsk(q);return;}
+  if(current){
+    const instant=answerProcessQuestion(q,doneCtx());
+    if(instant){urlIn.value='';syncBtn();addMsg('user',esc(q));addMsg('agent',answerHtml({answer:instant.answer}));current.asked=(current.asked||[]).concat(q);keepLast(current.sgEl);return;}
+  }
   if(!current){addMsg('user',esc(q));addMsg('agent',viewingLive?'I can answer questions about this site once the inspection finishes. Meanwhile you can open a past inspection from the list and ask about that one.':'Inspect a site first, or open a past inspection from the list, then ask me about it.');urlIn.value='';syncBtn();return;}
   urlIn.value='';syncBtn();
   addMsg('user',esc(q));
