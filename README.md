@@ -165,7 +165,8 @@ progrowth-sitefix-agent/
 ├── bench/                             speed benchmark
 │   ├── server.js                      a 200-page site with heavy images, a web font, never-idle analytics and slow responses
 │   ├── time.js                        times crawl.js step by step against any URL
-│   └── settle-diag.js                 shows what keeps changing on a page that never "settles"
+│   ├── settle-diag.js                 shows what keeps changing on a page that never "settles"
+│   └── load-diag.js                   shows what a page waits for before it can be read, one page vs 8 at once
 ├── fixture/                           controlled test site with planted faults
 │   ├── generate-site.js               writes the 24 HTML pages and the small images into site/
 │   ├── server.js                      serves them with real HTTP redirects (and generates the oversized test image)
@@ -187,6 +188,7 @@ progrowth-sitefix-agent/
 │   ├── progress.js                    live progress lines from crawl.js / report.js to the UI: counts, steps, findings, time left
 │   ├── suggest.js                     suggested questions from the kinds of problems found (the page carries a copy)
 │   ├── throttle.js                    per-site request limits that slow down by themselves on 429 / 503
+│   ├── trackers.js                    tracking, advertising and chat scripts not loaded while pages are read
 │   ├── triage.js                      priority (P1/P2/P3), who fixes it, effort, quick wins
 │   ├── explain-templates.js           standard plain-language guidance for every issue type (used when AI is off)
 │   ├── explain.js                     AI explanations and suggested fixes, with guardrails and a cache
@@ -216,6 +218,7 @@ progrowth-sitefix-agent/
 │   ├── report-html.test.js            report sections, escaping, screenshots, caps
 │   ├── suggest.test.js                question order, no repeats, every issue type covered, self-contained copy
 │   ├── progress.test.js               progress messages, finding counts and cap, time-left estimate, line parsing
+│   ├── trackers.test.js               the trackers seen on progrowth.services are matched; site scripts, forms, maps never are
 │   ├── throttle.test.js               per-site limits, backing off on 429 / 503, Retry-After, the check pool
 │   └── web-report.test.js             filter data, escaping, no network in the downloaded file, fix-first order (npm test runs them all)
 ├── ui/                                chat-first internal website audit agent UI
@@ -442,6 +445,8 @@ ignored when deciding whether a page was already crawled.
 | `--settle-ms N` | `1500` | Longest wait for late JavaScript after a page loads |
 | `--quiet-ms N` | `400` | A page is read once it has loaded and its content has not changed for this long |
 | `--delay-ms N` | `0` | Smallest pause between requests to the same site (it grows by itself when a site answers 429 or 503) |
+| `--keep-trackers` | off | Also load tracking, advertising and chat scripts while reading pages (skipped by default; they never change what is checked) |
+| `--block "pattern,..."` | none | More URL patterns not to load while reading pages, e.g. `"*widget.example.com/*"` |
 | `--full-render` | off | Also download images, video and fonts while rendering, and wait for the network to go quiet (the old, slower behaviour) |
 | `--no-sitemap` | off | Only follow links, skip the sitemap |
 | `--no-ai` | off | Spelling check uses the built-in misspellings list only (no AI proofreading) |
@@ -1004,6 +1009,49 @@ picked and one typed question were queued, answered after the report and still
 there after a reload; the chips after the report left them out; no internal
 words in the page text before, during or after an inspection; no console
 errors. The generated web report and PDF contain no provider or model names.
+
+### Day 23: fewer requests (real-site follow-up)
+
+After the settle fix, progrowth.services pages still took about 4 s each to load
+(`summary.pageTiming.averageLoadMs`), against 0.4 s on another day.
+`bench/load-diag.js` showed why: the server took 3.3 s to send the first byte of
+a page it had not built yet (0.2 to 0.5 s for pages already built), tracking
+scripts held a page up by up to a second, and loading 8 pages at once was not the
+problem (0.43 s on average, against 1.7 s one at a time). A crawl reaches every
+page for the first time, and the crawler asked for each page up to three times at
+once: a plain download, the browser visit, and a link check.
+
+Now each page is asked for once:
+
+- the HTML exactly as the server sent it (status, redirect target, X-Robots-Tag,
+  head, word count) is read from the browser's own visit; a separate download is
+  made only if the visit failed;
+- an internal link to a page that was crawled takes its status from that visit;
+  a link to a redirect, a failed page or a page never reached is still checked
+  directly;
+- tracking, advertising, session-recording and chat scripts (`lib/trackers.js`:
+  Google Tag Manager and Ads, Facebook, LinkedIn, Clarity, Hotjar, Warmly, Apollo,
+  reb2b, Ahrefs, Cloudflare and Vercel analytics, HubSpot tracking, Intercom,
+  Drift and others) are not loaded while a page is read. `--keep-trackers` loads
+  them, `--block` adds patterns.
+
+The benchmark gained `--cold-ms` (the first request for each page is slow, as on
+a server that builds pages on demand), `--load-ms` (each page answer slows down
+with every other page request in progress) and `/__stats` (requests answered),
+and every page now loads a blocking tracking script from another host.
+
+| Benchmark, 203 pages, `--cold-ms 1200 --load-ms 30` | Before | After |
+|---|---|---|
+| Whole crawl | 145.8 s | 61.2 s (2.4x faster) |
+| Average page load | 4.9 s | 1.6 s |
+| Page downloads / page link checks / other requests | 607 / 203 / 4,013 | 257 / 1 / 825 |
+| Same site, limited to 15 pages a second | 58.5 s, 60 slow-downs | 35.4 s, 12 slow-downs |
+
+Results are identical: the same 24 issues and 210 link results, and on all 203
+pages the same original-HTML facts (status, redirect target, title, head, word
+count) and the same rendered facts (title, description, canonical, robots, Open
+Graph, language, headings, word count). The plain benchmark is unchanged at
+30.4 s. Fixture 30 of 30. Tests: 226 to 229 (3 new in `test/trackers.test.js`).
 
 ### Day 20: settle check fix (real-site follow-up)
 
