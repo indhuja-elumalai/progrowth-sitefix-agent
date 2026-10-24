@@ -1,7 +1,14 @@
 // Crawler, Day 19 version.
 // Usage: node crawl.js https://your-site.com [--max-pages 0] [--concurrency 8]
 //          [--link-concurrency 16] [--per-host 6] [--settle-ms 1500] [--quiet-ms 400]
-//          [--delay-ms 0] [--full-render] [--no-sitemap] [--no-ai] [--copy-ai]
+//          [--delay-ms 0] [--full-render] [--keep-trackers] [--block "pattern,..."]
+//          [--no-sitemap] [--no-ai] [--copy-ai]
+//
+// Fewer requests (Day 23): each page is asked for once. The HTML exactly as the server
+// sent it is read from the browser's own visit (no second download), internal links
+// that were crawled take their status from that visit (no extra link check), and
+// tracking, advertising and chat scripts are not loaded while pages are read
+// (--keep-trackers loads them; --block adds URL patterns to skip).
 //
 // Speed (Day 19): pages are rendered without downloading images, video or fonts
 // (the checks never use them: images are checked once each, directly); a page is
@@ -79,16 +86,17 @@ import { followRedirects, classifyRedirect, redirectIssueType, siteLevelChecks }
 import { pickImageSrc, isDecorative, summarizeImages, imageFindings, formatBytes, IMAGE_LIMITS } from "./lib/images.js";
 import { createThrottle, createPool } from "./lib/throttle.js";
 import { createProgress } from "./lib/progress.js";
+import { trackerPatterns } from "./lib/trackers.js";
 
 // ---------- command line ----------
 const args = process.argv.slice(2);
-const startArg = args.find((a) => !a.startsWith("--"));
+const startArg = args.find((a, i) => !a.startsWith("--") && args[i - 1] !== "--block");
 const opt = (name, fallback) => {
   const i = args.indexOf(`--${name}`);
   return i !== -1 && args[i + 1] ? Number(args[i + 1]) : fallback;
 };
 if (!startArg) {
-  console.error("Usage: node crawl.js https://your-site.com [--max-pages 0] [--concurrency 8] [--link-concurrency 16] [--per-host 6] [--settle-ms 1500] [--quiet-ms 400] [--delay-ms 0] [--full-render] [--no-sitemap] [--no-ai] [--copy-ai]");
+  console.error("Usage: node crawl.js https://your-site.com [--max-pages 0] [--concurrency 8] [--link-concurrency 16] [--per-host 6] [--settle-ms 1500] [--quiet-ms 400] [--delay-ms 0] [--full-render] [--keep-trackers] [--block \"pattern,...\"] [--no-sitemap] [--no-ai] [--copy-ai]");
   process.exit(1);
 }
 const MAX_PAGES = opt("max-pages", 0); // 0 = no cap: crawl every internal page found
@@ -99,6 +107,9 @@ const PER_HOST = Math.max(1, opt("per-host", 6)); // link and image checks at th
 const SETTLE_MS = opt("settle-ms", 1500); // max wait for late JavaScript after DOMContentLoaded
 const QUIET_MS = opt("quiet-ms", 400); // a page is ready once it has loaded and not changed for this long
 const FULL_RENDER = args.includes("--full-render"); // load images, video and fonts too, and wait for the network to go quiet
+const KEEP_TRACKERS = args.includes("--keep-trackers"); // load tracking, advertising and chat scripts while reading pages
+const strOpt = (name) => { const i = args.indexOf(`--${name}`); return i !== -1 && args[i + 1] && !args[i + 1].startsWith("--") ? args[i + 1] : ""; };
+const EXTRA_BLOCK = strOpt("block").split(",").map((x) => x.trim()).filter(Boolean); // more URL patterns not to load, e.g. "*widget.example.com/*"
 const USE_SITEMAP = !args.includes("--no-sitemap");
 // AI proofreading runs when a key is set (.env), except on local addresses (the test
 // fixture) so the fixture score never depends on an AI; --copy-ai forces it, --no-ai stops it.
@@ -132,6 +143,8 @@ const checks = createPool(LINK_CONCURRENCY); // every link and image check, star
 const BLOCKED_EXT = ["jpg", "jpeg", "png", "gif", "webp", "avif", "svg", "ico", "bmp", "tif", "tiff", "heic",
   "mp4", "webm", "mov", "m4v", "avi", "mp3", "wav", "ogg", "m4a", "woff", "woff2", "ttf", "otf", "eot"];
 const BLOCKED_URLS = BLOCKED_EXT.flatMap((e) => [`*.${e}`, `*.${e}?*`, `*.${e.toUpperCase()}`, `*.${e.toUpperCase()}?*`]);
+const TRACKER_URLS = KEEP_TRACKERS ? [] : trackerPatterns(); // lib/trackers.js
+const RENDER_BLOCK = [...BLOCKED_URLS, ...TRACKER_URLS, ...EXTRA_BLOCK];
 
 // Run fn over items with at most n in flight; results keep the input order.
 async function mapPool(items, n, fn) {
@@ -239,13 +252,35 @@ async function settle(page) {
   return { ms: Date.now() - t, full };
 }
 
+// The page exactly as the server sent it, read from the browser's own visit, so each
+// page is asked for once. Same shape as fetchRaw(); null when it cannot be read (the
+// crawler then falls back to fetchRaw).
+async function rawFromNavigation(res) {
+  if (!res) return null;
+  let req = res.request();
+  while (req.redirectedFrom()) req = req.redirectedFrom();
+  const first = await req.response();
+  if (!first) return null;
+  const status = first.status();
+  const h = first.headers();
+  const out = { status, redirectedTo: h["location"] || null, xRobotsTag: h["x-robots-tag"] || null, title: null, bodyLength: 0, head: null, wordCount: null };
+  // A redirect: what matters is where it points (browsers do not expose its body; it is
+  // read as empty, as fetchRaw reads the usual empty redirect body).
+  if (status >= 300 && status < 400) return { ...out, head: extractHead(""), wordCount: visibleWordCount("") };
+  if (status >= 400) return out;
+  if (first !== res) return null;
+  const body = await res.text();
+  const titleMatch = body.match(/<title[^>]*>([^<]*)<\/title>/i);
+  return { ...out, title: titleMatch ? decodeEntities(titleMatch[1].trim()) : null, bodyLength: body.length, head: extractHead(body), wordCount: visibleWordCount(body) };
+}
+
 async function fetchRendered(context, url) {
   const page = await context.newPage();
   if (!FULL_RENDER) {
     try {
       const cdp = await context.newCDPSession(page);
       await cdp.send("Network.enable");
-      await cdp.send("Network.setBlockedURLs", { urls: BLOCKED_URLS });
+      await cdp.send("Network.setBlockedURLs", { urls: RENDER_BLOCK });
     } catch { /* not Chromium: load everything */ }
   }
   const brokenLinks = [];
@@ -258,6 +293,7 @@ async function fetchRendered(context, url) {
   });
 
   let status = null;
+  let raw = null;
   let settled = { ms: 0, full: false };
   const loadStart = Date.now();
   let loadMs = 0;
@@ -265,6 +301,8 @@ async function fetchRendered(context, url) {
     const res = await page.goto(url, { waitUntil: "domcontentloaded", timeout: 20000 });
     loadMs = Date.now() - loadStart;
     status = res ? res.status() : null;
+    raw = await rawFromNavigation(res).catch(() => null);
+    if (raw) throttle.note(url, raw.status, null);
     settled = await settle(page);
   } catch (err) {
     await page.close();
@@ -311,7 +349,7 @@ async function fetchRendered(context, url) {
   const images = rawImages.map((r) => ({ src: pickImageSrc(r, base), alt: r.alt, decorative: isDecorative(r) }));
 
   await page.close();
-  return { status, title, head, wordCount, links: [...links], brokenLinks, images, textLines, timing: { loadMs, settleMs: settled.ms, waitedFull: settled.full } };
+  return { status, raw, title, head, wordCount, links: [...links], brokenLinks, images, textLines, timing: { loadMs, settleMs: settled.ms, waitedFull: settled.full } };
 }
 
 // ---------- direct link check ----------
@@ -437,6 +475,7 @@ async function main() {
   // surfaces where it is awaited instead of stopping the crawl mid-way.
   const counted = (p) => { progress.set({ checks: { total: progress.state.checks.total + 1 } }); p.then(() => progress.set({ checks: { done: progress.state.checks.done + 1 } }), () => progress.set({ checks: { done: progress.state.checks.done + 1 } })); return p; };
   const started = (p) => { p.catch(() => { }); return counted(p); };
+  const fromCrawl = new Set(); // internal links whose status the crawl itself provides
   const scheduleLink = (url) => {
     if (!linkChecks.has(url)) {
       const p = started(checks.add(() => checkAndFollow(url)));
@@ -508,14 +547,17 @@ async function main() {
       active++;
       try {
         console.log(MAX_PAGES ? `Crawling (${n}/${MAX_PAGES}): ${url}` : `Crawling (${n}, ${queue.length} queued): ${url}`);
-        let [raw, rendered] = await Promise.all([fetchRaw(url), fetchRendered(context, url)]);
+        // One request per page: the raw HTML comes from the browser's visit; a separate
+        // download only when that visit failed.
+        const visit = async () => { const r = await fetchRendered(context, url); return [r.raw || await fetchRaw(url), r]; };
+        let [raw, rendered] = await visit();
         // Asked to slow down (429 / 503): wait as the server asked (the pause doubles each
         // time), then try the page again, up to 3 more times.
         for (let retry = 0; retry < 3 && ([429, 503].includes(raw.status) || [429, 503].includes(rendered.status)); retry++) {
           throttle.note(url, [429, 503].includes(raw.status) ? raw.status : rendered.status);
           pageRetries++;
           await throttle.wait(url);
-          [raw, rendered] = await Promise.all([fetchRaw(url), fetchRendered(context, url)]);
+          [raw, rendered] = await visit();
         }
 
         // Only compare titles when both sides produced a real page. A redirect, a 404
@@ -552,10 +594,16 @@ async function main() {
         }
 
         for (const link of rendered.links || []) {
-          if (!foundOn.has(link)) { foundOn.set(link, new Set()); scheduleLink(link); }
+          const isNew = !foundOn.has(link);
+          if (isNew) foundOn.set(link, new Set());
           foundOn.get(link).add(url);
-          if (new URL(link).origin === origin) enqueue(link);
+          const internal = new URL(link).origin === origin;
+          if (internal) enqueue(link);
+          // An internal page that will be crawled anyway is not asked for a second time:
+          // its status comes from the crawl (see "Every distinct link target" below).
+          if (isNew) { if (internal && queued.has(link)) fromCrawl.add(link); else scheduleLink(link); }
         }
+        if (fromCrawl.has(url) && raw.status >= 400) preview("http-4xx-internal", url, `Link returns ${raw.status}`);
       } finally {
         active--;
         progress.set({ pages: { done: crawled.length, found: queued.size }, current: url });
@@ -577,6 +625,18 @@ async function main() {
 
   // Every distinct link target was checked once, starting while the crawl ran;
   // wait for the ones still in flight.
+  // Internal links that were crawled: the page's own answer is the link's answer (a page
+  // that redirected, failed or was never reached gets a direct check instead).
+  const crawledByUrl = new Map(report.map((p) => [p.url, p]));
+  let reused = 0;
+  for (const link of fromCrawl) {
+    const p = crawledByUrl.get(link);
+    const st = p?.raw?.status;
+    if (typeof st === "number" && !(st >= 300 && st < 400)) {
+      linkChecks.set(link, Promise.resolve({ result: { status: st, location: null, classification: classify(st) }, redirect: null }));
+      reused++;
+    } else scheduleLink(link);
+  }
   const targets = [...foundOn.keys()];
   let checked = 0;
   for (const t of targets) linkChecks.get(t).then(() => { checked++; });
@@ -839,6 +899,8 @@ async function main() {
     singleRedirects: redirecting.filter((l) => !l.redirect.issueType).length,
     siteChecks: siteChecks.skipped ? `skipped (${siteChecks.skipped})` : `${siteChecks.findings.length} finding(s)`,
     render: FULL_RENDER ? "full (images, video and fonts loaded)" : "fast (images, video and fonts not downloaded)",
+    trackers: KEEP_TRACKERS ? "loaded" : "not loaded (tracking, advertising and chat scripts)",
+    internalLinksFromCrawl: reused,
     seconds: { total: Math.round((Date.now() - t0) / 100) / 10, ...timings },
     pageTiming: (() => {
       const t = report.map((p) => p.rendered.timing).filter(Boolean);
