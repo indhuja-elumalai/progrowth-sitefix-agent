@@ -8,11 +8,17 @@
 // Usage: node bench/server.js [--pages 200] [--port 4100] [--latency 120] [--limit-rps 0]
 //   --limit-rps N   answer 429 (Retry-After: 1) when more than N pages are asked for
 //                   within one second, like a rate-limited host
+//   --load-ms N     each page answer takes N ms longer for every other page request
+//                   in progress, like a server that renders pages on demand
+//   --cold-ms N     the first request for each page takes N ms longer, like a server
+//                   that builds a page on its first visit (a cold cache)
+//   GET /__stats    how many page requests (GET and HEAD) the server has answered
 //   http://localhost:4100/         home page; /p/1 ... /p/N content pages
 //   http://localhost:4101/         a second host for external links
 //
 // Planted: a link to a missing page (/p/9999), a missing image, a redirect (/old),
-// one external link that is a 404, hero images over 300 KB, and on /p/50 a noindex
+// one external link that is a 404, hero images over 300 KB, a tracking script from
+// another host that holds up every page by 0.7 s, and on /p/50 a noindex
 // tag that JavaScript adds 0.6 s after the page loads (a slow check must still see it).
 
 import { createServer } from "node:http";
@@ -23,6 +29,11 @@ const PAGES = opt("pages", 200);
 const PORT = opt("port", 4100);
 const LATENCY = opt("latency", 120); // ms per HTML response
 const LIMIT_RPS = opt("limit-rps", 0);
+const LOAD_MS = opt("load-ms", 0);
+const COLD_MS = opt("cold-ms", 0);
+const warm = new Set();
+let inflight = 0;
+const stats = { pageGet: 0, pageHead: 0, other: 0 };
 const BASE = `http://localhost:${PORT}`;
 const recent = [];
 let refused = 0;
@@ -63,6 +74,7 @@ function page(i) {
 <style>@font-face{font-family:Bench;src:url(/font.woff2) format("woff2")}body{font-family:Bench,sans-serif;max-width:900px;margin:auto}img{max-width:100%}</style>
 <script>setInterval(function(){fetch("/beacon?t="+Date.now()).catch(function(){})},300)</script>
 <script async src="/tracker.js"></script>
+<script src="${EXT}/fbevents.js"></script>
 <script>(function(){var n=0,t=setInterval(function(){var e=document.createElement(n%2?"script":"link");if(n%2){e.src="/beacon?tag="+n;e.async=true}else{e.rel="prefetch";e.href="/p/"+(n+1)}document.head.appendChild(e);if(++n>=8)clearInterval(t)},400);
 setTimeout(function(){var d=document.createElement("div");d.textContent="Cookie preferences: we use cookies to improve your visit, measure traffic and personalise content. You can accept all cookies or choose which ones to allow.";document.body.appendChild(d)},200);})();</script>
 ${i === 50 ? '<script>setTimeout(function(){var m=document.createElement("meta");m.name="robots";m.content="noindex";document.head.appendChild(m)},600)</script>' : ""}
@@ -80,6 +92,16 @@ ${texts[i].map((t, k) => `<h2>Part ${k + 1}</h2><p>${t}</p>`).join("")}
 createServer(async (req, res) => {
     const u = new URL(req.url, BASE);
     const p = u.pathname;
+    if (p === "/__stats") { res.writeHead(200, { "content-type": "application/json" }); return res.end(JSON.stringify(stats)); }
+    const isPage = p === "/" || /^\/p\/\d+$/.test(p);
+    if (isPage) { if (req.method === "HEAD") stats.pageHead++; else stats.pageGet++; } else stats.other++;
+    if (isPage && (LOAD_MS || COLD_MS)) {
+        inflight++;
+        const cold = COLD_MS && !warm.has(p);
+        await sleep(inflight * LOAD_MS + (cold ? COLD_MS : 0));
+        if (cold) warm.add(p); // built: later requests for this page are fast
+        inflight--;
+    }
     if (p === "/beacon") { await sleep(40); res.writeHead(204); return res.end(); }
     if (p === "/robots.txt") { res.writeHead(200, { "content-type": "text/plain" }); return res.end(`User-agent: *\nSitemap: ${BASE}/sitemap.xml\n`); }
     if (p === "/sitemap.xml") {
@@ -112,8 +134,10 @@ createServer(async (req, res) => {
 if (LIMIT_RPS) setInterval(() => { if (refused) console.log(`refused ${refused} requests with 429 so far`); }, 5000).unref();
 
 createServer(async (req, res) => {
-    await sleep(150);
     const p = new URL(req.url, EXT).pathname;
+    // A tracking script loaded without async: the page cannot be read until it arrives.
+    if (p === "/fbevents.js") { await sleep(700); res.writeHead(200, { "content-type": "text/javascript" }); return res.end("window.fbq=function(){};"); }
+    await sleep(150);
     if (p === "/gone") { res.writeHead(404); return res.end("gone"); }
     res.writeHead(200, { "content-type": "text/html" }); res.end("<!doctype html><title>External</title><p>External page</p>");
 }).listen(PORT + 1, () => console.log(`bench external  ${EXT}`));
