@@ -1197,6 +1197,25 @@ count) and the same rendered facts (title, description, canonical, robots, Open
 Graph, language, headings, word count). The plain benchmark is unchanged at
 30.4 s. Fixture 30 of 30. Tests: 226 to 229 (3 new in `test/trackers.test.js`).
 
+### Day 24: results as a conversation, not a dashboard
+
+At the end of an inspection the chat now shows only what a person would say:
+"Found N issues. I'd fix these first" with the top three, one line on what was
+checked, the report link card with small Download and PDF links under it, and
+question suggestions. The summary box (severity grid, priority chips, check
+tags) and the category list with every issue are gone from the chat: the web
+report has all of that, with filters, and the chat answers questions about any
+of it. The progress card folds into one line ("Checked 203 pages in 1:09 ·
+Show details") when the inspection ends, and the "while I work" suggestions give
+way to the results. An issue mentioned in an answer opens in the web report at
+that issue (`/report/<id>#<issue id>`).
+
+Checked in a browser on the benchmark: no category list, summary box or
+severity numbers in the chat; the finished card folded and opened again; an
+issue link in an answer opened the web report with that issue expanded; the
+same layout when the inspection is reopened from the list; phone width fits; no
+console errors. Tests: 237, unchanged.
+
 ## 13. Security principles
 
 - Every client site is its own isolated tenant: separate credentials,

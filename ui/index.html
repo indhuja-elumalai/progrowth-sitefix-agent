@@ -207,62 +207,20 @@
   .rc-bot b{display:block;font-size:13.5px;font-weight:600}
   .rc-bot span{font-size:12px;color:var(--text-3)}
   .ans ol{margin:6px 0 0 20px}.ans ol li{margin:4px 0}
-
-  /* Summary card */
-  .rpt-hdr{padding:14px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px}
-  .rpt-sicon{width:36px;height:36px;background:var(--surface-1);border-radius:10px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
-  .rpt-sicon svg{width:18px;height:18px}
-  .rpt-info{flex:1;min-width:0}
-  .rpt-url{font-size:14px;font-weight:600;color:var(--text-1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .rpt-meta{font-size:12px;color:var(--text-3);margin-top:1px}
-  .rpt-badge{padding:3px 10px;border-radius:var(--radius-xl);font-size:12px;font-weight:600;background:var(--surface-2);color:var(--text-1);flex-shrink:0;white-space:nowrap}
-  .rpt-counts{display:grid;grid-template-columns:repeat(4,1fr);border-bottom:1px solid var(--border)}
-  .cnt-cell{padding:12px 16px;border-right:1px solid var(--border)}
-  .cnt-cell:last-child{border-right:none}
-  .cnt-num{font-size:22px;font-weight:600;color:var(--text-1);letter-spacing:-.02em;line-height:1.15;font-variant-numeric:tabular-nums}
-  .cnt-num.high{color:var(--high)}
-  .cnt-num.medium{color:var(--medium)}
-  .cnt-num.low{color:var(--low)}
-  .cnt-lbl{font-size:11.5px;color:var(--text-3);margin-top:2px}
-  .rpt-dets{padding:10px 16px 12px;display:flex;gap:6px;flex-wrap:wrap}
-  .det-tag{display:flex;align-items:center;gap:5px;padding:3px 10px;border-radius:var(--radius-xl);background:var(--surface-1);font-size:12px;color:var(--text-2)}
-  .det-tag svg{width:10px;height:10px;color:var(--success)}
-
-  /* Issue groups */
-  .issue-list{display:flex;flex-direction:column;gap:8px}
-  .grp-hdr{padding:12px 16px;display:flex;align-items:center;gap:10px;cursor:pointer;user-select:none;transition:background var(--t)}
-  .grp-hdr:hover{background:var(--surface-1)}
-  .grp-lbl{flex:1;font-size:14px;font-weight:600;color:var(--text-1)}
-  .grp-cnt{font-size:12px;font-weight:500;color:var(--text-2);padding:1px 8px;background:var(--surface-2);border-radius:var(--radius-xl);font-variant-numeric:tabular-nums}
-  .grp-chv{color:var(--text-3);transition:transform var(--t)}
-  .grp-chv svg{width:14px;height:14px;display:block}
-  .issue-grp.collapsed .grp-chv{transform:rotate(-90deg)}
-  .grp-body{display:flex;flex-direction:column;border-top:1px solid var(--border)}
-  .issue-grp.collapsed .grp-body{display:none}
-
-  /* Issue items */
-  .iss-item{padding:12px 16px;border-bottom:1px solid var(--border);display:flex;gap:12px;align-items:flex-start;cursor:pointer;transition:background var(--t)}
-  .iss-item:last-child{border-bottom:none}
-  .iss-item:hover,.iss-item.open{background:var(--surface-1)}
-  .iss-bar{flex-shrink:0;width:8px;height:8px;border-radius:50%;margin-top:6px}
-  .iss-bar.high{background:var(--high)}
-  .iss-bar.medium{background:var(--medium)}
-  .iss-bar.low{background:var(--low)}
-  .iss-body{flex:1;min-width:0}
-  .iss-top{display:flex;align-items:baseline;gap:8px;margin-bottom:2px}
-  .iss-type{font-size:14px;font-weight:500;color:var(--text-1);flex:1}
-  .iss-sev{flex-shrink:0;font-size:11px;font-weight:600;padding:1px 8px;border-radius:var(--radius-xl);text-transform:capitalize}
-  .iss-sev.high{background:var(--high-bg);color:var(--high)}
-  .iss-sev.medium{background:var(--medium-bg);color:var(--medium)}
-  .iss-sev.low{background:var(--low-bg);color:var(--low)}
-  .iss-url{font-family:var(--font-mono);font-size:11.5px;color:var(--text-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-bottom:3px}
-  .iss-detail{font-size:13px;color:var(--text-2);line-height:1.45}
-  .iss-fix{display:inline-block;margin-top:6px;font-size:11px;font-weight:500;padding:1px 8px;border-radius:var(--radius-xl);background:var(--surface-2);color:var(--text-2)}
-  .iss-fix.deterministic{color:var(--success);background:var(--success-bg)}
-  .iss-fix.ai-proposed{color:var(--text-1);background:var(--accent-dim)}
-  .iss-chv{flex-shrink:0;color:var(--text-3);transition:transform var(--t);margin-top:3px}
-  .iss-chv svg{width:14px;height:14px;display:block}
-  .iss-item.open .iss-chv{transform:rotate(180deg)}
+  .rc-links{display:flex;gap:14px;margin:6px 4px 0;font-size:12.5px}
+  .rc-links a{color:var(--text-2);text-decoration:none;display:inline-flex;align-items:center;gap:5px}
+  .rc-links a:hover{color:var(--text-1);text-decoration:underline}
+  .rc-links svg{width:13px;height:13px}
+  .rc-links a[aria-disabled="true"]{opacity:.45;pointer-events:none}
+  /* A finished inspection folds into one line; "Show details" opens it again */
+  .prog-card.live.done .pbar,.prog-card.live.done .p-nums,.prog-card.live.done .steps,.prog-card.live.done .live-issues,.prog-card.live.done .log-toggle,.prog-card.live.done .prog-log{display:none}
+  .prog-card.live.done.open .pbar,.prog-card.live.done.open .p-nums,.prog-card.live.done.open .live-issues,.prog-card.live.done.open .log-toggle{display:block}
+  .prog-card.live.done.open .steps{display:flex}
+  .prog-card.live.done.open .prog-log:not([hidden]){display:block}
+  .prog-card.live.done .prog-hdr{padding:10px 16px;cursor:pointer}
+  .p-more{border:none;background:none;color:var(--text-3);font-size:12px;padding:0;display:none;cursor:pointer}
+  .p-more:hover{color:var(--text-1);text-decoration:underline}
+  .prog-card.live.done .p-more{display:inline}
 
   /* Evidence */
   .iss-ev{display:none;padding:4px 16px 14px 36px;background:var(--surface-1);border-bottom:1px solid var(--border)}
@@ -767,13 +725,15 @@ function subOf(p){
 }
 function buildLiveCard(url){
   const c=el('div','prog-card live');
-  c.innerHTML='<div class="prog-hdr"><div class="spin ps"></div><div class="p-txt"><div class="prog-title">Inspecting '+esc(hostOf(url))+'</div><div class="prog-sub p-sub">Starting&hellip;</div></div><div class="p-time" title="Time so far">0:00</div></div>'+
+  c.innerHTML='<div class="prog-hdr"><div class="spin ps"></div><div class="p-txt"><div class="prog-title">Inspecting '+esc(hostOf(url))+'</div><div class="prog-sub"><span class="p-sub">Starting&hellip;</span> <button type="button" class="p-more">Show details</button></div></div><div class="p-time" title="Time so far">0:00</div></div>'+
     '<div class="pbar" role="progressbar" aria-label="Inspection progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="2"><div class="pfill"></div></div>'+
     '<div class="p-nums"><span class="p-count">Looking for pages&hellip;</span><span class="p-eta"></span></div>'+
     '<ol class="steps">'+STEPS.map((x,i)=>'<li data-step="'+i+'"><span class="sdot"></span>'+esc(x.lbl)+'<span class="sval"></span></li>').join('')+'</ol>'+
     '<div class="live-issues"><div class="li-head"><b>Found so far</b><span class="sev-n high">0 high</span><span class="sev-n medium">0 medium</span><span class="sev-n low">0 low</span><span class="li-note">live preview, final list at the end</span></div>'+
     '<ul class="feed" aria-live="off"></ul><div class="feed-empty">Nothing yet. Problems appear here the moment they are found.</div></div>'+
     '<button class="log-toggle" type="button" aria-expanded="false">Show details</button><div class="prog-log" role="log" hidden></div>';
+  const more=S('.p-more',c);
+  S('.prog-hdr',c).addEventListener('click',()=>{if(!c.classList.contains('done'))return;const o=c.classList.toggle('open');more.textContent=o?'Hide details':'Show details';});
   const tog=S('.log-toggle',c),log=S('.prog-log',c);
   tog.addEventListener('click',()=>{const open=log.hidden;log.hidden=!open;tog.textContent=open?'Hide details':'Show details';tog.setAttribute('aria-expanded',String(open));if(open)log.scrollTop=log.scrollHeight;});
   return c;
@@ -916,10 +876,12 @@ async function followRun(){
     if(run.reportCode==='0'){try{const rr=await fetch('/api/report');if(rr.ok)report=await rr.json();}catch{}}
     run.done=true;run.endedAt=Date.now();
     const c=run.card;S('.ps',c).classList.add('done');S('.pfill',c).style.width='100%';
-    S('.p-sub',c).innerHTML='Completed in '+fmtDur(run.endedAt-run.startedAt)+' &middot; '+reg.counts.total+' issue'+(reg.counts.total!==1?'s':'')+' found';
+    S('.p-sub',c).innerHTML='Checked '+(reg.run&&reg.run.pagesCrawled||0)+' pages in '+fmtDur(run.endedAt-run.startedAt);
+    c.classList.add('done');
     S('.steps',c).querySelectorAll('li').forEach(li=>li.className='done');
     if(!report&&run.reportCode!==undefined){const l=S('.steps li[data-step="4"]',c);if(l)l.className='failed';}
     S('.p-eta',c).textContent='';
+    if(run.sgEl){run.sgEl.remove();run.sgEl=null;} // the "while I work" questions give way to the results
     const shown=viewingLive;
     if(shown){renderResults(reg,run.url,report,run.savedId||null);if(run.savedId)store.set(run.savedId);}
     await loadHistory();
@@ -971,32 +933,25 @@ function renderResults(reg,siteUrl,report,id,meta){
   const base=id?'/api/history/'+encodeURIComponent(id)+'/':'/api/';
   current={id:id||null,byId:new Map(issues.map(i=>[i.id,i])),report,base,hasPdf:meta?meta.hasPdf:Boolean(report),run:reg.run||{}};
   markActive();
-  const run=reg.run||{},counts=reg.counts||{},bySev=counts.bySeverity||{};
-  const cats=[...new Set(issues.map(i=>i.category))];
+  const run=reg.run||{},counts=reg.counts||{};
   urlIn.placeholder='Ask about this report, or paste another website address';
+  const pages=run.pagesCrawled||0;
   if(!issues.length){
-    addMsg('agent','<span style="color:var(--success)">&#10003; No issues found.</span> I checked '+(run.pagesCrawled||0)+' page'+(run.pagesCrawled===1?'':'s')+' and the site looks clean on every check. Nothing changed on the site.');
-    chatIn.appendChild(buildSummaryCard(siteUrl,run,counts,bySev,cats,report,current));scroll();
-    return;
+    addMsg('agent','<span style="color:var(--success)">&#10003; No issues found.</span> I checked '+pages+' page'+(pages===1?'':'s')+' and the site looks clean on every check. Nothing changed on the site.');
+    if(report&&id)chatIn.appendChild(reportCard(siteUrl,run,0,issues,id));
+    scroll();return;
   }
-  const s=report&&report.summary;
-  if(report&&id){
+  if(report){
     // Like a person reporting back: what to fix first, what was checked, then the report.
     const first=fixFirstList(issues);
     addMsg('agent','Found <strong>'+counts.total+' issue'+(counts.total!==1?'s':'')+'</strong>. I&rsquo;d fix these first:<div class="ans"><ol>'+first.map(i=>'<li><b>'+esc(i._type?i._type.title:issueLabel(i.type))+'</b>: '+esc(firstLine(i))+'</li>').join('')+'</ol></div>');
     const sm=report.summaries||{},l=sm.links||{},im=sm.images||{};
-    addMsg('agent','The report includes screenshots and suggested fixes. I checked '+(run.pagesCrawled||l.pagesCrawled||0)+' pages'+(l.linksChecked?', '+l.linksChecked+' links':'')+(im.imagesFound?' and '+im.imagesFound+' images':'')+' across the site. Nothing changed on the site.');
-    chatIn.appendChild(reportCard(siteUrl,run,counts.total,issues,id));scroll();
+    addMsg('agent','The report includes screenshots and suggested fixes. I checked '+(pages||l.pagesCrawled||0)+' pages'+(l.linksChecked?', '+l.linksChecked+' links':'')+(im.imagesFound?' and '+im.imagesFound+' images':'')+' across the site. Nothing changed on the site. Ask me about anything in it.');
+    if(id)chatIn.appendChild(reportCard(siteUrl,run,counts.total,issues,id));
   }else{
-    addMsg('agent','Done. I found <strong>'+counts.total+' issue'+(counts.total!==1?'s':'')+'</strong> in '+cats.length+' categor'+(cats.length!==1?'ies':'y')+(s?' &middot; <strong>'+s.byPriority.P1+'</strong> to fix first, '+s.quickWins+' quick win'+(s.quickWins!==1?'s':''):'')+'. Open a category to see its issues, or ask me anything about this report.');
+    addMsg('agent','Found <strong>'+counts.total+' issue'+(counts.total!==1?'s':'')+'</strong> on '+pages+' pages. The written report couldn&rsquo;t be created this time, but you can ask me about any of them, or run the inspection again for the full report.');
   }
-  chatIn.appendChild(buildSummaryCard(siteUrl,run,counts,bySev,cats,report,current));scroll();
-  const grouped=groupBy(issues,i=>i.category);
-  const order=['HTTP and URLs','Images','Soft 404s','SEO: indexing','SEO: titles & descriptions','Content','Social sharing','Page setup'];
-  const sorted=[...order.filter(c=>grouped[c]),...Object.keys(grouped).filter(c=>!order.includes(c))];
-  const wrap=el('div','issue-list');
-  sorted.forEach(cat=>wrap.appendChild(buildGrp(cat,grouped[cat].sort((a,b)=>(PRI[a.priority]??3)-(PRI[b.priority]??3)))));
-  chatIn.appendChild(wrap);scroll();
+  scroll();
   current.sgTypes=[...new Set(issues.map(i=>i.type))];
   showResultSuggest([]);
 }
@@ -1020,157 +975,19 @@ function reportCard(siteUrl,run,total,issues,id){
   const when=run.startedAt?new Date(run.startedAt).toLocaleDateString([],{day:'numeric',month:'short'}):'';
   const host=hostOf(siteUrl).replace(/^www\./,'');
   const a=el('a','rcard');a.href='/report/'+encodeURIComponent(id);a.target='_blank';a.rel='noopener';
+  const wrap=el('div','rc-wrap');
   a.innerHTML='<div class="rc-top"><div class="rc-txt"><span class="rc-made">SiteFix report &middot; '+esc(when)+'</span><span class="rc-title">'+esc(host)+': '+total+' issue'+(total!==1?'s':'')+' to fix</span><span class="rc-brand">SiteFix</span></div>'+(shot?'<div class="rc-shot" style="background-image:url(&quot;'+esc(current.base+shot.screenshot)+'&quot;)"></div>':'')+'</div><div class="rc-bot"><b>'+esc(host)+': '+total+' issue'+(total!==1?'s':'')+' to fix</b><span>Web report with screenshots and fixes</span></div>';
-  return a;
+  wrap.appendChild(a);
+  const links=el('div','rc-links');
+  links.innerHTML='<a href="/report/'+encodeURIComponent(id)+'/download"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2.5v8M4.5 7L8 10.5 11.5 7M3 13.5h10"/></svg>Download</a>'+
+    '<a href="'+esc(current.base)+'report.pdf" target="_blank" rel="noopener"'+(current.hasPdf?'':' aria-disabled="true"')+'><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2H4.5A1.5 1.5 0 003 3.5v9A1.5 1.5 0 004.5 14h7a1.5 1.5 0 001.5-1.5V6z"/><path d="M9 2v4h4"/></svg>PDF</a>';
+  wrap.appendChild(links);
+  return wrap;
 }
-function buildSummaryCard(siteUrl,run,counts,bySev,cats,report,cur){
-  const pdfOk=report&&cur.hasPdf;
-  const card=el('div','rpt-card');
-  const sa=run.startedAt?new Date(run.startedAt):null,fa=run.finishedAt?new Date(run.finishedAt):null;
-  const dur=sa&&fa?Math.round((fa-sa)/1000):null;
-  const catMap={'HTTP and URLs':'Links & Redirects','Soft 404s':'Soft 404 check','SEO: indexing':'Canonical & robots','SEO: titles & descriptions':'Titles & headings','Social sharing':'Open Graph','Page setup':'Viewport & language','Images':'Image checks','Content':'Content checks'};
-  card.innerHTML=
-    '<div class="rpt-hdr">'+
-      '<div class="rpt-sicon" aria-hidden="true"><svg viewBox="0 0 20 20" fill="none" stroke="#515154" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="16" height="14" rx="2"/><path d="M2 7h16"/><circle cx="5.5" cy="5" r=".8" fill="black" stroke="none"/><circle cx="8" cy="5" r=".8" fill="black" stroke="none"/></svg></div>'+
-      '<div class="rpt-info"><div class="rpt-url" title="'+esc(siteUrl)+'">'+esc(siteUrl)+'</div><div class="rpt-meta">'+(run.pagesCrawled?run.pagesCrawled+' pages crawled':'')+( run.pagesCrawled&&sa?' &middot; ':'')+( sa?sa.toLocaleString():'')+( dur?' &middot; '+dur+'s':'')+( run.capReached?' &middot; <span style="color:var(--medium)">page cap reached</span>':'')+' </div></div>'+
-      '<div class="rpt-badge">'+( counts.total>0?counts.total+' issue'+(counts.total!==1?'s':''):'Clean')+'</div>'+
-    '</div>'+
-    '<div class="rpt-counts">'+
-      '<div class="cnt-cell"><div class="cnt-num high">'+(bySev.high||0)+'</div><div class="cnt-lbl">High</div></div>'+
-      '<div class="cnt-cell"><div class="cnt-num medium">'+(bySev.medium||0)+'</div><div class="cnt-lbl">Medium</div></div>'+
-      '<div class="cnt-cell"><div class="cnt-num low">'+(bySev.low||0)+'</div><div class="cnt-lbl">Low</div></div>'+
-      '<div class="cnt-cell"><div class="cnt-num">'+(counts.total||0)+'</div><div class="cnt-lbl">Total</div></div>'+
-    '</div>'+
-    (report?'<div class="rpt-pri"><span class="lbl">Priority</span><span class="chip P1">P1 fix first &middot; '+report.summary.byPriority.P1+'</span><span class="chip P2">P2 fix soon &middot; '+report.summary.byPriority.P2+'</span><span class="chip P3">P3 when you can &middot; '+report.summary.byPriority.P3+'</span><span class="chip qw">Quick wins &middot; '+report.summary.quickWins+'</span></div>':'')+
-    '<div class="rpt-dets">'+cats.map(c=>'<span class="det-tag"><svg viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="2,5 4.5,7.5 8.5,2"/></svg>'+esc(catMap[c]||c)+'</span>').join('')+'</div>'+
-    '<div class="rpt-actions">'+
-      (report&&cur.id?'<a class="btn primary" href="/report/'+encodeURIComponent(cur.id)+'" target="_blank" rel="noopener"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2.5" width="12" height="11" rx="1.5"/><path d="M2 5.5h12M5 8.5h6M5 11h4"/></svg>Open web report</a><a class="btn" href="/report/'+encodeURIComponent(cur.id)+'/download"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2.5v8M4.5 7L8 10.5 11.5 7M3 13.5h10"/></svg>Download</a>':'')+
-      '<a class="btn'+(report&&cur.id?'':' primary')+'" href="'+esc(cur.base)+'report.pdf" target="_blank" rel="noopener"'+(pdfOk?'':' aria-disabled="true"')+'><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2H4.5A1.5 1.5 0 003 3.5v9A1.5 1.5 0 004.5 14h7a1.5 1.5 0 001.5-1.5V6z"/><path d="M9 2v4h4"/></svg>PDF</a>'+
-      (report?'':'<span class="rpt-meta" style="align-self:center">The reports could not be created for this inspection</span>')+
-    '</div>';
-  return card;
-}
-
-function buildGrp(cat,issues){
-  const grp=el('div','issue-grp collapsed'); // collapsed until the user opens it
-  const worstSev=issues.reduce((s,i)=>{if(i.severity==='high')return 'high';if(i.severity==='medium'&&s!=='high')return 'medium';return s;},'low');
-  const col={high:'var(--high)',medium:'var(--medium)',low:'var(--low)'}[worstSev];
-  const hdr=el('div','grp-hdr');
-  hdr.setAttribute('role','button');hdr.setAttribute('aria-expanded','false');hdr.setAttribute('tabindex','0');
-  hdr.innerHTML='<svg style="width:15px;height:15px;flex-shrink:0;color:'+col+'" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">'+catIcon(cat)+'</svg><span class="grp-lbl">'+esc(cat)+'</span><span class="grp-cnt">'+issues.length+'</span><span class="grp-chv"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="3,5 7,9 11,5"/></svg></span>';
-  hdr.addEventListener('click',()=>toggleGrp(grp,hdr));
-  hdr.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();toggleGrp(grp,hdr);}});
-  const body=el('div','grp-body');
-  issues.forEach(iss=>{const{item,ev}=buildItem(iss);body.appendChild(item);body.appendChild(ev);});
-  grp.appendChild(hdr);grp.appendChild(body);
-  return grp;
-}
-function toggleGrp(grp,hdr){const x=!grp.classList.contains('collapsed');grp.classList.toggle('collapsed',x);hdr.setAttribute('aria-expanded',String(!x));}
-
-function buildItem(iss){
-  const item=el('div','iss-item');
-  item.dataset.id=iss.id;
-  item.setAttribute('role','button');item.setAttribute('tabindex','0');item.setAttribute('aria-expanded','false');
-  item.innerHTML=
-    '<div class="iss-bar '+iss.severity+'" aria-hidden="true"></div>'+
-    '<div class="iss-body">'+
-      '<div class="iss-top"><div class="iss-type">'+esc(issueLabel(iss.type))+'</div><span class="iss-sev '+iss.severity+'">'+iss.severity+'</span></div>'+
-      '<div class="iss-url" title="'+esc(iss.affectedUrl)+'">'+esc(iss.affectedUrl)+'</div>'+
-      '<div class="iss-detail">'+esc(iss.detail)+'</div>'+
-      (iss.priority?'<span class="chip '+iss.priority+'" title="'+esc(iss.priorityReason||'')+'">'+iss.priority+'</span><span class="chip">'+esc(iss.effort)+' fix</span><span class="chip">'+esc(iss.owner)+'</span>'+(iss.quickWin?'<span class="chip qw">Quick win</span>':''):'')+
-    '</div>'+
-    '<span class="iss-chv" aria-hidden="true"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="3,5 7,9 11,5"/></svg></span>';
-  const ev=buildEvidence(iss);
-  item.addEventListener('click',()=>toggleItem(item));
-  item.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();toggleItem(item);}});
-  return{item,ev};
-}
-function toggleItem(item){const x=item.classList.contains('open');item.classList.toggle('open',!x);item.setAttribute('aria-expanded',String(!x));}
-
-function buildEvidence(iss){
-  const div=el('div','iss-ev'),ev=iss.evidence||{};
-  let h='<div class="ev-title">Evidence</div>';
-  if(ev.kind==='http'){h+='<div class="ev-pre">HTTP status: '+esc(ev.status??'unknown')+'</div>';}
-  else if(ev.kind==='redirect'){
-    if(ev.hops!==undefined)h+='<div class="ev-row"><span class="ev-k">Hops</span><span class="ev-v">'+ev.hops+'</span></div>';
-    if(ev.finalUrl)h+='<div class="ev-row"><span class="ev-k">Final URL</span><span class="ev-v">'+esc(ev.finalUrl)+'</span></div>';
-    if(ev.finalStatus)h+='<div class="ev-row"><span class="ev-k">Final status</span><span class="ev-v">'+ev.finalStatus+'</span></div>';
-    if(ev.chain&&ev.chain.length){h+='<div class="ev-row"><span class="ev-k">Chain</span><div class="ev-chain">'+ev.chain.map((u,i)=>'<span class="chain-u">'+esc(u)+'</span>'+(i<ev.chain.length-1?'<span class="chain-a">&rarr;</span>':'')).join('')+'</div></div>';}
-  }else if(ev.kind==='head'){
-    // Show only the tags that matter for this issue's category.
-    const hd=ev.head||{},cat=iss.category||'',none='<em style="color:var(--text-3)">none</em>';
-    const row=(k,v)=>'<div class="ev-row"><span class="ev-k">'+k+'</span><span class="ev-v">'+v+'</span></div>';
-    const val=(v)=>v?esc(v):none;
-    if(cat.startsWith('SEO: titles')){
-      h+=row('Title',val(hd.title))+row('Description',val(hd.description));
-      if(hd.h1s&&hd.h1s.length)h+=row('H1',hd.h1s.map(esc).join(', '));
-      if(iss.type==='heading-skip'&&hd.headings&&hd.headings.length)h+=row('Outline','<div class="ev-outline">'+hd.headings.slice(0,30).map(x=>'<div style="padding-left:'+((x.level-1)*14)+'px"><b>H'+x.level+'</b> '+esc(x.text)+'</div>').join('')+'</div>');
-      if(ev.rawHead&&!ev.rawSameAsRendered)h+=row('JS change','<span style="color:var(--medium)">Tags differ in raw HTML vs rendered &mdash; JS-only</span>');
-      if(ev.rawSameAsRendered)h+=row('JS change','<span style="color:var(--text-3)">None (raw HTML matches rendered)</span>');
-    }else if(cat==='SEO: indexing'){
-      h+=row('Canonical',hd.canonicals&&hd.canonicals.length?hd.canonicals.map(esc).join(', '):none);
-      if(ev.canonicalCheck)h+=row('Canon. status',esc(ev.canonicalCheck.status??'unknown')+' ('+esc(ev.canonicalCheck.classification)+')');
-      h+=row('Robots meta',val(hd.robots));
-    }else if(cat==='Social sharing'){
-      const og=hd.og||{},tw=hd.twitter||{};
-      for(const k of ['og:title','og:description','og:image'])h+=row(k,val(og[k]));
-      const extra=Object.keys(og).filter(k=>!['og:title','og:description','og:image'].includes(k));
-      if(extra.length)h+=row('Other og:',extra.map(k=>esc(k)+' = '+esc(og[k])).join('<br>'));
-      if(Object.keys(tw).length)h+=row('Twitter/X',Object.keys(tw).map(k=>esc(k)+' = '+esc(tw[k])).join('<br>'));
-    }else if(cat==='Page setup'){
-      h+=row('Viewport',val(hd.viewport))+row('&lt;html lang&gt;',val(hd.lang));
-    }
-  }else if(ev.kind==='soft-404'){
-    if(ev.title)h+='<div class="ev-row"><span class="ev-k">Title</span><span class="ev-v">'+esc(ev.title)+'</span></div>';
-    if(ev.wordCount!=null)h+='<div class="ev-row"><span class="ev-k">Word count</span><span class="ev-v">'+ev.wordCount+'</span></div>';
-    if(ev.reachedOnlyThroughRedirects)h+='<div class="ev-row"><span class="ev-k">Access</span><span class="ev-v" style="color:var(--medium)">Only reachable through redirects</span></div>';
-    if(ev.signals&&ev.signals.length){h+='<div class="ev-title" style="margin-top:10px">Signals</div><div class="ev-pre">'+ev.signals.map(s=>(s.strength==='strong'?'&#9733;':'&middot;')+' ['+s.strength+'] '+esc(s.detail)).join('\n')+'</div>';}
-  }else if(ev.kind==='site-check'){h+='<div class="ev-pre">'+esc(ev.detail)+'</div>';}
-  else if(ev.kind==='content'){
-    const row=(k,v)=>'<div class="ev-row"><span class="ev-k">'+k+'</span><span class="ev-v">'+v+'</span></div>';
-    h+=row('Words on page',esc(ev.words)+' <span style="color:var(--text-3)">('+esc(ev.mainWords)+' after removing menus and footers)</span>');
-    if(ev.similarTo&&ev.similarTo.length)h+=row('Similar pages',ev.similarTo.map(x=>'<b>'+Math.round(x.similarity*100)+'%</b> '+esc(x.url)).join('<br>'));
-    if(ev.matches&&ev.matches.length&&ev.matches[0].correction!==undefined){
-      h+='<div class="ev-title" style="margin-top:10px">Found in the page text</div>'+ev.matches.map(x=>'<div class="fix-row"><div class="fix-from">&ldquo;'+esc(x.text)+'&rdquo;</div><div class="fix-to">&rarr; &ldquo;'+esc(x.correction)+'&rdquo;</div>'+(x.explanation?'<div class="fix-why">'+esc(x.explanation)+(x.source==='dictionary'?' (common misspelling)':'')+'</div>':'')+(x.alsoOn&&x.alsoOn.length?'<div class="fix-why">Same text on '+x.alsoOn.length+' other page'+(x.alsoOn.length===1?'':'s')+', fixing it once fixes all of them.</div>':'')+'</div>').join('');
-    }else if(ev.matches&&ev.matches.length)h+='<div class="ev-title" style="margin-top:10px">Found in the page text</div><div class="ev-pre">'+ev.matches.map(x=>(x.name?esc(x.name)+': ':'')+'&ldquo;'+esc(x.text)+'&rdquo;').join('\n')+'</div>';
-  }
-  else if(ev.kind==='image'){
-    const row=(k,v)=>'<div class="ev-row"><span class="ev-k">'+k+'</span><span class="ev-v">'+v+'</span></div>';
-    if(ev.status!==null&&ev.status<400&&/^https?:/.test(ev.src))h+='<img class="ev-img" src="'+esc(ev.finalUrl||ev.src)+'" alt="" loading="lazy">';
-    h+=row('Image',esc(ev.src));
-    if(ev.usedAs)h+=row('Used as',esc(ev.usedAs)+' (the preview image when the page is shared)');
-    if(ev.finalUrl)h+=row('Redirects to',esc(ev.finalUrl));
-    h+=row('Status',ev.status===null?'<em style="color:var(--text-3)">no response</em>':esc(ev.status));
-    if(ev.bytes)h+=row('File size',esc(ev.bytes>=1048576?(ev.bytes/1048576).toFixed(1)+' MB':ev.bytes>=1024?Math.round(ev.bytes/1024)+' KB':ev.bytes+' bytes'));
-    if(ev.contentType)h+=row('Type',esc(ev.contentType));
-    if('alt' in ev)h+=row('Alt text',ev.alt===null?'<em style="color:var(--text-3)">none (no alt attribute)</em>':ev.alt.map(a=>'&ldquo;'+esc(a)+'&rdquo;'+(a.length>60?' <span style="color:var(--text-3)">('+a.length+' chars)</span>':'')).join('<br>'));
-    h+=row('Used on',ev.pages+' page'+(ev.pages!==1?'s':''));
-  }
-  if(iss.foundOn&&iss.foundOn.length){h+='<div class="found-on"><div class="fo-title">Found on '+iss.foundOn.length+' page'+(iss.foundOn.length!==1?'s':'')+'</div>'+iss.foundOn.slice(0,5).map(u=>'<div class="fo-url">'+esc(u)+'</div>').join('')+(iss.foundOn.length>5?'<div class="fo-url" style="color:var(--text-3)">&hellip; and '+(iss.foundOn.length-5)+' more</div>':'')+' </div>';}
-  if(iss.explanation){
-    const t=iss._type||{};
-    let a='<div class="ai-box"><div class="ai-k">In plain words</div><div class="ai-v">'+esc(iss.explanation)+'</div>';
-    if(t.why)a+='<div class="ai-k">Why it matters</div><div class="ai-v">'+esc(t.why)+'</div>';
-    if(t.fixSteps&&t.fixSteps.length)a+='<div class="ai-k">How to fix</div><ol class="ai-steps">'+t.fixSteps.map(x=>'<li>'+esc(x)+'</li>').join('')+'</ol>';
-    if(iss.suggestedValue)a+='<div class="ai-k">'+esc(t.valueLabel||'Suggested value')+'</div><div class="val-box"><span class="v">'+esc(iss.suggestedValue)+'</span><button class="copy" type="button" data-copy="'+esc(iss.suggestedValue)+'">Copy</button></div>';
-    if(iss.screenshot){const src=(current?current.base:'/api/')+iss.screenshot;a+='<div class="ai-k">Screenshot</div><a href="'+esc(src)+'" target="_blank" rel="noopener"><img class="ev-shot" src="'+esc(src)+'" alt="" loading="lazy"></a>';}
-    a+='<div class="ai-src">'+(iss.explanationSource==='ai'?'Written by AI from this evidence and checked automatically':'SiteFix guidance')+' &middot; priority: '+esc(iss.priorityReason||iss.priority)+'</div></div>';
-    h=a+h;
-  }else{
-    h+='<div class="ai-ph"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="7" cy="7" r="5.5"/><path d="M7 4.5v2.5l1.5 1.5"/></svg>Explanation and fix appear here once the report step has run</div>';
-  }
-  div.innerHTML=h;return div;
-}
-
 function issueLabel(t){
   const m={'http-4xx-internal':'Broken link to your own page','http-4xx-external':'Broken link to another website','link-unreachable':'Link could not be reached','redirect-loop':'Redirect loop','redirect-chain':'Redirect chain','redirect-to-error':'Redirect ends in error','https-missing-redirect':'HTTP \u2192 HTTPS redirect missing','www-variant-not-redirected':'www/non-www not unified','soft-404':'Error page that says it is fine','title-missing':'Missing <title> tag','title-multiple':'Multiple <title> tags','title-too-long':'Title too long','title-too-short':'Title too short','title-duplicate':'Duplicate title','description-missing':'Missing meta description','description-multiple':'Multiple meta descriptions','description-too-long':'Meta description too long','description-too-short':'Meta description too short','description-duplicate':'Duplicate meta description','h1-missing':'Missing H1','h1-multiple':'Multiple H1 tags','metadata-js-only':'Tags only appear after JavaScript runs','canonical-missing':'Missing canonical tag','canonical-multiple':'Multiple canonical tags','canonical-broken-target':'Canonical points to broken URL','canonical-redirect':'Canonical points to redirect','image-broken':'Broken image','image-alt-missing':'Image has no alt text','image-alt-unhelpful':'Alt text does not describe the image','image-alt-too-long':'Alt text too long','image-mixed-content':'HTTP image on an HTTPS page','image-oversized':'Image file too large','heading-skip':'Heading levels skip','robots-noindex':'Hidden from search (noindex)','robots-nofollow':'Links not followed (nofollow)','og-missing':'No Open Graph tags','og-incomplete':'Open Graph tags incomplete','og-image-broken':'Share image broken','viewport-missing':'No viewport tag (not mobile-friendly)','lang-missing':'No page language set','content-thin':'Thin page (little text)','content-duplicate':'Near-duplicate page','content-placeholder':'Placeholder text on a live page','content-repeated-word':'Repeated word','copy-spelling':'Spelling mistakes','copy-grammar':'Grammar mistakes'};
   return m[t]||t.replace(/-/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
 }
-function catIcon(c){
-  const m={'HTTP and URLs':'<circle cx="7" cy="7" r="5.5"/><path d="M7 4v3.5l2 2"/>','Soft 404s':'<circle cx="7" cy="7" r="5.5"/><path d="M7 4.5v3m0 1.5v.5"/>','SEO: indexing':'<path d="M3 7h8m0 0l-3-3m3 3l-3 3"/><path d="M11 4h1a1 1 0 011 1v4a1 1 0 01-1 1h-1"/>','SEO: titles & descriptions':'<rect x="2" y="3" width="10" height="8" rx="1"/><path d="M5 6h4m-4 2h2"/>','Images':'<rect x="2" y="2.5" width="10" height="9" rx="1.5"/><circle cx="5.2" cy="5.6" r="1"/><path d="M2.5 10.5l3-3 2 2 1.5-1.5 2.5 2.5"/>','Social sharing':'<circle cx="10.5" cy="3.5" r="1.6"/><circle cx="3.5" cy="7" r="1.6"/><circle cx="10.5" cy="10.5" r="1.6"/><path d="M5 6.2l4-2M5 7.8l4 2"/>','Page setup':'<rect x="4" y="1.5" width="6" height="11" rx="1.2"/><path d="M6.3 10.5h1.4"/>','Content':'<path d="M3 3.5h8M3 6h8M3 8.5h8M3 11h5"/>'};
-  return m[c]||'<circle cx="7" cy="7" r="5.5"/>';
-}
-function groupBy(arr,fn){return arr.reduce((a,x)=>{const k=fn(x);if(!a[k])a[k]=[];a[k].push(x);return a;},{});}
 // ---------- chat about the report ----------
 function formatAnswer(t){
   // Escape first, then allow only simple formatting: **bold**, "- " bullet lines, line breaks.
@@ -1207,15 +1024,9 @@ async function ask(q){
   if(current){current.asked=(current.asked||[]).concat(q);keepLast(current.sgEl);}
   scroll();
 }
-// Open the issue's category and the issue itself, then scroll to it.
+// An issue mentioned in an answer opens in the web report, at that issue.
 function reveal(id){
-  const item=[...document.querySelectorAll('.iss-item')].reverse().find(x=>x.dataset.id===id);
-  if(!item)return;
-  const grp=item.closest('.issue-grp'),hdr=grp&&grp.querySelector('.grp-hdr');
-  if(grp&&grp.classList.contains('collapsed'))toggleGrp(grp,hdr);
-  if(!item.classList.contains('open'))toggleItem(item);
-  item.scrollIntoView({behavior:'smooth',block:'center'});
-  item.classList.add('flash');setTimeout(()=>item.classList.remove('flash'),1600);
+  if(current&&current.id)window.open('/report/'+encodeURIComponent(current.id)+'#'+encodeURIComponent(id),'_blank','noopener');
 }
 chatIn.addEventListener('click',e=>{
   const c=e.target.closest('.cite');if(c){reveal(c.dataset.id);return;}
