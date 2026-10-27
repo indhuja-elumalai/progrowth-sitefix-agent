@@ -105,3 +105,24 @@ test("'fix first' within a scope: the most urgent of those only, said so in the 
     assert.equal(listAnswer("what are the quick wins", report, { scope: ["title-too-long"] }).answer, "None of the title problems is a quick win.");
     assert.deepEqual(listAnswer("Which images are broken?", report, { scope: ["title-too-long"] }).issueIds.length, 2, "a topic question ignores the scope");
 });
+
+test("'how fast are my pages?' gives the site-wide picture, then the slowest pages one card each", () => {
+    const sp = (id, type, url, lcpMs, priority = "P2") => ({ id, type, priority, affectedUrl: url, foundOn: [], detail: `${type} detail`, evidence: { kind: "speed", lcpMs } });
+    const r = {
+        run: { startUrl: "https://x.test/" },
+        summaries: { speed: { pagesTested: 10, passing: 6, median: { lcpMs: 2900 }, lcp: { good: 7, "needs-improvement": 3 }, cls: { good: 9, poor: 1 } } },
+        types: [
+            { type: "speed-lcp-slow", title: "Main content shows up slowly", fixSteps: [], issues: [sp("ISS-s000000001", "speed-lcp-slow", "https://x.test/a", 5200), sp("ISS-s000000002", "speed-lcp-slow", "https://x.test/b", 3100, "P3")] },
+            { type: "speed-cls-high", title: "Layout jumps while loading", fixSteps: [], issues: [sp("ISS-s000000003", "speed-cls-high", "https://x.test/a", 5200), sp("ISS-s000000004", "speed-cls-high", "https://x.test/c", 1200)] },
+        ],
+    };
+    const a = listAnswer("How fast are my pages?", r);
+    assert.equal(a.lead, "On a phone over 4G, your pages show their main content in about 2.9 s (good: under 2.5 s). 6 of the 10 pages tested pass Google's Core Web Vitals, mostly because 3 show their main content slowly. The pages to fix:");
+    assert.deepEqual(a.issueIds, ["ISS-s000000001", "ISS-s000000002", "ISS-s000000004"], "one per page, the page with the most problems first");
+    const everyPage = { ...r, summaries: { speed: { pagesTested: 40, passing: 0, median: { lcpMs: 980, tbtMs: 295 }, lcp: { good: 32, "needs-improvement": 8 }, tbt: { "needs-improvement": 39, poor: 1 }, cls: { good: 39, poor: 1 } } } };
+    assert.match(listAnswer("what is my page speed", everyPage).lead, /about 1\.0 s \(good: under 2\.5 s\)\. None of the 40 pages tested pass Google's Core Web Vitals, mostly because 40 are too busy to respond while loading \(about 295 ms; good: under 200 ms\)\./);
+    assert.match(a.tail, /mid-range phone over 4G/);
+    assert.equal(listAnswer("does the layout jump around?", r).issueIds.length, 2, "a narrower speed question lists just that problem");
+    assert.match(listAnswer("is my site slow", { ...r, summaries: {} }).answer, /wasn't tested/);
+    assert.equal(listTopic("which images are too large")?.noun, "large images", "image questions stay image questions");
+});

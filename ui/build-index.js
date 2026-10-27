@@ -298,6 +298,12 @@ const CSS = `
   .ev-sugg{display:flex;align-items:flex-start;gap:8px;background:var(--surface-1);border-radius:8px;padding:6px 8px}
   .ev-sugg span{flex:1;overflow-wrap:anywhere}
   .ev-facts{margin-top:10px;font-size:12px;color:var(--text-3)}
+  .sp-t{border-collapse:collapse;width:100%;font-size:13px}
+  .sp-t th,.sp-t td{text-align:left;padding:3px 8px 3px 0;vertical-align:top;font-weight:400}
+  .sp-t th{color:var(--text-2)}
+  .sp-t td:nth-child(2){font-variant-numeric:tabular-nums;white-space:nowrap}
+  .sp-good{color:var(--success)}.sp-needs-improvement{color:var(--medium)}.sp-poor{color:var(--high)}
+  .ev-more-info .dim{color:var(--text-3)}
   .ev-shot{position:relative;flex-shrink:0;width:150px;height:94px;border-radius:8px;overflow:hidden;border:1px solid var(--border);background:var(--surface-2);padding:0;cursor:zoom-in}
   .ev-shot img{width:100%;height:100%;object-fit:cover;object-position:center;display:block;opacity:0;transform:scale(1.5);transition:opacity .25s}
   .ev-shot.ok img{opacity:1}
@@ -608,8 +614,8 @@ async function answerQueue(run,show){
 // pages done and found, checks done, the current step, issues found so far and time
 // left. The card shows it; the raw log is one click away. An inspection keeps running
 // while past inspections are opened, and a reloaded page picks it up again.
-const STEPS=[{id:'crawl',lbl:'Pages'},{id:'checks',lbl:'Links & images'},{id:'seo',lbl:'SEO & content'},{id:'spelling',lbl:'Spelling'},{id:'report',lbl:'Explanations & screenshots'},{id:'pdf',lbl:'Reports'}];
-const PHASE_STEP={crawl:0,links:1,images:1,seo:2,content:2,spelling:3,crawled:4,report:4,pdf:5,'report-done':6};
+const STEPS=[{id:'crawl',lbl:'Pages'},{id:'checks',lbl:'Links & images'},{id:'seo',lbl:'SEO & content'},{id:'spelling',lbl:'Spelling'},{id:'speed',lbl:'Page speed'},{id:'report',lbl:'Explanations & screenshots'},{id:'pdf',lbl:'Reports'}];
+const PHASE_STEP={crawl:0,links:1,images:1,seo:2,content:2,spelling:3,speed:4,crawled:5,report:5,pdf:6,'report-done':7};
 const BASE_TITLE=document.title;
 let live=null,viewingLive=false;
 function hostOf(u){try{return new URL(u).host;}catch{return u;}}
@@ -620,7 +626,8 @@ function pctOf(p){
   if(ph==='crawl')return 2+66*Math.min(1,(pg.done||0)/capT);
   if(ph==='links'||ph==='images')return 68+6*frac(p.checks);
   if(ph==='seo'||ph==='content')return 75;
-  if(ph==='spelling')return 76+8*frac(p.step);
+  if(ph==='spelling')return 76+3*frac(p.step);
+  if(ph==='speed')return 79+6*frac(p.step);
   if(ph==='crawled')return 85;
   if(ph==='report')return 85+12*frac(p.step);
   if(ph==='pdf')return 97;
@@ -635,6 +642,7 @@ function subOf(p){
     case 'seo':return 'Reading titles, tags and headings';
     case 'content':return 'Checking page content';
     case 'spelling':return 'Checking spelling and grammar'+(st.total?' ('+st.done+'/'+st.total+' pages)':'');
+    case 'speed':return 'Timing pages on a phone over 4G'+(st.total?' ('+st.done+'/'+st.total+' pages)':'');
     case 'crawled':return 'Crawl finished &middot; preparing the report';
     case 'report':{const e=p.explain||{},sh=p.shots||{};return 'Writing explanations'+(e.total?' ('+e.done+'/'+e.total+')':'')+' and taking screenshots'+(sh.total?' ('+sh.done+'/'+sh.total+')':'');}
     case 'pdf':return 'Building the PDF and web report';
@@ -689,7 +697,8 @@ function updateLive(p){
     if(i===0&&(pg.done||cur===0))v=cur===0?(pg.done||0)+'/'+(pg.cap?Math.min(tot,pg.cap):tot):String(pg.done||0);
     if(i===1&&p.checks&&p.checks.total)v=p.checks.done+'/'+p.checks.total;
     if(i===3&&p.phase==='spelling'&&p.step&&p.step.total)v=p.step.done+'/'+p.step.total;
-    if(i===4&&p.explain&&p.explain.total)v=p.explain.done+'/'+p.explain.total+' &middot; '+((p.shots&&p.shots.done)||0)+'/'+((p.shots&&p.shots.total)||0);
+    if(i===4&&p.phase==='speed'&&p.step&&p.step.total)v=p.step.done+'/'+p.step.total;
+    if(i===5&&p.explain&&p.explain.total)v=p.explain.done+'/'+p.explain.total+' &middot; '+((p.shots&&p.shots.done)||0)+'/'+((p.shots&&p.shots.total)||0);
     S('.sval',li).innerHTML=v?' '+v:'';
   });
   S('.sev-n.high',c).textContent=(iss.high||0)+' high';S('.sev-n.medium',c).textContent=(iss.medium||0)+' medium';S('.sev-n.low',c).textContent=(iss.low||0)+' low';
@@ -700,6 +709,7 @@ function updateLive(p){
   if(pg.sitemap)narrate('sitemap','Found your sitemap: '+pg.sitemap+' page'+(pg.sitemap===1?'':'s')+' listed. I&rsquo;ll check those, plus anything they link to.');
   if(p.phase==='crawl'&&tot>=40&&pg.done>=tot/2)narrate('half','Halfway through the pages: '+pg.done+' of '+(pg.found>pg.done?'at least ':'')+tot+' read.');
   if(['links','images','seo','content','spelling'].includes(p.phase))narrate('pages','All '+(pg.done||0)+' pages read. Now comparing pages with each other and checking spelling.');
+  if(p.phase==='speed')narrate('speed','Now timing your pages the way a visitor on a phone over 4G would see them: how fast the main content shows, whether the layout jumps, and how heavy each page is.');
   if(p.phase==='report')narrate('report','Writing up what I found: what to fix first, why it matters and how, with screenshots.');
   if(p.phase!==live.lastPhase){live.lastPhase=p.phase;live.sgSig=null;refreshLiveSuggest();}
   renderLiveRow();
@@ -866,7 +876,9 @@ function renderResults(reg,siteUrl,report,id,meta){
     const first=fixFirstList(issues);
     addMsg('agent','Found <strong>'+counts.total+' issue'+(counts.total!==1?'s':'')+'</strong>. I&rsquo;d fix these first:<div class="ans"><ol>'+first.map(i=>'<li><b>'+esc(i._type?i._type.title:issueLabel(i.type))+'</b>: '+esc(firstLine(i))+'</li>').join('')+'</ol></div>');
     const sm=report.summaries||{},l=sm.links||{},im=sm.images||{};
-    addMsg('agent','The report includes screenshots and suggested fixes. I checked '+(pages||l.pagesCrawled||0)+' pages'+(l.linksChecked?', '+l.linksChecked+' links':'')+(im.imagesFound?' and '+im.imagesFound+' images':'')+' across the site. Nothing changed on the site. Ask me about anything in it.');
+    const sp=sm.speed;
+    const speedLine=sp&&sp.pagesTested&&sp.median&&sp.median.lcpMs!=null?' On a phone over 4G, your pages show their main content in about '+(sp.median.lcpMs/1000).toFixed(1)+' s (good is under 2.5 s).':'';
+    addMsg('agent','The report includes screenshots and suggested fixes. I checked '+(pages||l.pagesCrawled||0)+' pages'+(l.linksChecked?', '+l.linksChecked+' links':'')+(im.imagesFound?' and '+im.imagesFound+' images':'')+' across the site.'+speedLine+' Nothing changed on the site. Ask me about anything in it.');
     if(id)chatIn.appendChild(reportCard(siteUrl,run,counts.total,issues,id));
   }else{
     addMsg('agent','Found <strong>'+counts.total+' issue'+(counts.total!==1?'s':'')+'</strong> on '+pages+' pages. The written report couldn&rsquo;t be created this time, but you can ask me about any of them, or run the inspection again for the full report.');
@@ -905,7 +917,7 @@ function reportCard(siteUrl,run,total,issues,id){
   return wrap;
 }
 function issueLabel(t){
-  const m={'http-4xx-internal':'Broken link to your own page','http-4xx-external':'Broken link to another website','link-unreachable':'Link could not be reached','redirect-loop':'Redirect loop','redirect-chain':'Redirect chain','redirect-to-error':'Redirect ends in error','https-missing-redirect':'HTTP \u2192 HTTPS redirect missing','www-variant-not-redirected':'www/non-www not unified','soft-404':'Error page that says it is fine','title-missing':'Missing <title> tag','title-multiple':'Multiple <title> tags','title-too-long':'Title too long','title-too-short':'Title too short','title-duplicate':'Duplicate title','description-missing':'Missing meta description','description-multiple':'Multiple meta descriptions','description-too-long':'Meta description too long','description-too-short':'Meta description too short','description-duplicate':'Duplicate meta description','h1-missing':'Missing H1','h1-multiple':'Multiple H1 tags','metadata-js-only':'Tags only appear after JavaScript runs','canonical-missing':'Missing canonical tag','canonical-multiple':'Multiple canonical tags','canonical-broken-target':'Canonical points to broken URL','canonical-redirect':'Canonical points to redirect','image-broken':'Broken image','image-alt-missing':'Image has no alt text','image-alt-unhelpful':'Alt text does not describe the image','image-alt-too-long':'Alt text too long','image-mixed-content':'HTTP image on an HTTPS page','image-oversized':'Image file too large','heading-skip':'Heading levels skip','robots-noindex':'Hidden from search (noindex)','robots-nofollow':'Links not followed (nofollow)','og-missing':'No Open Graph tags','og-incomplete':'Open Graph tags incomplete','og-image-broken':'Share image broken','viewport-missing':'No viewport tag (not mobile-friendly)','lang-missing':'No page language set','content-thin':'Thin page (little text)','content-duplicate':'Near-duplicate page','content-placeholder':'Placeholder text on a live page','content-repeated-word':'Repeated word','copy-spelling':'Spelling mistakes','copy-grammar':'Grammar mistakes'};
+  const m={'http-4xx-internal':'Broken link to your own page','http-4xx-external':'Broken link to another website','link-unreachable':'Link could not be reached','redirect-loop':'Redirect loop','redirect-chain':'Redirect chain','redirect-to-error':'Redirect ends in error','https-missing-redirect':'HTTP \u2192 HTTPS redirect missing','www-variant-not-redirected':'www/non-www not unified','soft-404':'Error page that says it is fine','title-missing':'Missing <title> tag','title-multiple':'Multiple <title> tags','title-too-long':'Title too long','title-too-short':'Title too short','title-duplicate':'Duplicate title','description-missing':'Missing meta description','description-multiple':'Multiple meta descriptions','description-too-long':'Meta description too long','description-too-short':'Meta description too short','description-duplicate':'Duplicate meta description','h1-missing':'Missing H1','h1-multiple':'Multiple H1 tags','metadata-js-only':'Tags only appear after JavaScript runs','canonical-missing':'Missing canonical tag','canonical-multiple':'Multiple canonical tags','canonical-broken-target':'Canonical points to broken URL','canonical-redirect':'Canonical points to redirect','image-broken':'Broken image','image-alt-missing':'Image has no alt text','image-alt-unhelpful':'Alt text does not describe the image','image-alt-too-long':'Alt text too long','image-mixed-content':'HTTP image on an HTTPS page','image-oversized':'Image file too large','heading-skip':'Heading levels skip','robots-noindex':'Hidden from search (noindex)','robots-nofollow':'Links not followed (nofollow)','og-missing':'No Open Graph tags','og-incomplete':'Open Graph tags incomplete','og-image-broken':'Share image broken','viewport-missing':'No viewport tag (not mobile-friendly)','lang-missing':'No page language set','content-thin':'Thin page (little text)','content-duplicate':'Near-duplicate page','content-placeholder':'Placeholder text on a live page','content-repeated-word':'Repeated word','copy-spelling':'Spelling mistakes','copy-grammar':'Grammar mistakes','speed-lcp-slow':'Main content shows slowly','speed-cls-high':'Layout jumps while loading','speed-tbt-high':'Too busy to respond','speed-ttfb-slow':'Server slow to answer','speed-page-heavy':'Page too heavy'};
   return m[t]||t.replace(/-/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
 }
 // ---------- chat about the report ----------
@@ -1018,11 +1030,23 @@ function evCard(i){
   return c;
 }
 // Everything the report says about one issue, opened inside the card.
+// The page's speed test on a phone over 4G: every measure, marked good / slow / poor.
+function speedTable(e){
+  const r=e.ratings||{},mark={good:'Good','needs-improvement':'Needs work',poor:'Poor'};
+  const s=ms=>ms==null?'n/a':(ms/1000).toFixed(1)+' s',kb=b=>b==null?'n/a':b>=1048576?(b/1048576).toFixed(1)+' MB':Math.round(b/1024)+' KB';
+  const rows=[['Main content shows (LCP)',s(e.lcpMs),'under 2.5 s',r.lcp],['Layout shift (CLS)',e.cls==null?'n/a':String(e.cls),'under 0.1',r.cls],['Too busy to respond (TBT)',e.tbtMs==null?'n/a':Math.round(e.tbtMs)+' ms','under 200 ms',r.tbt],['Server starts answering (TTFB)',s(e.ttfbMs),'under 0.8 s',r.ttfb],['Page weight',kb(e.bytes)+(e.requests?' &middot; '+e.requests+' files':''),'under 3 MB',r.bytes]];
+  let h='<h4>Speed test on a phone over 4G</h4><table class="sp-t">'+rows.map(x=>'<tr><th>'+x[0]+'</th><td>'+x[1]+'</td><td class="sp-'+esc(x[3]||'')+'">'+(mark[x[3]]||'')+'</td><td class="dim">good: '+x[2]+'</td></tr>').join('')+'</table>';
+  if(e.lcpElement)h+='<p class="dim">Main content: '+esc(e.lcpElement)+'</p>';
+  const big=(e.biggest||[]).slice(0,3);
+  if(big.length&&(e.metric==='bytes'||e.metric==='tbt'||e.metric==='lcp'))h+='<h4>Largest files</h4><ul>'+big.map(f=>'<li>'+esc((f.url.split('/').pop()||f.url).split('?')[0].slice(0,60))+' <span class="dim">'+kb(f.bytes)+' &middot; '+esc(f.type)+'</span></li>').join('')+'</ul>';
+  return h;
+}
 function evDetails(i,pages,on,src){
   const box=el('div','ev-more-info'),ty=i._type||{},steps=ty.fixSteps||[];
   let h='';
   if(src)h+='<img class="ev-big" alt="" src="'+esc(src)+'">'+'<div class="ev-cap">The problem is outlined in red where it could be found.</div>';
   if(i.explanation)h+='<h4>What&rsquo;s wrong</h4><p>'+esc(i.explanation)+'</p>';
+  if(i.evidence&&i.evidence.kind==='speed')h+=speedTable(i.evidence);
   if(steps.length)h+='<h4>How to fix it</h4><ol>'+steps.map(x=>'<li>'+esc(x)+'</li>').join('')+'</ol>';
   if(i.suggestedValue)h+='<h4>Suggested</h4><div class="ev-sugg"><span>'+esc(i.suggestedValue)+'</span><button type="button" class="copy" data-copy="'+esc(i.suggestedValue)+'">Copy</button></div>';
   const mm=(i.evidence&&i.evidence.matches)||[];
