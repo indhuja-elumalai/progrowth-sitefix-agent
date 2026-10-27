@@ -1345,7 +1345,10 @@ Fixture v8 plants four speed faults: a hero image the server sends after 4.5 s
 (F-31, slow main content), a 420 px banner inserted after 0.5 s (F-32, layout
 shift), three 400 ms scripts after loading (F-33, blocking time), and a 3.3 MB
 background file (F-34, page weight; a CSS background, so the oversized-image
-rule does not see it). Result: 34 of 34 found, no false positives; the fixture
+rule does not see it, and a PNG whose padding the decoder never reads, so it
+costs download time only: as a 3.3 MB SVG it kept the slower CI machine busy
+parsing it, which showed up as blocking time). The CI self-check now requires
+all 34; it passes locally with both CPU cores kept busy by other work. Result: 34 of 34 found, no false positives; the fixture
 crawl takes about 50 s instead of 25 s (the 3.3 MB file on slow 4G takes 17 s).
 Checked in a browser: the "Page speed" step and its message during the run,
 the median in the closing message, "How fast are my pages?" with three cards
