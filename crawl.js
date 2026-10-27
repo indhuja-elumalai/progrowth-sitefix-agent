@@ -2,7 +2,13 @@
 // Usage: node crawl.js https://your-site.com [--max-pages 0] [--concurrency 8]
 //          [--link-concurrency 16] [--per-host 6] [--settle-ms 1500] [--quiet-ms 400]
 //          [--delay-ms 0] [--full-render] [--keep-trackers] [--block "pattern,..."]
-//          [--no-sitemap] [--no-ai] [--copy-ai]
+//          [--no-sitemap] [--no-ai] [--copy-ai] [--no-speed] [--speed-pages 40]
+//
+// Page speed (Day 26): after the other checks, up to --speed-pages pages (default 40,
+// 0 = all; the home page and one page of each kind first) are loaded again the way a
+// visitor on a mid-range phone over 4G gets them, with nothing blocked, and timed:
+// main content (LCP), layout shift (CLS), blocking time (TBT), server response
+// (TTFB) and page weight (lib/speed.js, speed.json). --no-speed skips it.
 //
 // Fewer requests (Day 23): each page is asked for once. The HTML exactly as the server
 // sent it is read from the browser's own visit (no second download), internal links
@@ -87,6 +93,7 @@ import { pickImageSrc, isDecorative, summarizeImages, imageFindings, formatBytes
 import { createThrottle, createPool } from "./lib/throttle.js";
 import { createProgress } from "./lib/progress.js";
 import { resolveStart } from "./lib/start-url.js";
+import { pickSpeedPages, measurePages, speedFindings, summarizeSpeed } from "./lib/speed.js";
 import { trackerPatterns } from "./lib/trackers.js";
 
 // ---------- command line ----------
@@ -97,7 +104,7 @@ const opt = (name, fallback) => {
   return i !== -1 && args[i + 1] ? Number(args[i + 1]) : fallback;
 };
 if (!startArg) {
-  console.error("Usage: node crawl.js https://your-site.com [--max-pages 0] [--concurrency 8] [--link-concurrency 16] [--per-host 6] [--settle-ms 1500] [--quiet-ms 400] [--delay-ms 0] [--full-render] [--keep-trackers] [--block \"pattern,...\"] [--no-sitemap] [--no-ai] [--copy-ai]");
+  console.error("Usage: node crawl.js https://your-site.com [--max-pages 0] [--concurrency 8] [--link-concurrency 16] [--per-host 6] [--settle-ms 1500] [--quiet-ms 400] [--delay-ms 0] [--full-render] [--keep-trackers] [--block \"pattern,...\"] [--no-sitemap] [--no-ai] [--copy-ai] [--no-speed] [--speed-pages 40]");
   process.exit(1);
 }
 const MAX_PAGES = opt("max-pages", 0); // 0 = no cap: crawl every internal page found
@@ -112,6 +119,8 @@ const KEEP_TRACKERS = args.includes("--keep-trackers"); // load tracking, advert
 const strOpt = (name) => { const i = args.indexOf(`--${name}`); return i !== -1 && args[i + 1] && !args[i + 1].startsWith("--") ? args[i + 1] : ""; };
 const EXTRA_BLOCK = strOpt("block").split(",").map((x) => x.trim()).filter(Boolean); // more URL patterns not to load, e.g. "*widget.example.com/*"
 const USE_SITEMAP = !args.includes("--no-sitemap");
+const SPEED = !args.includes("--no-speed");
+const SPEED_PAGES = Math.max(0, opt("speed-pages", 40)); // pages given the phone speed test (0 = all)
 // AI proofreading runs when a key is set (.env), except on local addresses (the test
 // fixture) so the fixture score never depends on an AI; --copy-ai forces it, --no-ai stops it.
 const NO_AI = args.includes("--no-ai");
@@ -872,11 +881,35 @@ async function main() {
   };
   await writeFile("content.json", JSON.stringify({ summary: content, pages: contentResult.pages }, null, 2));
 
+  // ---------- page speed ----------
+  // Last, so nothing else running on this machine skews the timings.
+  let speedResult = { summary: null, pages: [] }, speedIssues = [];
+  if (SPEED) {
+    const okPages = report.filter((p) => is2xx(p.rendered.status) && !softUrls.has(p.url)).map((p) => p.url);
+    const sample = pickSpeedPages(okPages, startUrl, SPEED_PAGES);
+    console.log(`\nTesting page speed on ${sample.length} of ${okPages.length} pages (phone, slow 4G, CPU 4x slower, nothing blocked)...`);
+    progress.set({ phase: "speed", step: { done: 0, total: sample.length } });
+    const results = await measurePages(sample, {
+      chromium,
+      onProgress: ({ done, total, result }) => {
+        progress.set({ step: { done, total }, current: result.url });
+        if (done % 10 === 0 || done === total) console.log(`  ${done}/${total} pages timed`);
+      },
+    });
+    speedResult = { summary: summarizeSpeed(results, okPages.length), pages: results };
+    speedIssues = speedFindings(results, foundOn);
+    const sm = speedResult.summary;
+    console.log(`  median on a phone: main content ${sm.median.lcpMs != null ? (sm.median.lcpMs / 1000).toFixed(1) + " s" : "n/a"}, layout shift ${sm.median.cls ?? "n/a"}, blocking ${sm.median.tbtMs ?? "n/a"} ms; ${sm.passing} of ${sm.pagesTested} pass Core Web Vitals${sm.pagesFailed ? `; ${sm.pagesFailed} could not be tested` : ""}`);
+    mark("speed");
+  }
+  // Always written, so the report never shows an older run's speed results.
+  await writeFile("speed.json", JSON.stringify(speedResult, null, 2));
+
   // ---------- issue registry ----------
   const runId = "run-" + startedAt.replace(/[-:]/g, "").slice(0, 15);
   const registry = buildRegistry({
     run: { id: runId, startedAt, finishedAt: new Date().toISOString(), startUrl, pagesCrawled: visited.size, capReached, toolVersion: "0.6" },
-    links, siteChecks, metaPages, softPages: soft, imageFindings: imgFindings, findings: [...ogFindings, ...contentResult.findings, ...copyResult.findings],
+    links, siteChecks, metaPages, softPages: soft, imageFindings: imgFindings, findings: [...ogFindings, ...contentResult.findings, ...copyResult.findings, ...speedIssues],
   });
   const registryProblems = validateRegistry(registry);
   // The real totals, replacing the live estimate.
