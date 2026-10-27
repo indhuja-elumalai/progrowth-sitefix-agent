@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { suggestQuestions } from "../lib/suggest.js";
 import { answerProcessQuestion } from "../lib/live-answers.js";
+import { isVisual } from "../lib/screenshots.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const out = path.join(__dirname, "index.html");
@@ -211,6 +212,20 @@ const CSS = `
   .rc-bot b{display:block;font-size:13.5px;font-weight:600}
   .rc-bot span{font-size:12px;color:var(--text-3)}
   .ans ol{margin:6px 0 0 20px}.ans ol li{margin:4px 0}
+  .pt-box{margin-top:6px}
+  .crisp-list{margin:0 0 0 20px;padding:0}
+  .crisp-list li{margin:1px 0}
+  .crisp-list li{overflow-wrap:anywhere}
+  .crisp-list .dim{color:var(--text-3)}
+  .pt-box .ev-more{margin-top:6px}
+  .more-card{display:flex;align-items:center;gap:12px;width:min(540px,100%);margin-top:8px;padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--surface-1);color:inherit;text-decoration:none;transition:background var(--t)}
+  .more-card:hover{background:var(--surface-2)}
+  .mc-ico{width:30px;height:30px;border-radius:8px;background:var(--bg);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;flex-shrink:0;color:var(--text-2)}
+  .mc-ico svg{width:15px;height:15px}
+  .mc-txt{flex:1;min-width:0;display:flex;flex-direction:column}
+  .mc-txt b{font-size:14px;font-weight:600}
+  .mc-txt span{font-size:12px;color:var(--text-3)}
+  .mc-go{font-size:22px;color:var(--text-3);line-height:1}
   .rc-links{display:flex;gap:14px;margin:6px 4px 0;font-size:12.5px}
   .rc-links a{color:var(--text-2);text-decoration:none;display:inline-flex;align-items:center;gap:5px}
   .rc-links a:hover{color:var(--text-1);text-decoration:underline}
@@ -266,9 +281,43 @@ const CSS = `
   .copy{border:none;background:var(--bg);border-radius:6px;font-size:11px;padding:2px 8px;cursor:pointer;color:var(--text-2)}
   .ev-shot{display:block;max-width:360px;width:100%;border-radius:8px;border:1px solid var(--border);margin-top:4px}
   .ans ul{margin:4px 0 0 18px}.ans li{margin:2px 0}
-  .cites{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
-  .cite{border:1px solid var(--border-mid);background:var(--bg);border-radius:var(--radius-xl);font-size:11.5px;padding:2px 9px;cursor:pointer;color:var(--text-1)}
-  .cite:hover{background:var(--accent-dim)}
+  /* Evidence cards: the issues an answer is about, each with a screenshot of the page */
+  .ev-list{display:flex;flex-direction:column;gap:8px;width:min(540px,100%);margin-top:8px}
+  .ev{padding:10px;border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--bg);box-shadow:0 1px 2px rgba(0,0,0,.04)}
+  .ev-head{display:flex;gap:12px}
+  .ev-more-info{margin-top:10px;padding-top:10px;border-top:1px solid var(--border);font-size:13.5px;line-height:1.45;color:var(--text-1)}
+  .ev-more-info h4{font-size:12px;font-weight:600;color:var(--text-3);margin:10px 0 3px}
+  .ev-more-info h4:first-child{margin-top:0}
+  .ev-more-info p{margin:0}
+  .ev-more-info ol,.ev-more-info ul{margin:0 0 0 20px;padding:0}
+  .ev-more-info li{margin:2px 0;overflow-wrap:anywhere}
+  .ev-more-info q{font-style:normal;background:var(--high-bg);border-radius:4px;padding:0 3px}
+  .ev-pages{color:var(--text-2)}
+  .ev-big{display:block;width:100%;border-radius:8px;border:1px solid var(--border);cursor:zoom-in}
+  .ev-cap{font-size:11.5px;color:var(--text-3);margin:4px 0 2px}
+  .ev-sugg{display:flex;align-items:flex-start;gap:8px;background:var(--surface-1);border-radius:8px;padding:6px 8px}
+  .ev-sugg span{flex:1;overflow-wrap:anywhere}
+  .ev-facts{margin-top:10px;font-size:12px;color:var(--text-3)}
+  .ev-shot{position:relative;flex-shrink:0;width:150px;height:94px;border-radius:8px;overflow:hidden;border:1px solid var(--border);background:var(--surface-2);padding:0;cursor:zoom-in}
+  .ev-shot img{width:100%;height:100%;object-fit:cover;object-position:center;display:block;opacity:0;transform:scale(1.5);transition:opacity .25s}
+  .ev-shot.ok img{opacity:1}
+  .ev-shot:not(.ok)::after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(255,255,255,.55),transparent);transform:translateX(-100%);animation:shimmer 1.3s infinite}
+  .ev-shot.none{display:none}
+  @keyframes shimmer{to{transform:translateX(100%)}}
+  .ev-txt{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+  .ev-kind{font-size:11.5px;color:var(--text-3);display:flex;align-items:center;gap:6px}
+  .ev-kind i{width:7px;height:7px;border-radius:50%;background:var(--text-3);flex-shrink:0}
+  .ev-kind i.P1{background:var(--high)}.ev-kind i.P2{background:var(--medium)}
+  .ev-what{font-size:14px;font-weight:600;overflow-wrap:anywhere;line-height:1.3}
+  .ev-where,.ev-detail{font-size:12.5px;color:var(--text-2);overflow-wrap:anywhere;line-height:1.35}
+  .ev-detail q{font-style:normal;background:var(--high-bg);border-radius:4px;padding:0 3px}
+  .ev-open{margin-top:auto;padding-top:4px;align-self:flex-start;border:none;background:none;padding-left:0;font-size:12.5px;font-weight:500;color:var(--text-1);cursor:pointer;text-decoration:underline;text-underline-offset:2px;text-decoration-color:var(--border-mid)}
+  .ev-open:hover{text-decoration-color:currentColor}
+  .ev-more{align-self:flex-start;border:1px solid var(--border-mid);background:var(--bg);border-radius:var(--radius-xl);font-size:13px;padding:5px 14px;color:var(--text-1);cursor:pointer}
+  .ev-more:hover{background:var(--surface-1)}
+  #shot-view{position:fixed;inset:0;z-index:50;background:rgba(0,0,0,.72);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;gap:10px;cursor:zoom-out}
+  #shot-view img{max-width:min(1100px,100%);max-height:calc(100% - 40px);border-radius:10px;box-shadow:0 10px 40px rgba(0,0,0,.4)}
+  #shot-view span{color:#fff;font-size:13px;opacity:.85;text-align:center}
   .typing{display:inline-flex;gap:4px}.typing i{width:6px;height:6px;border-radius:50%;background:var(--text-3);animation:pulse 1s infinite}
   .typing i:nth-child(2){animation-delay:.2s}.typing i:nth-child(3){animation-delay:.4s}
   .fix-row{border:1px solid var(--border);border-radius:8px;padding:7px 10px;margin-top:6px;background:var(--bg);font-size:13px}
@@ -308,6 +357,7 @@ const CSS = `
     .cnt-cell:nth-child(2){border-right:none}
     .cnt-cell:nth-child(-n+2){border-bottom:1px solid var(--border)}
     .chat-inner{padding:0 14px}
+    .ev-shot{width:96px;height:64px}
     #input-area{padding:8px 12px 12px}
     .msg-bbl{max-width:85%}
     #empty-state{padding-top:48px}
@@ -546,7 +596,7 @@ async function answerQueue(run,show){
     try{
       const r=await fetch('/api/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(id?{question:it.q,inspectionId:id}:{question:it.q})});
       const d=await r.json();
-      if(bbl)bbl.innerHTML=answerHtml(d);
+      if(bbl)showAnswer(bbl,d);
     }catch{if(bbl)bbl.innerHTML='<span style="color:var(--high)">I couldn&rsquo;t get an answer just now. Please ask again.</span>';}
     if(show)scroll();
   }
@@ -646,6 +696,7 @@ function updateLive(p){
   if(p.final&&p.phase==='crawled')S('.li-note',c).textContent='final count';
   if(!document.hidden||!live.done)document.title='('+pct+'%) Inspecting '+hostOf(live.url)+' — SiteFix';
   // Short updates in the conversation at the moments that matter.
+  if(p.movedTo)narrate('moved',esc(hostOf(p.movedTo.from))+' sends visitors to <b>'+esc(hostOf(p.movedTo.to))+'</b>, so that&rsquo;s the site I&rsquo;m checking.');
   if(pg.sitemap)narrate('sitemap','Found your sitemap: '+pg.sitemap+' page'+(pg.sitemap===1?'':'s')+' listed. I&rsquo;ll check those, plus anything they link to.');
   if(p.phase==='crawl'&&tot>=40&&pg.done>=tot/2)narrate('half','Halfway through the pages: '+pg.done+' of '+(pg.found>pg.done?'at least ':'')+tot+' read.');
   if(['links','images','seo','content','spelling'].includes(p.phase))narrate('pages','All '+(pg.done||0)+' pages read. Now comparing pages with each other and checking spelling.');
@@ -870,35 +921,172 @@ function formatAnswer(t){
   return out+(inList?'</ul>':'');
 }
 function shortPath(u){try{const x=new URL(u);return x.pathname+x.search;}catch{return u;}}
-function answerHtml(d){
-  let h='<div class="ans">'+formatAnswer(d.answer||d.error||'No answer.')+'</div>';
-  const ids=(d.issueIds||[]).filter(id=>current&&current.byId.has(id));
-  if(ids.length)h+='<div class="cites">'+ids.slice(0,8).map(id=>{const i=current.byId.get(id);return '<button class="cite" type="button" data-id="'+esc(id)+'">'+esc(issueLabel(i.type))+' &middot; '+esc(shortPath(i.affectedUrl))+'</button>';}).join('')+'</div>';
-  return h;
+function answerHtml(d){return '<div class="ans">'+formatAnswer(d.answer||d.error||'No answer.')+'</div>';}
+// The same rule as lib/screenshots.js: is the problem visible on the page?
+${isVisual.toString()}
+// An answer: the text in the bubble, then a card for each issue it is about (screenshot
+// of the page with the problem outlined, what and where, a link into the report), then
+// the closing line. List answers (display "cards") carry the lead and closing line apart
+// from the plain-text version of the list.
+// An answer: the text in the bubble, then the issues it is about. One issue: its card
+// (screenshot of the page with the problem outlined, what and where, Details). Two or
+// more: short numbered points, then all their cards. The rest of a long list is a link
+// card to the web report, filtered to that list.
+function showAnswer(bbl,d){
+  const known=id=>current&&current.byId.has(id);
+  const ids=(d.issueIds||[]).filter(known);
+  const cards=d.display==='cards';
+  const rest=cards?(d.moreIds||[]).filter(known):ids.slice(6);
+  bbl.innerHTML=answerHtml(cards?{answer:d.lead||d.answer}:d);
+  if(!ids.length&&!(cards&&d.tail))return;
+  const row=bbl.closest('.chat-msg');
+  let at=row;
+  if(ids.length===1){
+    const list=el('div','ev-list');list.appendChild(evCard(current.byId.get(ids[0])));
+    at.after(list);at=list;
+  }else if(ids.length>1){
+    // Two or more: short numbered points, then every card at once.
+    const all=ids.slice(0,6),mixed=new Set(all.concat(rest).map(id=>current.byId.get(id).type)).size>1;
+    const pts=el('ol','crisp-list');
+    all.forEach(id=>{const li=el('li');li.innerHTML=crispLine(current.byId.get(id),mixed);pts.appendChild(li);});
+    const box=el('div','pt-box');box.appendChild(pts);
+    const view=el('div','ev-list');
+    all.forEach(id=>view.appendChild(evCard(current.byId.get(id))));
+    if(rest.length&&!cards)view.appendChild(moreButton(view,rest));
+    bbl.appendChild(box);
+    at.after(view);at=view;
+  }
+  // The rest of a list: a link card to the web report, filtered to exactly that list.
+  if(cards&&d.more>0&&current.id&&d.reportHash){
+    const a=el('a','more-card');a.href='/report/'+encodeURIComponent(current.id)+'#'+d.reportHash;a.target='_blank';a.rel='noopener';
+    a.innerHTML='<span class="mc-ico"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4h10M3 8h10M3 12h6"/></svg></span><span class="mc-txt"><b>'+esc(d.moreLabel||('See all '+(d.more+ids.length)))+'</b><span>'+d.more+' more in the report, with screenshots and fixes</span></span><span class="mc-go">&rsaquo;</span>';
+    at.after(a);at=a;
+  }
+  if(cards&&d.tail){
+    const w=el('div','chat-msg agent'),b=el('div','msg-bbl');
+    b.innerHTML=answerHtml({answer:d.tail});w.appendChild(b);at.after(w);at=w;
+  }
+  scroll();
 }
-async function ask(q){
+function moreButton(list,rest){
+  const b=el('button','ev-more');b.type='button';
+  const label=()=>{b.textContent='Show '+Math.min(6,rest.length)+' more';};label();
+  b.addEventListener('click',()=>{rest.splice(0,6).forEach(id=>list.insertBefore(evCard(current.byId.get(id)),b));if(rest.length)label();else b.remove();});
+  return b;
+}
+function crispLine(i,mixed){
+  const on=['image','http','redirect'].includes(i.evidence&&i.evidence.kind),n=(i.foundOn||[]).length;
+  const what=esc(pathOn(i.affectedUrl))+(on&&n?' <span class="dim">on '+esc(pathOn(i.foundOn[0]))+(n>1?' and '+(n-1)+' more':'')+'</span>':'');
+  return (mixed?'<b>'+esc(issueLabel(i.type))+'</b> &middot; ':'')+what;
+}
+function pathOn(u){const h=hostOf(u).replace(/^www\./,''),site=current&&current.run&&current.run.startUrl?hostOf(current.run.startUrl).replace(/^www\./,''):'';return (h&&h!==site?h:'')+shortPath(u);}
+const OWNER_SAYS={P1:'Fix first',P2:'Fix soon',P3:'When you can'};
+// Screenshots load two at a time: one that is still being taken must not hold up the
+// browser's few connections to this server, or the next answer would wait behind it.
+const shotQueue=[];let shotsLoading=0;
+function loadShot(img,ok,fail){shotQueue.push({img,ok,fail});pumpShots();}
+function pumpShots(){
+  while(shotsLoading<2&&shotQueue.length){
+    const j=shotQueue.shift();shotsLoading++;
+    const done=f=>()=>{shotsLoading--;f();pumpShots();};
+    j.img.onload=done(j.ok);j.img.onerror=done(j.fail);j.img.src=j.img.dataset.src;
+  }
+}
+function evCard(i){
+  const c=el('div','ev'),on=['image','http','redirect'].includes(i.evidence&&i.evidence.kind),pages=i.foundOn||[],n=pages.length;
+  const what=pathOn(i.affectedUrl);
+  const where=on&&n?'On '+pathOn(pages[0])+(n>1?' and '+(n-1)+' other page'+(n>2?'s':''):''):'';
+  const m=i.evidence&&i.evidence.matches&&i.evidence.matches[0];
+  const detail=m&&m.text?'<q>'+esc(m.text.slice(0,90))+'</q>'+(m.correction?' &rarr; '+esc(m.correction.slice(0,90)):''):esc(String(i.detail||'').slice(0,180));
+  const shot=current&&current.id&&isVisual(i);
+  const src=shot?'/api/history/'+encodeURIComponent(current.id)+'/shot/'+encodeURIComponent(i.id):'';
+  c.innerHTML='<div class="ev-head">'+(shot?'<button type="button" class="ev-shot" aria-label="View the screenshot"><img alt="Screenshot of '+esc(on&&n?pathOn(pages[0]):what)+'" data-src="'+src+'"></button>':'')+
+    '<div class="ev-txt"><div class="ev-kind"><i class="'+esc(i.priority||'')+'"></i>'+esc(issueLabel(i.type))+'</div>'+
+    '<div class="ev-what">'+esc(what)+'</div>'+(where?'<div class="ev-where">'+esc(where)+'</div>':'')+(detail?'<div class="ev-detail">'+detail+'</div>':'')+
+    '<button type="button" class="ev-open" aria-expanded="false">Details</button></div></div>';
+  const b=c.querySelector('.ev-shot');
+  if(b){const img=b.querySelector('img');loadShot(img,()=>b.classList.add('ok'),()=>b.classList.add('none'));
+    b.addEventListener('click',()=>{if(b.classList.contains('ok'))viewShot(img.src,where||what);});}
+  const t=c.querySelector('.ev-open');
+  t.addEventListener('click',()=>{
+    let box=c.querySelector('.ev-more-info');
+    if(!box){box=evDetails(i,pages,on,b&&!b.classList.contains('none')?src:'');c.appendChild(box);}
+    else box.hidden=!box.hidden;
+    const open=!box.hidden;t.textContent=open?'Hide details':'Details';t.setAttribute('aria-expanded',open);
+    if(open)box.scrollIntoView({block:'nearest',behavior:'smooth'});
+  });
+  return c;
+}
+// Everything the report says about one issue, opened inside the card.
+function evDetails(i,pages,on,src){
+  const box=el('div','ev-more-info'),ty=i._type||{},steps=ty.fixSteps||[];
+  let h='';
+  if(src)h+='<img class="ev-big" alt="" src="'+esc(src)+'">'+'<div class="ev-cap">The problem is outlined in red where it could be found.</div>';
+  if(i.explanation)h+='<h4>What&rsquo;s wrong</h4><p>'+esc(i.explanation)+'</p>';
+  if(steps.length)h+='<h4>How to fix it</h4><ol>'+steps.map(x=>'<li>'+esc(x)+'</li>').join('')+'</ol>';
+  if(i.suggestedValue)h+='<h4>Suggested</h4><div class="ev-sugg"><span>'+esc(i.suggestedValue)+'</span><button type="button" class="copy" data-copy="'+esc(i.suggestedValue)+'">Copy</button></div>';
+  const mm=(i.evidence&&i.evidence.matches)||[];
+  if(mm.length>1)h+='<h4>All mistakes on this page</h4><ul>'+mm.slice(0,10).map(x=>'<li><q>'+esc(String(x.text||'').slice(0,90))+'</q>'+(x.correction?' &rarr; '+esc(String(x.correction).slice(0,90)):'')+'</li>').join('')+'</ul>';
+  if(on&&pages.length)h+='<h4>Found on '+pages.length+' page'+(pages.length===1?'':'s')+'</h4><p class="ev-pages">'+pages.slice(0,12).map(u=>esc(pathOn(u))).join(', ')+(pages.length>12?' and '+(pages.length-12)+' more':'')+'</p>';
+  const facts=[OWNER_SAYS[i.priority],i.owner?'usually fixed by: '+i.owner:'',i.effort?i.effort+' to fix':''].filter(Boolean);
+  if(facts.length)h+='<div class="ev-facts">'+esc(facts.join(' \u00b7 '))+'</div>';
+  box.innerHTML=h||'<p>'+esc(i.detail||'')+'</p>';
+  const big=box.querySelector('.ev-big');if(big)big.onerror=()=>{big.nextSibling&&big.nextSibling.remove();big.remove();};
+  return box;
+}
+function viewShot(src,caption){
+  const v=el('div');v.id='shot-view';v.setAttribute('role','dialog');v.setAttribute('aria-label','Screenshot');
+  v.innerHTML='<img alt="" src="'+esc(src)+'"><span>'+(caption?esc(caption)+' &middot; ':'')+'the problem is outlined in red where it could be found</span>';
+  const close=()=>{v.remove();document.removeEventListener('keydown',key);};
+  const key=e=>{if(e.key==='Escape')close();};
+  v.addEventListener('click',close);document.addEventListener('keydown',key);
+  document.body.appendChild(v);
+}
+async function ask(q,opts){
+  opts=opts||{};
   if(!current&&live&&!live.done&&viewingLive){urlIn.value='';syncBtn();liveAsk(q);return;}
   if(current){
     const instant=answerProcessQuestion(q,doneCtx());
-    if(instant){urlIn.value='';syncBtn();addMsg('user',esc(q));addMsg('agent',answerHtml({answer:instant.answer}));current.asked=(current.asked||[]).concat(q);keepLast(current.sgEl);return;}
+    if(instant){urlIn.value='';syncBtn();addMsg('user',esc(q));addMsg('agent',answerHtml({answer:instant.answer}));showResultSuggest([q]);return;}
   }
   if(!current){addMsg('user',esc(q));addMsg('agent',viewingLive?'I can answer questions about this site once the inspection finishes. Meanwhile you can open a past inspection from the list and ask about that one.':'Inspect a site first, or open a past inspection from the list, then ask me about it.');urlIn.value='';syncBtn();return;}
   urlIn.value='';syncBtn();
-  addMsg('user',esc(q));
+  // A general follow-up ("what should I fix first?") right after a list of one kind of
+  // problem: ask whether it is about that list or the whole site.
+  if(!opts.decided&&current.lastScope&&FOLLOW_UP.test(q)&&!WHOLE_SITE.test(q)){chooseScope(q,current.lastScope);return;}
+  addMsg('user',esc(opts.echo||q));
   const bbl=addMsg('agent','<span class="typing" aria-label="Thinking"><i></i><i></i><i></i></span>');
   try{
-    const r=await fetch('/api/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:q,inspectionId:current.id})});
-    bbl.innerHTML=answerHtml(await r.json());
+    const body={question:q,inspectionId:current.id};
+    if(opts.scope)body.scope=opts.scope.types;
+    const r=await fetch('/api/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const d=await r.json();
+    showAnswer(bbl,d);
+    // The topic of this answer is what the next follow-up may be about.
+    if(d.display==='cards')current.lastScope=d.scope||(opts.scope&&d.issueIds&&d.issueIds.length?opts.scope:null);
+    else if(d.issueIds&&d.issueIds.length)current.lastScope=null;
   }catch(e){bbl.innerHTML='<span style="color:var(--high)">I couldn&rsquo;t get an answer just now. Please try again.</span>';}
-  if(current){current.asked=(current.asked||[]).concat(q);keepLast(current.sgEl);}
+  if(current)showResultSuggest([q]);
   scroll();
 }
-// An issue mentioned in an answer opens in the web report, at that issue.
-function reveal(id){
-  if(current&&current.id)window.open('/report/'+encodeURIComponent(current.id)+'#'+encodeURIComponent(id),'_blank','noopener');
+const FOLLOW_UP=/\b(fix|do|tackle|start)\b.*\bfirst\b|\bpriorit|\b(most )?(urgent|important|critical|serious)\b|\bquick (wins?|fix(es)?)\b|\beasy (wins?|fix(es)?)\b|\bwhere (do|should) i start\b/i;
+const WHOLE_SITE=/\b(overall|whole|entire|all|site[- ]?wide|everything|every)\b/i;
+function chooseScope(q,scope){
+  addMsg('user',esc(q));
+  const bbl=addMsg('agent','Just the '+esc(scope.noun)+', or across the whole site?');
+  const row=el('div','suggest scope-pick');
+  row.innerHTML='<div class="sg-chips"><button type="button" class="sq" data-k="scope">Just the '+esc(scope.noun)+'</button><button type="button" class="sq" data-k="all">The whole site</button></div>';
+  bbl.closest('.chat-msg').after(row);
+  row.querySelectorAll('.sq').forEach(b=>b.addEventListener('click',()=>{
+    row.remove();
+    const pick=b.dataset.k==='scope';
+    if(!pick)current.lastScope=null;
+    ask(q,{decided:true,scope:pick?scope:null,echo:b.textContent});
+  }));
+  keepLast(current.sgEl);scroll();
 }
 chatIn.addEventListener('click',e=>{
-  const c=e.target.closest('.cite');if(c){reveal(c.dataset.id);return;}
+  const big=e.target.closest('.ev-big');if(big){viewShot(big.src,'');return;}
   const b=e.target.closest('.copy');
   if(b){e.stopPropagation();navigator.clipboard&&navigator.clipboard.writeText(b.dataset.copy).then(()=>{b.textContent='Copied';setTimeout(()=>b.textContent='Copy',1200);}).catch(()=>{});}
 });
@@ -967,7 +1155,8 @@ async function openInspection(id){
   tbTitle.textContent=url;
   addMsg('user',esc(url),meta.startedAt);
   renderResults(registry,url,report,id,meta);
-  for(const c of chat){addMsg('user',esc(c.question),c.at);addMsg('agent',answerHtml(c),c.at);}
+  for(const c of chat){addMsg('user',esc(c.question),c.at);showAnswer(addMsg('agent','',c.at),c);}
+  const lastC=chat[chat.length-1];current.lastScope=lastC&&lastC.display==='cards'&&lastC.scope?lastC.scope:null;
   showResultSuggest(chat.map(c=>c.question));
   // Start at the top of the inspection (addMsg scrolls to the bottom on the next frame).
   requestAnimationFrame(()=>requestAnimationFrame(()=>{chatA.style.scrollBehavior='auto';chatA.scrollTop=0;chatA.style.scrollBehavior='';}));
