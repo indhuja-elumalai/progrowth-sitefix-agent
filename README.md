@@ -203,7 +203,10 @@ progrowth-sitefix-agent/
 │   ├── chat.js                        answers questions from one report only; checks every cited issue id
 │   ├── history.js                     past inspections in history/<run-id>/: save, list, open, delete
 │   ├── report-html.js                 the printable report (HTML that report.js turns into the PDF)
-│   ├── web-report.js                  the interactive web report: filters, search, screenshots; also a single downloadable file
+│   ├── web-report.js                  the live web report: score, levels, coach messages, I fixed it / Check it now; also one downloadable file
+│   ├── score.js                       the site score (0-100, on-page / technical / off-page), points per fix, levels
+│   ├── coach.js                       the live report's messages: AI wording, checked; numbers are placeholders
+│   ├── verify.js                      Check it now: the crawl's rules run again on the live site for chosen issues
 │   ├── ai-provider.js                 the only code that talks to an AI: OpenAI or the mock, from .env
 │   ├── ai-mock.js                     the mock AI (no key, no network) for demos, tests and CI
 │   └── env.js                         reads .env without overriding real environment variables
@@ -1457,6 +1460,123 @@ Nothing is saved to the history for a site that couldn't be opened. Checked in
 a browser: two sites, an almost-address, an email, a domain that doesn't exist
 and a start page that is a 404 each got the right reply; the fixture still
 scores 34 of 34. Tests: 282 (8 more).
+
+### Day 28: the live report
+
+The report the chat links to (`/report/<run-id>`) is no longer a list to read.
+It coaches the client through the fixes, and the score goes up as they work.
+The chat itself is unchanged, and so are the PDF, Print and Download.
+
+**The score** (`lib/score.js`). The page opens with a score out of 100 and three
+area scores:
+
+- on-page: titles, descriptions, headings, content, spelling, alt text;
+- technical: links, redirects, indexing, security, phone set-up, images
+  loading, speed;
+- off-page: sharing tags and links to other sites. Backlinks and reviews need
+  outside data and aren't measured yet, and the page says so.
+
+The score is rule-based, so the same site always gets the same score:
+
+- each issue costs points by severity (high 6, medium 3, low 1), more when it
+  is on many pages;
+- each kind of problem levels off below a cap (high 20, medium 10, low 4), so
+  one problem on 170 pages can't sink the score;
+- an area scores `100 / (1 + lost / 100)`, so it never reaches 0 and every fix
+  shows.
+
+The real sites inspected this week score between 48 and 86. Fixing all the
+urgent issues is worth about 8 to 12 points.
+
+**Levels, not a plan.** The page has three levels: Level 1 urgent fixes (P1),
+Level 2 important fixes (P2) and Level 3 polish (P3). It names the current level
+and shows a progress bar for it. The client fixes in any order. When the last
+urgent fix is done, the next level opens with a message.
+
+**Cards.** Each kind of problem is a card in its level, easy ones first. A card
+shows:
+
+- the points it is worth: exactly how far the score will move, or "<1" for
+  small ones;
+- how easy it is, its area and who fixes it;
+- what visitors face, and a short nudge;
+- "How to fix", which opens the steps, every page with its evidence and
+  screenshot, and a tick per page;
+- "I fixed it": the score rises at once;
+- "Check it now": SiteFix checks the live site again.
+
+Filters: area, easy only, and search. The chat's links still open the page
+filtered (`#type=`, `#p=`, `#qw=1`) or on one issue (`#ISS-…`).
+
+**SiteFix's messages.** A feed under the score posts as the client works:
+
+- the first message, or "welcome back" on a return visit;
+- a new score after each fix;
+- confirmation after a live check, or reassurance if the problem is still there;
+- a level finished;
+- the next easy win (with "Show me"), now and then.
+
+**AI writes the words, never the facts** (`lib/coach.js`). With AI on,
+`report.js` asks the model once for the wording of every message, and a visitor
+line and a nudge for each kind of problem. Every number, issue name and site
+name is a placeholder like `{score}`, `{gain}`, `{issue}`. The page fills these
+in from the measured data and the score.
+
+Every AI message is checked before it is used. A message is rejected if it has:
+
+- a number of its own (only "out of 100" is allowed);
+- an address or site name;
+- a placeholder that message may not use;
+- a promise ("guarantee", "rank first", "double your traffic");
+- HTML;
+- another issue's name;
+- the wrong length.
+
+A message that fails, and every message when AI is off, uses the built-in text.
+So the words can change, but the issue, the fix and the numbers can't. The mock
+AI's answer for one kind of problem fails a check on the fixture, and the
+report uses the standard line instead. Older reports without these messages get
+the built-in ones.
+
+**Check it now** (`lib/verify.js`, `POST /api/history/:id/verify`). This runs
+the crawl's own rules again on the live site:
+
+- titles, descriptions, headings, indexing, sharing tags, page set-up,
+  placeholders, repeated words: the page is opened in Chromium again;
+- spelling: the quoted mistakes must be gone;
+- links and images: the address works again, or the pages no longer use it;
+- alt text: on the pages it was found on;
+- image size: the image is downloaded again;
+- redirects: followed hop by hop;
+- speed: the phone speed test runs on that page.
+
+Duplicates, thin content, soft 404s and the https/www checks need the whole
+site, so they are confirmed by the next inspection, and the page says so. Each
+check opens at most 20 pages. The page sends the rest in further rounds. One
+check runs at a time.
+
+**Progress is kept.**
+
+- On the live page: in `history/<run-id>/progress.json` (`GET`/`PUT
+  /api/history/:id/progress`, same origin only, cleaned to known shapes).
+- In the downloaded file: in the client's own browser. That file has no "Check
+  it now" and no links back to the server, as before.
+
+The page still loads nothing from the network. It reads and prints fine without
+JavaScript: print opens every card and hides the buttons and messages.
+
+**Checked.**
+
+- In a browser on the fixture through the UI server: "I fixed it" moved the
+  score from 74 to 76 and posted the message; "Check it now" on the unchanged
+  site said "still there" and took the points back; a reload kept the progress;
+  the chat's links filtered and opened the right cards.
+- `lib/verify.js` on all 34 fixture issues: all 26 it can check came back
+  "still", with none falsely fixed. After real edits to fixture pages (a title
+  added, a broken link replaced, alt text added, `lang` added), those came back
+  "fixed".
+- Fixture: 34 of 34.
+- Tests: 311 (29 new: score, coach checks, verify rules, progress, the page).
 
 ## 13. Security principles
 
