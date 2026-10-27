@@ -12,6 +12,9 @@
 //                   in progress, like a server that renders pages on demand
 //   --cold-ms N     the first request for each page takes N ms longer, like a server
 //                   that builds a page on its first visit (a cold cache)
+//   --weight-kb N   each page also loads 12 images below the first screen, N KB in all
+//                   (not lazy-loaded), like a heavy marketing page; for timing the
+//                   phone speed test (bench/speed-diag.js)
 //   GET /__stats    how many page requests (GET and HEAD) the server has answered
 //   http://localhost:4100/         home page; /p/1 ... /p/N content pages
 //   http://localhost:4101/         a second host for external links
@@ -22,6 +25,7 @@
 // tag that JavaScript adds 0.6 s after the page loads (a slow check must still see it).
 
 import { createServer } from "node:http";
+import { deflateSync } from "node:zlib";
 
 const args = process.argv.slice(2);
 const opt = (n, d) => { const i = args.indexOf(`--${n}`); return i !== -1 ? Number(args[i + 1]) : d; };
@@ -31,6 +35,20 @@ const LATENCY = opt("latency", 120); // ms per HTML response
 const LIMIT_RPS = opt("limit-rps", 0);
 const LOAD_MS = opt("load-ms", 0);
 const COLD_MS = opt("cold-ms", 0);
+const WEIGHT_KB = opt("weight-kb", 0);
+// A real (decodable) PNG of about the right size: random pixels, stored uncompressed.
+// Browsers stop downloading an image they can't decode, so filler bytes would not count.
+function pngOfSize(bytes) {
+    const crcTable = Array.from({ length: 256 }, (_, n) => { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; return c >>> 0; });
+    const crc = (buf) => { let c = 0xffffffff; for (const b of buf) c = crcTable[(c ^ b) & 0xff] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; };
+    const chunk = (type, data) => { const len = Buffer.alloc(4); len.writeUInt32BE(data.length); const td = Buffer.concat([Buffer.from(type), data]); const c = Buffer.alloc(4); c.writeUInt32BE(crc(td)); return Buffer.concat([len, td, c]); };
+    const w = 300, h = Math.max(1, Math.round(bytes / (w * 3 + 1)));
+    const raw = Buffer.alloc((w * 3 + 1) * h);
+    for (let i = 0; i < raw.length; i++) raw[i] = i % (w * 3 + 1) === 0 ? 0 : (i * 2654435761) >>> 24;
+    const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4); ihdr[8] = 8; ihdr[9] = 2;
+    return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk("IHDR", ihdr), chunk("IDAT", deflateSync(raw, { level: 0 })), chunk("IEND", Buffer.alloc(0))]);
+}
+const WEIGHT_IMG = WEIGHT_KB ? pngOfSize(Math.round((WEIGHT_KB * 1024) / 12)) : Buffer.alloc(0);
 const warm = new Set();
 let inflight = 0;
 const stats = { pageGet: 0, pageHead: 0, other: 0 };
@@ -65,6 +83,7 @@ function page(i) {
         `<img src="/img/a-${i}.jpg" alt="Detail view of ${names[i]}" loading="lazy">`,
         `<img src="/img/b-${i}.jpg" alt="Diagram of ${names[i]}" loading="lazy">`];
     if (i === 33) imgs.push('<img src="/img/missing.jpg" alt="A picture that is not there">');
+    if (WEIGHT_KB) for (let k = 0; k < 12; k++) imgs.push(`<img src="/img/w-${i}-${k}.png" alt="Gallery picture ${k + 1} of ${names[i]}" width="300" height="200" style="display:block;margin-top:400px">`);
     const extra = [];
     if (i === 17) extra.push('<a href="/p/9999">An old page</a>');
     if (i === 21) extra.push('<a href="/old">The previous version</a>');
@@ -112,6 +131,11 @@ createServer(async (req, res) => {
     if (p === "/font.woff2") { await sleep(150); res.writeHead(200, { "content-type": "font/woff2", "content-length": FONT.length }); return res.end(req.method === "HEAD" ? undefined : FONT); }
     if (p === "/old") { await sleep(LATENCY / 2); res.writeHead(301, { location: "/p/2" }); return res.end(); }
     let m;
+    if (/^\/img\/w-\d+-\d+\.png$/.test(p)) {
+        await sleep(40);
+        res.writeHead(200, { "content-type": "image/png", "content-length": WEIGHT_IMG.length, "cache-control": "no-store" });
+        return res.end(req.method === "HEAD" ? undefined : WEIGHT_IMG);
+    }
     if ((m = p.match(/^\/img\/(hero|a|b)-(\d+)\.jpg$/))) {
         const body = m[1] === "hero" ? HERO : SMALL;
         await sleep(60 + body.length / 20000);
