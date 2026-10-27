@@ -79,7 +79,7 @@ async function main() {
     loadEnv();
     const registry = await readJson("issues.json");
     if (!registry) { console.error("issues.json not found: run the crawler first (node crawl.js <url>)."); process.exit(1); }
-    const [links, images, content, metadata] = await Promise.all(["links.json", "images.json", "content.json", "metadata.json"].map(readJson));
+    const [links, images, content, metadata, speed] = await Promise.all(["links.json", "images.json", "content.json", "metadata.json", "speed.json"].map(readJson));
     const startUrl = registry.run?.startUrl;
 
     const issues = registry.issues.map((i) => ({ ...i, ...triage(i, { startUrl }) }));
@@ -119,7 +119,7 @@ async function main() {
         run: registry.run,
         ai: { provider: provider ? provider.name : "none", model: provider ? provider.model : null, ...stats },
         summary: triageSummary(issues),
-        summaries: { links: links?.summary, images: images?.summary, content: content?.summary, metadata: metadata?.summary },
+        summaries: { links: links?.summary, images: images?.summary, content: content?.summary, metadata: metadata?.summary, speed: speed?.summary || null },
         types: types.map((t) => ({ ...t, issues: t.issues.map((i) => ({ ...i, screenshot: shotFiles.has(i.id) ? `shots/${i.id}.jpg` : null })) })),
     };
     await mkdir(OUT, { recursive: true });

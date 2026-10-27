@@ -87,6 +87,8 @@ const navLinks = [
   ["social-partial.html", "Partial share tags page"], ["page-setup.html", "Page setup page"],
   ["location-austin.html", "Austin office"], ["location-denver.html", "Denver office"], ["draft-page.html", "Draft page"],
   ["typos-page.html", "Typos page"],
+  ["slow-hero.html", "Slow hero page"], ["layout-shift.html", "Layout shift page"], ["busy-page.html", "Busy page"],
+  ["heavy-page.html", "Heavy page"],
 ];
 const nav = navLinks.map(([f, l]) => `<li><a href="/${f}">${l}</a></li>`).join("");
 
@@ -267,6 +269,46 @@ const pages = [
     body: long("This page explains how enquiries are handled.") +
       "<p>We recieve every enquiry through the contact form and reply within one working day.</p>" +
       "<p>Our team will seperate urgent requests from routine ones so nothing important waits.</p>"
+  },
+  // ---- Page speed (lib/speed.js, a phone over slow 4G) ----
+  {
+    // F-31: the hero image fills the first screen and fixture/server.js sends it after
+    // 4.5 seconds, so the main content (LCP) appears late on any connection.
+    file: "slow-hero.html", title: "Slow Hero Page with a Late Main Image",
+    desc: "A landing page whose large hero image arrives late from the server, used to test the slow main content rule.",
+    h1: "Welcome to the studio",
+    body: '<img src="/img/slow-hero.svg" alt="Studio reception with the team at work" width="412" height="700" style="display:block;width:100%;height:700px;object-fit:cover">' +
+      long("The hero image above is the largest thing on the first screen.")
+  },
+  {
+    // F-32: half a second after loading, a tall banner is inserted at the top and
+    // pushes the whole page down (a large layout shift).
+    file: "layout-shift.html", title: "Layout Shift Page with a Late Top Banner",
+    desc: "A page where a banner appears at the top after loading and pushes the content down, used to test layout shift.",
+    h1: "Spring offers",
+    body: long("A banner appears above this text shortly after the page loads.") +
+      "<script>setTimeout(function(){var b=document.createElement('div');b.style.cssText='height:420px;background:#EE6C4D;color:#fff;padding:20px';" +
+      "b.textContent='Book a free audit this month.';document.body.insertBefore(b,document.body.firstChild);},500);</script>"
+  },
+  {
+    // F-33: after loading, three scripts each keep the page busy for 400 ms, so taps
+    // would not respond for over a second (total blocking time).
+    file: "busy-page.html", title: "Busy Page with Long Scripts After Loading",
+    desc: "A page that runs three long scripts after it loads, so it cannot respond to taps, used to test blocking time.",
+    h1: "Interactive pricing",
+    body: long("The pricing calculator on this page runs heavy scripts after loading.") +
+      "<script>addEventListener('load',function(){function busy(){var t=Date.now();while(Date.now()-t<400){}}" +
+      "setTimeout(busy,0);setTimeout(busy,450);setTimeout(busy,900);});</script>"
+  },
+  {
+    // F-34: a small decorative background image that is a 3.3 MB file, so the page
+    // downloads over 3 MB in total. A CSS background is not an <img>, so the
+    // oversized-image rule does not see it; the page weight does.
+    file: "heavy-page.html", title: "Heavy Page with a Very Large Background File",
+    desc: "A page with a small decorative background that is a very large file, used to test the total page weight rule.",
+    h1: "Our materials",
+    body: long("A small textured badge sits below this text.") +
+      '<div style="width:24px;height:24px;background:url(/img/heavy-texture.png) center/cover"></div>'
   },
   {
     file: "canonical-to-404.html", title: "Canonical Pointing at a Missing Page",

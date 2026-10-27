@@ -184,6 +184,7 @@ progrowth-sitefix-agent/
 │   ├── copy.js                        spelling and grammar: built-in misspellings list + AI proofreading with guardrails
 │   ├── content.js                     content rules: boilerplate removal, thin pages, near-duplicates (MinHash), placeholder text, repeated words
 │   ├── images.js                      image rules: pick the real src, decorative or not, alt text, size, mixed content
+│   ├── speed.js                       phone speed test: LCP, CLS, TBT, TTFB, page weight; which pages; ratings and issues
 │   ├── issues.js                      issue schema, severity and fix-class catalog, registry builder and validator
 │   ├── progress.js                    live progress lines from crawl.js / report.js to the UI: counts, steps, findings, time left
 │   ├── suggest.js                     suggested questions from the kinds of problems found (the page carries a copy)
@@ -213,6 +214,7 @@ progrowth-sitefix-agent/
 │   ├── copy.test.js                   misspellings list, quote-must-exist and site-vocabulary guardrails, caching
 │   ├── content.test.js                unit tests for lib/content.js
 │   ├── images.test.js                 unit tests for lib/images.js
+│   ├── speed.test.js                  thresholds, page sample, CLS windows, issues, summary, a real phone test
 │   ├── issues.test.js                 unit tests for lib/issues.js
 │   ├── triage.test.js                 priority, effort, owner; every type has a rule and guidance
 │   ├── explain.test.js                guardrails (invented URLs, bad ids, value lengths), fallbacks, cache
@@ -436,6 +438,8 @@ owner, explanation, fix and suggested value), `audit-report/report.html`,
 ```bash
 node crawl.js https://your-site.com            # whole site, no page cap
 node crawl.js https://your-site.com --max-pages 50   # quick partial run
+node crawl.js https://your-site.com --speed-pages 0  # phone speed test on every page (default: 40)
+node crawl.js https://your-site.com --no-speed       # skip the speed test
 ```
 
 By default it crawls every internal page it can reach: everything linked
@@ -512,6 +516,12 @@ each step took (`summary.seconds`) and how often a site asked to slow down
   from `data-src` / `srcset` when `src` is only a placeholder. Limits:
   alt text up to 125 characters, files up to 300 KB (`IMAGE_LIMITS` in
   `lib/images.js`).
+- `speed.json`: the phone speed test (lib/speed.js). A summary (pages
+  tested, medians, how many pages are good / need work / poor on each
+  measure, how many pass Core Web Vitals, the slowest pages) and one entry
+  per page tested: LCP, CLS, TBT, TTFB, FCP, load time, page weight and
+  files, what the main content is, which elements moved, and the largest
+  files.
 
 ### Issue records
 
@@ -1285,6 +1295,70 @@ points with all three cards under them; the "See all
 first?" then asked "Just the large images, or across the whole site?" and each
 button gave the right list; answers came back the same after a reload; phone
 width fits with no sideways scroll; no console errors. Tests: 257 (20 new).
+
+### Day 26: page speed
+
+After the other checks, the crawler now times pages the way a visitor on a
+mid-range phone over 4G gets them (`lib/speed.js`, like the "mobile" test in
+Google's PageSpeed Insights): a phone screen, the network slowed to slow 4G
+(150 ms latency, 1.6 Mbit/s), the CPU slowed 4x, an empty cache, and nothing
+blocked (images, fonts, video and tracking scripts all load, unlike the crawl).
+For each page it measures, with the browser's own timings:
+
+| Measure | What it means | Good | Poor |
+|---|---|---|---|
+| LCP | when the main content (largest image or text block) appears | ≤ 2.5 s | > 4 s |
+| CLS | how much the layout jumps while loading | ≤ 0.1 | > 0.25 |
+| TBT | how long scripts keep the page from responding (lab stand-in for INP) | ≤ 200 ms | > 600 ms |
+| TTFB | how long the server takes to start answering | ≤ 0.8 s | > 1.8 s |
+| Page weight | everything the page downloads | ≤ 3 MB | > 6 MB |
+
+Up to 40 pages are tested (`--speed-pages N`, 0 = all; `--no-speed` skips it):
+the home page first, then one page of each kind (`/blog/*`, `/services/*`),
+then more of each in turn, three at a time, each in its own fresh browser
+context. Each slow measure on a page is one issue in a new "Page speed"
+category: poor is medium severity, needs work is low (the home page goes up a
+level as usual), so a broken page still outranks a slow one. The evidence has
+every measure, what the main content is, which element moved most, and the
+largest files. TTFB is taken from the browser's network events, because under a
+slowed network the page's own timing reports the answer before it arrives; CLS
+counts every shift, because Chrome's phone emulation marks the first half
+second as "after input" though nothing was tapped.
+
+In the chat: "How fast are my pages?" (also "is my site slow", "Core Web
+Vitals") answers with the site-wide picture and the main reason pages fail
+("On a phone over 4G, your pages show their main content in about 1.0 s (good:
+under 2.5 s). None of the 40 pages tested pass Google's Core Web Vitals, mostly
+because 40 are too busy to respond while loading (about 295 ms; good: under
+200 ms).") and the three pages with the most to fix as cards, each showing its
+most telling problem (one only that page has before one every page shares);
+Details shows every measure marked Good / Needs work / Poor, the main content
+and the largest files. Narrower questions ("does the layout jump?", "which
+pages are heavy?", "is the server slow?", "are pages unresponsive?") list just
+that problem. The end-of-inspection message adds the median main-content time,
+the progress card has a "Page speed" step, and the chat says when the timing
+starts. These are lab numbers from one run on this machine: close to
+PageSpeed Insights, not Google's field data from real Chrome users (that needs
+a Google API key; a later step).
+
+Fixture v8 plants four speed faults: a hero image the server sends after 4.5 s
+(F-31, slow main content), a 420 px banner inserted after 0.5 s (F-32, layout
+shift), three 400 ms scripts after loading (F-33, blocking time), and a 3.3 MB
+background file (F-34, page weight; a CSS background, so the oversized-image
+rule does not see it, and a PNG whose padding the decoder never reads, so it
+costs download time only: as a 3.3 MB SVG it kept the slower CI machine busy
+parsing it, which showed up as blocking time). The CI self-check now requires
+all 34; it passes locally with both CPU cores kept busy by other work. Result: 34 of 34 found, no false positives; the fixture
+crawl takes about 50 s instead of 25 s (the 3.3 MB file on slow 4G takes 17 s).
+Checked in a browser: the "Page speed" step and its message during the run,
+the median in the closing message, "How fast are my pages?" with three cards
+and the measures in Details, no console errors. Tests: 266 (9 new).
+
+On progrowth.services (174 pages, 40 timed, inspection 3:21 in all): main
+content in about 1.0 s on the median page (8 pages over 2.5 s), blocking time
+about 295 ms on every page (the same scripts load everywhere), server response
+over 0.8 s on 11 pages, one page whose layout jumps (CLS 0.27) and one page over
+3 MB.
 
 ## 13. Security principles
 

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildReportHtml, MAX_INSTANCES_IN_PDF } from "../lib/report-html.js";
+import { buildReportHtml, evidenceFacts, MAX_INSTANCES_IN_PDF } from "../lib/report-html.js";
 
 const inst = (n, over = {}) => ({ id: `ISS-${String(n).padStart(10, "0")}`, type: "image-broken", category: "Images", priority: "P1", effort: "easy", owner: "Developer", quickWin: true, affectedUrl: `https://x.test/i${n}.png`, foundOn: ["https://x.test/"], detail: "Image returns 404", explanation: `Image ${n} <b>is</b> broken`, suggestedValue: null, evidence: { kind: "image", src: `https://x.test/i${n}.png`, status: 404 }, ...over });
 const report = (issues) => ({
@@ -35,4 +35,12 @@ test(`long lists are capped at ${MAX_INSTANCES_IN_PDF} per type with a count of 
     const html = buildReportHtml({ report: report(Array.from({ length: MAX_INSTANCES_IN_PDF + 3 }, (_, n) => inst(n))) });
     assert.equal((html.match(/class="inst"/g) || []).length, MAX_INSTANCES_IN_PDF);
     assert.match(html, /and 3 more of this type/);
+});
+
+test("speed evidence: the issue's own measure first, with the largest files for page weight", () => {
+    const rows = evidenceFacts({ kind: "speed", metric: "bytes", lcpMs: 3100, lcpElement: "the image hero.jpg", cls: 0.02, tbtMs: 120, ttfbMs: 400, bytes: 4.2 * 1048576, requests: 88, biggest: [{ url: "https://x.test/v/intro.mp4?x=1", type: "media", bytes: 2.5 * 1048576 }] });
+    const heads = [...rows.matchAll(/<th>([^<]+)<\/th>/g)].map((m) => m[1]);
+    assert.deepEqual(heads.slice(0, 3), ["Page weight", "Largest files", "Main content (LCP)"]);
+    assert.match(rows, /4\.2 MB in 88 files/);
+    assert.match(rows, /intro\.mp4 \(2\.5 MB\)/);
 });
