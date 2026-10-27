@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, writeFile, readFile, readdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { createHistory, isRunId, summarize } from "../lib/history.js";
+import { createHistory, isRunId, summarize, cleanProgress } from "../lib/history.js";
 
 const SHOT = "ISS-0123456789.jpg";
 
@@ -155,4 +155,25 @@ test("setShot records a screenshot taken later in the saved report; queued write
     const { report } = await h.load(id);
     assert.equal(report.types[0].issues[0].screenshot, `shots/${SHOT}`);
     assert.throws(() => h.setShot("../x", "ISS-0123456789"), /bad inspection id/);
+});
+
+test("the live report's progress is saved with the inspection, cleaned, and the last save wins", async () => {
+    const root = await project();
+    const h = createHistory({ root });
+    await h.sync();
+    const id = "run-20261019T101500";
+    assert.deepEqual(await h.getProgress(id), { fixed: {}, posts: [], visits: 0, last: 0 });
+    await Promise.all([
+        h.setProgress(id, { fixed: { "ISS-0123456789": "marked" }, visits: 1 }),
+        h.setProgress(id, { fixed: { "ISS-0123456789": "verified", "ISS-abcdefabcd": "marked", "../../etc": "marked", "ISS-ffffffffff": "hacked" }, posts: [{ at: 1, text: "Hi", action: { type: "lang-missing" } }, { at: 2, text: 5 }, { at: 3, text: "x", action: { type: "<b>" } }], visits: 2, last: 9 }),
+    ]);
+    assert.deepEqual(await h.getProgress(id), {
+        fixed: { "ISS-0123456789": "verified", "ISS-abcdefabcd": "marked" },
+        posts: [{ at: 1, text: "Hi", action: { type: "lang-missing" } }, { at: 3, text: "x", action: null }],
+        visits: 2, last: 9,
+    });
+    assert.equal(await h.getProgress("run-20990101T000000"), null);
+    assert.equal(await h.setProgress("run-20990101T000000", {}), false, "no folder is made for an unknown inspection");
+    assert.equal(cleanProgress({ posts: Array.from({ length: 50 }, (_, k) => ({ at: k, text: "a".repeat(900) })) }).posts.length, 30);
+    assert.equal(cleanProgress({ posts: [{ at: 1, text: "a".repeat(900) }] }).posts[0].text.length, 400);
 });

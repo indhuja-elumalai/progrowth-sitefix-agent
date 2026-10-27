@@ -25,7 +25,11 @@
 //                                          kept) when the report has none (lib/screenshots.js)
 //   DELETE /api/history/:id              → delete one inspection
 //   DELETE /api/history                  → delete all inspections
-//   GET    /report/:id                   → the web report for one inspection (lib/web-report.js)
+//   GET    /api/history/:id/progress     → the live report's progress (what the client fixed, messages)
+//   PUT    /api/history/:id/progress     → save it (same origin only, like DELETE)
+//   POST   /api/history/:id/verify       → { ids } → checks the live site again for those issues
+//                                          (lib/verify.js): { results: { [id]: { status, detail } } }
+//   GET    /report/:id                   → the live web report for one inspection (lib/web-report.js)
 //   GET    /report/:id/download          → the same report as one file, screenshots built in
 // DELETE is same-origin only: the CORS preflight below never allows it.
 //
@@ -45,6 +49,8 @@ import { createHistory, isRunId } from "../lib/history.js";
 import { buildWebReport, reportFileName } from "../lib/web-report.js";
 import { parseProgressLine } from "../lib/progress.js";
 import { shotPlan, createShooter } from "../lib/screenshots.js";
+import { verifyIssues, createRenderer, MAX_VERIFY } from "../lib/verify.js";
+import { measurePages } from "../lib/speed.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, ".."); // project root
@@ -126,6 +132,36 @@ function parseBody(req, limit = 20000) {
     req.on("end", () => { try { resolve(JSON.parse(buf || "{}")); } catch { resolve({}); } });
     req.on("error", reject);
   });
+}
+
+// "Check it now" in the live report: one check at a time, so the site (and this
+// machine) never gets several browsers at once.
+let verifying = Promise.resolve();
+async function verifyRequest(req, res, id) {
+  const body = await parseBody(req, 50000);
+  const ids = new Set((Array.isArray(body.ids) ? body.ids : []).filter((x) => typeof x === "string" && /^ISS-[0-9a-f]{10}$/.test(x)).slice(0, MAX_VERIFY));
+  if (!ids.size) return json(res, 400, { error: "No issues to check" });
+  const saved = await history.load(id);
+  if (!saved?.report) return json(res, 404, { error: "Inspection not found" });
+  const issues = (saved.report.types || []).flatMap((t) => t.issues || []).filter((i) => ids.has(i.id));
+  const run = async () => {
+    const { chromium } = await import("playwright");
+    const renderer = createRenderer({ chromium });
+    try {
+      return await verifyIssues(issues, {
+        renderPage: (u) => renderer.render(u),
+        measure: async (u) => (await measurePages([u], { chromium, concurrency: 1 }))[0] || null,
+        timeBudgetMs: 60000,
+      });
+    } finally { await renderer.close(); }
+  };
+  const job = verifying.then(run, run);
+  verifying = job.catch(() => {});
+  try {
+    return json(res, 200, { results: await job, checkedAt: new Date().toISOString() });
+  } catch (err) {
+    return json(res, 500, { error: `The check could not run: ${err.message}` });
+  }
 }
 
 const server = createServer(async (req, res) => {
@@ -385,7 +421,7 @@ const server = createServer(async (req, res) => {
       const html = buildWebReport({
         report: saved.report,
         shotSrc: (i) => (i.screenshot ? base + i.screenshot : null),
-        links: { download: `/report/${encodeURIComponent(id)}/download`, pdf: saved.meta.hasPdf ? `${base}report.pdf` : null },
+        links: { download: `/report/${encodeURIComponent(id)}/download`, pdf: saved.meta.hasPdf ? `${base}report.pdf` : null, api: base },
       });
       res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
       return res.end(html);
@@ -416,6 +452,15 @@ const server = createServer(async (req, res) => {
         if (method === "GET") { const saved = await history.load(id); return saved ? json(res, 200, saved) : json(res, 404, { error: "Inspection not found" }); }
         if (method === "DELETE") return (await history.remove(id)) ? json(res, 200, { deleted: id }) : json(res, 404, { error: "Inspection not found" });
         return json(res, 405, { error: "Method not allowed" });
+      }
+      if (parts[1] === "progress" && parts.length === 2) {
+        if (method === "GET") { const p = await history.getProgress(id); return p ? json(res, 200, p) : json(res, 404, { error: "Inspection not found" }); }
+        if (method === "PUT") return (await history.setProgress(id, await parseBody(req, 200000))) ? json(res, 200, { saved: true }) : json(res, 404, { error: "Inspection not found" });
+        return json(res, 405, { error: "Method not allowed" });
+      }
+      if (parts[1] === "verify" && parts.length === 2) {
+        if (method !== "POST") return json(res, 405, { error: "Method not allowed" });
+        return verifyRequest(req, res, id);
       }
       if (method !== "GET") return json(res, 405, { error: "Method not allowed" });
       if (parts[1] === "shot" && parts.length === 3) return issueShot(res, id, parts[2]);
