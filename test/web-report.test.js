@@ -91,3 +91,11 @@ test("reportFileName is safe for any start URL", () => {
     assert.equal(reportFileName({ run: { startUrl: "http://localhost:4000/", startedAt: "2026-01-02T00:00:00Z" } }), "sitefix-localhost-4000-2026-01-02.html");
     assert.equal(reportFileName({ run: { startUrl: "not a url/../x" } }), "sitefix-not-a-url-..-x-report.html");
 });
+
+test("a large site read in part says so under the title, and the chat's filter links work", () => {
+    const r = sample();
+    r.run.partial = { reason: "time", pagesFound: 3003 };
+    const html = buildWebReport({ report: r });
+    assert.match(html, /12 pages crawled \(a share of every section of a larger site: at least 3003 pages found\)/);
+    assert.match(html, /function fromHash\(h\)/, "reads #type=, #p= and #qw= from links in the chat");
+});

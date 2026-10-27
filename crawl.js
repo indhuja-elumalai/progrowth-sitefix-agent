@@ -2,9 +2,11 @@
 // Usage: node crawl.js https://your-site.com [--max-pages 0] [--concurrency 8]
 //          [--link-concurrency 16] [--per-host 6] [--settle-ms 1500] [--quiet-ms 400]
 //          [--delay-ms 0] [--full-render] [--keep-trackers] [--block "pattern,..."]
-//          [--no-sitemap] [--no-ai] [--copy-ai] [--no-speed] [--speed-pages 40]
+//          [--no-sitemap] [--no-ai] [--copy-ai] [--no-speed] [--speed-pages 40] [--speed-seconds 0]
+//          [--time-budget 0]
 //
-// Page speed (Day 26): after the other checks, up to --speed-pages pages (default 40,
+// Page speed (Day 26, faster on Day 27): once the pages are read, up to --speed-pages
+// pages (default 40; --speed-seconds N stops starting new ones after N s, the chat UI uses 30; while the other checks run;
 // 0 = all; the home page and one page of each kind first) are loaded again the way a
 // visitor on a mid-range phone over 4G gets them, with nothing blocked, and timed:
 // main content (LCP), layout shift (CLS), blocking time (TBT), server response
@@ -92,8 +94,9 @@ import { followRedirects, classifyRedirect, redirectIssueType, siteLevelChecks }
 import { pickImageSrc, isDecorative, summarizeImages, imageFindings, formatBytes, IMAGE_LIMITS } from "./lib/images.js";
 import { createThrottle, createPool } from "./lib/throttle.js";
 import { createProgress } from "./lib/progress.js";
-import { resolveStart } from "./lib/start-url.js";
+import { resolveStart, whyNoPages } from "./lib/start-url.js";
 import { pickSpeedPages, measurePages, speedFindings, summarizeSpeed } from "./lib/speed.js";
+import { createQueue } from "./lib/queue.js";
 import { trackerPatterns } from "./lib/trackers.js";
 
 // ---------- command line ----------
@@ -104,7 +107,7 @@ const opt = (name, fallback) => {
   return i !== -1 && args[i + 1] ? Number(args[i + 1]) : fallback;
 };
 if (!startArg) {
-  console.error("Usage: node crawl.js https://your-site.com [--max-pages 0] [--concurrency 8] [--link-concurrency 16] [--per-host 6] [--settle-ms 1500] [--quiet-ms 400] [--delay-ms 0] [--full-render] [--keep-trackers] [--block \"pattern,...\"] [--no-sitemap] [--no-ai] [--copy-ai] [--no-speed] [--speed-pages 40]");
+  console.error("Usage: node crawl.js https://your-site.com [--max-pages 0] [--concurrency 8] [--link-concurrency 16] [--per-host 6] [--settle-ms 1500] [--quiet-ms 400] [--delay-ms 0] [--full-render] [--keep-trackers] [--block \"pattern,...\"] [--no-sitemap] [--no-ai] [--copy-ai] [--no-speed] [--speed-pages 40] [--speed-seconds 0] [--time-budget 0]");
   process.exit(1);
 }
 const MAX_PAGES = opt("max-pages", 0); // 0 = no cap: crawl every internal page found
@@ -121,6 +124,14 @@ const EXTRA_BLOCK = strOpt("block").split(",").map((x) => x.trim()).filter(Boole
 const USE_SITEMAP = !args.includes("--no-sitemap");
 const SPEED = !args.includes("--no-speed");
 const SPEED_PAGES = Math.max(0, opt("speed-pages", 40)); // pages given the phone speed test (0 = all)
+const SPEED_SECONDS = Math.max(0, opt("speed-seconds", 0)); // no new page is timed after this (0 = no limit; the chat UI sets 30)
+// Large sites (Day 27): no new page is read after --time-budget seconds (0 = no limit;
+// the chat UI sets one so an inspection stays around a minute or two). The pages read
+// are a share of every section (lib/queue.js), and when the crawl stops early, link
+// and image checks still waiting after LATE_CHECK_MS are left unverified instead of
+// holding up the report.
+const TIME_BUDGET = Math.max(0, opt("time-budget", 0));
+const LATE_CHECK_MS = 20000;
 // AI proofreading runs when a key is set (.env), except on local addresses (the test
 // fixture) so the fixture score never depends on an AI; --copy-ai forces it, --no-ai stops it.
 const NO_AI = args.includes("--no-ai");
@@ -134,6 +145,14 @@ const UA = "progrowth-sitefix-agent/0.6 (site QA crawler)";
 // its pages count as the same site (lib/start-url.js).
 const resolved = await resolveStart(new URL(startArg).href); // normalises "https://x.com" to "https://x.com/"
 if (resolved.changed) console.log(`${resolved.from} redirects to ${resolved.url}: crawling from there.`);
+// A site that can't be opened stops the inspection with the reason (exit code 3, and a
+// "failed" progress message the chat shows), instead of an empty report that looks clean.
+async function stopCouldNotOpen(url, why) {
+  console.error(`\nCould not open ${url}: ${why.message}`);
+  progress.set({ phase: "failed", final: true, failure: { url, ...why } });
+  await new Promise((r) => process.stdout.write("", r));
+  process.exit(3);
+}
 const startUrl = resolved.url;
 const origin = new URL(startUrl).origin;
 const visited = new Set();
@@ -146,6 +165,7 @@ const throttle = createThrottle({ perHost: PER_HOST, baseDelayMs: DELAY_MS });
 // Live progress for the UI (one JSON line at a time, see lib/progress.js); only when
 // the UI server asks for it, so the command-line output stays readable.
 const progress = createProgress({ enabled: process.env.SITEFIX_PROGRESS === "1" });
+if (resolved.error) await stopCouldNotOpen(resolved.from, resolved.error);
 // A finding seen while crawling, sent to the UI's live feed. The real list is built at
 // the end (issue registry); this only lets the user see problems as they turn up.
 const preview = (type, url, detail) => progress.finding({ type, severity: CATALOG[type]?.severity || "low", url, detail });
@@ -482,6 +502,7 @@ async function main() {
   const t0 = Date.now();
   const timings = {};
   let tPhase = t0;
+  const is2xx = (n) => n >= 200 && n < 300;
   const mark = (name) => { const now = Date.now(); timings[name] = Math.round((now - tPhase) / 100) / 10; tPhase = now; };
   const linkChecks = new Map(); // url -> promise of { result, redirect }
   const imageChecksByUrl = new Map(); // image url -> promise of the image check
@@ -516,7 +537,9 @@ async function main() {
   };
   const browser = await chromium.launch();
   const context = await browser.newContext(); // one context: pages share the HTTP cache
-  const queue = [];
+  // Fair across the site's sections, so a page limit or time budget still covers every
+  // section (lib/queue.js).
+  const queue = createQueue();
   const queued = new Set();
   const enqueue = (href) => {
     const key = crawlKey(href);
@@ -527,7 +550,7 @@ async function main() {
   };
   enqueue(startUrl);
   progress.set({ phase: "crawl", pages: { done: 0, found: 1, cap: MAX_PAGES }, ...(resolved.changed ? { movedTo: { from: resolved.from, to: startUrl } } : {}) });
-  let capReached = false;
+  let capReached = false, budgetReached = false;
 
   // The sitemap is read while the first pages are already being crawled; workers
   // wait for it before deciding the queue is finished.
@@ -551,6 +574,7 @@ async function main() {
   const worker = async () => {
     for (;;) {
       if (MAX_PAGES && visited.size >= MAX_PAGES) { if (queue.length) capReached = true; return; }
+      if (TIME_BUDGET && Date.now() - t0 > TIME_BUDGET * 1000) { if (queue.length || sitemapPending) budgetReached = true; return; }
       const url = queue.shift();
       if (!url) {
         if (!active && !sitemapPending) return;
@@ -634,7 +658,32 @@ async function main() {
   await context.close();
   await browser.close();
   mark("pages");
-  progress.set({ phase: "links", current: null, pages: { done: crawled.length, found: crawled.length } });
+  // Not one page opened (the start page failed and led nowhere): stop with the reason.
+  if (!report.some((p) => is2xx(p.raw?.status) || is2xx(p.rendered?.status))) {
+    const first = report[0];
+    await stopCouldNotOpen(startUrl, whyNoPages(first?.rendered?.status ?? first?.raw?.status ?? null, first?.raw?.error));
+  }
+
+  // ---------- page speed, started ----------
+  // The phone speed test (lib/speed.js) needs only the list of pages, so it starts now
+  // and runs while the links, images, content and spelling are checked (they mostly
+  // wait on the network). Read at "page speed" below.
+  const speedPool = report.filter((p) => is2xx(p.rendered.status)).map((p) => p.url);
+  const speedSample = SPEED ? pickSpeedPages(speedPool, startUrl, SPEED_PAGES) : [];
+  let speedRun = null;
+  progress.set({ phase: "links", current: null, pages: { done: crawled.length, found: crawled.length }, speed: speedSample.length ? { done: 0, total: speedSample.length } : null });
+  if (speedSample.length) {
+    console.log(`\nTiming page speed on up to ${speedSample.length} of ${speedPool.length} pages in the background (phone, slow 4G, CPU 4x slower, nothing blocked${SPEED_SECONDS ? `, ${SPEED_SECONDS} s at most` : ""})...`);
+    speedRun = measurePages(speedSample, {
+      chromium,
+      budgetMs: SPEED_SECONDS * 1000,
+      onProgress: ({ done, total }) => {
+        progress.set({ speed: { done, total }, ...(progress.state.phase === "speed" ? { step: { done, total } } : {}) });
+        if (done % 10 === 0) console.log(`  ${done} pages timed`);
+      },
+    });
+    speedRun.catch(() => { });
+  }
 
   // http -> https and www / non-www checks, started now and read later.
   const siteChecksStarted = siteLevelChecks(startUrl, checkLinkPaced, { maxHops: MAX_HOPS });
@@ -659,8 +708,16 @@ async function main() {
   for (const t of targets) linkChecks.get(t).then(() => { checked++; });
   await Promise.resolve();
   console.log(`\nChecking ${targets.length} distinct links directly (${checked} already done during the crawl)...`);
+  // A crawl that stopped early (page limit or time budget) can leave thousands of links
+  // to pages it never read; checks still waiting after LATE_CHECK_MS are left unverified
+  // (never reported as broken) so the report isn't held up. A full crawl waits for all.
+  const partial = capReached || budgetReached;
+  const lateBy = Date.now() + LATE_CHECK_MS;
+  const inTime = (p, fallback) => (partial ? Promise.race([p, new Promise((r) => setTimeout(() => r(fallback), Math.max(0, lateBy - Date.now())))]) : p);
+  let lateLinks = 0, lateImages = 0;
+  const LATE = { status: null, location: null, classification: "unverified", error: "not checked in time (the crawl stopped early)" };
   const links = await Promise.all(targets.map(async (target) => {
-    const { result, redirect } = await linkChecks.get(target);
+    const { result, redirect } = await inTime(linkChecks.get(target), { result: LATE, redirect: null, late: true }).then((x) => { if (x.late) lateLinks++; return x; });
     const entry = {
       url: target,
       type: new URL(target).origin === origin ? "internal" : "external",
@@ -681,7 +738,8 @@ async function main() {
   // ---------- images ----------
   const imageSummary = summarizeImages(imageOccurrences);
   console.log(`Checking ${imageSummary.length} distinct images (${imageOccurrences.length} <img> tags)...`);
-  const imageChecks = await Promise.all(imageSummary.map((img) => scheduleImage(img.url)));
+  const imageChecks = await Promise.all(imageSummary.map((img) => inTime(scheduleImage(img.url), { ...LATE, late: true }).then((c) => { if (c.late) lateImages++; return c; })));
+  if (lateLinks || lateImages) console.log(`  ${lateLinks} link(s) and ${lateImages} image(s) not checked in time: left unverified`);
   mark("images");
   progress.set({ phase: "seo" });
   const imageEntries = imageSummary.map((img, i) => {
@@ -744,7 +802,6 @@ async function main() {
 
   const metaPages = [];
   for (const p of report) {
-    const is2xx = (n) => n >= 200 && n < 300;
     if (!is2xx(p.raw.status) || !is2xx(p.rendered.status) || !p.rendered.head) continue; // errors and redirects are reported elsewhere
     let canonical = null;
     try { canonical = p.rendered.head.canonicals[0] ? new URL(p.rendered.head.canonicals[0], p.url).href : null; } catch { /* bad href: headIssues flags it */ }
@@ -804,7 +861,6 @@ async function main() {
   // reached through redirects (the crawler never lands on them directly, which
   // is exactly how sonagroup.ae's /404.html hides). Capped at 20 extra fetches.
   const redirectsIn = new Map([...byDestination].map(([dest, d]) => [dest, d.sources.length]));
-  const is2xx = (n) => n >= 200 && n < 300;
   const soft = [];
   const seenSoft = new Set();
   for (const p of report) {
@@ -864,6 +920,8 @@ async function main() {
     provider: copyProvider,
     cache: { get: (k) => aiCache[k], set: (k, v) => { aiCache[k] = v; } },
     allowWords,
+    // With a time budget (the chat UI), AI proofreading gets 30 s; pages after that get the dictionary check.
+    budgetMs: TIME_BUDGET ? 30000 : 0,
     onProgress: ({ done, total }) => {
       progress.set({ step: { done, total } });
       if (copyProvider && (done % 20 === 0 || done === total)) console.log(`  ${done}/${total} pages proofread`);
@@ -875,6 +933,7 @@ async function main() {
     pagesChecked: copyResult.stats.pagesChecked,
     aiPagesChecked: copyResult.stats.aiPagesChecked,
     aiFailures: copyResult.stats.aiFailures,
+    aiSkipped: copyResult.stats.aiSkipped,
     ai: copyProvider ? copyProvider.model : null,
     spelling: copyResult.stats.spelling,
     grammar: copyResult.stats.grammar,
@@ -882,33 +941,46 @@ async function main() {
   await writeFile("content.json", JSON.stringify({ summary: content, pages: contentResult.pages }, null, 2));
 
   // ---------- page speed ----------
-  // Last, so nothing else running on this machine skews the timings.
+  // Started in the background as soon as the pages were read (see "page speed, started"
+  // above); the link, image, content and spelling checks ran meanwhile.
   let speedResult = { summary: null, pages: [] }, speedIssues = [];
-  if (SPEED) {
-    const okPages = report.filter((p) => is2xx(p.rendered.status) && !softUrls.has(p.url)).map((p) => p.url);
-    const sample = pickSpeedPages(okPages, startUrl, SPEED_PAGES);
-    console.log(`\nTesting page speed on ${sample.length} of ${okPages.length} pages (phone, slow 4G, CPU 4x slower, nothing blocked)...`);
-    progress.set({ phase: "speed", step: { done: 0, total: sample.length } });
-    const results = await measurePages(sample, {
-      chromium,
-      onProgress: ({ done, total, result }) => {
-        progress.set({ step: { done, total }, current: result.url });
-        if (done % 10 === 0 || done === total) console.log(`  ${done}/${total} pages timed`);
-      },
-    });
+  if (speedRun) {
+    const sp = progress.state.speed || { done: 0, total: 0 };
+    progress.set({ phase: "speed", step: { done: sp.done, total: sp.total } });
+    // A page that turned out to be an error page (soft 404) is not counted.
+    const timed = await speedRun;
+    const results = timed.filter((r) => !softUrls.has(r.url));
+    const okPages = speedPool.filter((u) => !softUrls.has(u));
+    progress.set({ step: { done: results.length, total: results.length } });
     speedResult = { summary: summarizeSpeed(results, okPages.length), pages: results };
     speedIssues = speedFindings(results, foundOn);
     const sm = speedResult.summary;
+    console.log(`\nPage speed: ${sm.pagesTested} of ${okPages.length} pages timed${timed.length < speedSample.length ? ` (time limit of ${SPEED_SECONDS} s reached; the home page and one page of each kind go first)` : ""}`);
     console.log(`  median on a phone: main content ${sm.median.lcpMs != null ? (sm.median.lcpMs / 1000).toFixed(1) + " s" : "n/a"}, layout shift ${sm.median.cls ?? "n/a"}, blocking ${sm.median.tbtMs ?? "n/a"} ms; ${sm.passing} of ${sm.pagesTested} pass Core Web Vitals${sm.pagesFailed ? `; ${sm.pagesFailed} could not be tested` : ""}`);
     mark("speed");
   }
   // Always written, so the report never shows an older run's speed results.
   await writeFile("speed.json", JSON.stringify(speedResult, null, 2));
 
+  // ---------- coverage (large sites) ----------
+  // When the crawl stopped early: how much of the site was found and read, by section.
+  const coverage = partial ? {
+    stoppedBy: budgetReached ? "time" : "pages",
+    timeBudget: TIME_BUDGET || null,
+    maxPages: MAX_PAGES || null,
+    pagesCrawled: visited.size,
+    pagesFound: queued.size, // at least: pages never read can link to more
+    sections: queue.sections().sort((a, b) => b.queued - a.queued).slice(0, 15).map((s) => ({ section: s.key, found: s.queued, read: s.taken })),
+    sectionsTotal: queue.sections().length,
+    sectionsRead: queue.sections().filter((s) => s.taken > 0).length,
+    linksLeftUnverified: lateLinks,
+    imagesLeftUnverified: lateImages,
+  } : null;
+
   // ---------- issue registry ----------
   const runId = "run-" + startedAt.replace(/[-:]/g, "").slice(0, 15);
   const registry = buildRegistry({
-    run: { id: runId, startedAt, finishedAt: new Date().toISOString(), startUrl, pagesCrawled: visited.size, capReached, toolVersion: "0.6" },
+    run: { id: runId, startedAt, finishedAt: new Date().toISOString(), startUrl, pagesCrawled: visited.size, capReached, partial: coverage ? { reason: coverage.stoppedBy, pagesFound: coverage.pagesFound } : null, toolVersion: "0.6" },
     links, siteChecks, metaPages, softPages: soft, imageFindings: imgFindings, findings: [...ogFindings, ...contentResult.findings, ...copyResult.findings, ...speedIssues],
   });
   const registryProblems = validateRegistry(registry);
@@ -924,7 +996,8 @@ async function main() {
     concurrency: CONCURRENCY,
     pagesCrawled: visited.size,
     capReached,
-    pagesLeftInQueue: capReached ? queue.length : 0,
+    pagesLeftInQueue: partial ? queue.length : 0,
+    coverage,
     sitemapUrls: sitemapListed.length,
     // Listed in the sitemap but no crawled page links to them (possible orphans).
     sitemapOnly: sitemapListed.filter((u) => { const k = crawlKey(u); return k && visited.has(k) && !foundOn.has(u) && !foundOn.has(k); }).length,
@@ -959,6 +1032,7 @@ async function main() {
   console.log("\n=== Summary ===");
   console.log(JSON.stringify(summary, null, 2));
   if (capReached) console.log(`\nNOTE: stopped at the --max-pages limit of ${MAX_PAGES} with ${queue.length} pages still queued. Drop --max-pages to crawl everything.`);
+  if (budgetReached) console.log(`\nNOTE: stopped reading new pages after the --time-budget of ${TIME_BUDGET} s: ${visited.size} of at least ${queued.size} pages read, from ${coverage.sectionsRead} of ${coverage.sectionsTotal} sections. Drop --time-budget to crawl everything.`);
 
   const foundLine = (l) => `      found on: ${l.foundOn.slice(0, 5).join(", ")}${l.foundOn.length > 5 ? ` (+${l.foundOn.length - 5} more)` : ""}`;
   const show = (label, list, line) => {
@@ -1045,7 +1119,10 @@ async function main() {
     process.exitCode = 1;
   }
 
-  console.log("\nDone. See issues.json (all findings) plus report.json, links.json, metadata.json, soft404.json, images.json and content.json");
+  console.log("\nDone. See issues.json (all findings) plus report.json, links.json, metadata.json, soft404.json, images.json, content.json and speed.json");
+  // A crawl that stopped early may still have link checks running that nobody waits
+  // for: everything is written, so stop them.
+  if (partial) process.exit(process.exitCode || 0);
 }
 
 main();

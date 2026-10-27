@@ -61,6 +61,7 @@ const provider = await providerFromConfig(AI);
 const args = process.argv.slice(2);
 const portArg = args.indexOf("--port");
 const PORT = portArg !== -1 && args[portArg + 1] ? Number(args[portArg + 1]) : 3000;
+const TIME_BUDGET = process.env.SITEFIX_TIME_BUDGET !== undefined ? Number(process.env.SITEFIX_TIME_BUDGET) || 0 : 45; // seconds of page reading per inspection
 // Bind to loopback only: /api/run spawns a crawler, so it must not be reachable from the network.
 const HOST = process.env.SITEFIX_UI_HOST || "127.0.0.1";
 // Only one crawl at a time: every run writes issues.json to the same project root.
@@ -175,6 +176,10 @@ const server = createServer(async (req, res) => {
     const maxPages = parseInt(body.maxPages, 10);
     const crawlArgs = ["crawl.js", siteUrl];
     if (maxPages > 0) crawlArgs.push("--max-pages", String(maxPages));
+    // A time budget for reading pages, so an inspection from the chat stays around a
+    // minute or two even on a site with thousands of pages (a share of every section is
+    // read). SITEFIX_TIME_BUDGET=0 reads every page, however long it takes.
+    if (TIME_BUDGET > 0) crawlArgs.push("--time-budget", String(TIME_BUDGET), "--speed-seconds", "30");
     activeRunId = runId;
     // SITEFIX_PROGRESS=1: the crawler and report also print structured progress lines.
     const childEnv = { ...process.env, SITEFIX_PROGRESS: "1" };

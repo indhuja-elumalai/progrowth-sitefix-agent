@@ -217,3 +217,13 @@ test("text shared by several pages is reported once, with the other pages listed
     assert.match(findings[0].detail, /also on 2 other pages/);
     assert.equal(stats.sharedRepeats, 2);
 });
+
+test("with a time budget, AI calls stop after it; those pages still get the dictionary check", async () => {
+    let calls = 0;
+    const provider = { name: "mock", model: "m", complete: async () => { calls++; await new Promise((r) => setTimeout(r, 30)); return JSON.stringify({ findings: [] }); } };
+    const pages = Array.from({ length: 20 }, (_, i) => ({ url: `https://x.test/${i}`, foundOn: [], text: "We recieve every order quickly." }));
+    const r = await checkCopy({ pages, provider, budgetMs: 40, limits: { ...COPY_LIMITS, concurrency: 2 } });
+    assert.ok(calls < 20 && r.stats.aiSkipped > 0, `${calls} calls, ${r.stats.aiSkipped} skipped`);
+    assert.equal(r.stats.aiFailures, 0, "a skipped call is not a failure");
+    assert.equal(r.findings.filter((f) => f.type === "copy-spelling").length, 1, "the dictionary still finds the typo (reported once, with the other pages listed)");
+});

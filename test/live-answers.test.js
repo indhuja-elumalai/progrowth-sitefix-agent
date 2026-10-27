@@ -70,3 +70,8 @@ test("the function is self-contained, so the page can carry a copy of it", () =>
     const copy = new Function(`${ans.toString()}; return answerProcessQuestion;`)();
     assert.deepEqual(copy("how long is left", live), ans("how long is left", live));
 });
+
+test("after a large site was read in part, 'how many pages' says so", () => {
+    const a = ans("how many pages were checked?", { running: false, pages: { done: 140 }, seconds: { total: 53 }, partial: { reason: "time", pagesFound: 3003 } }).answer;
+    assert.match(a, /140 pages checked in 53 seconds\. The site is larger \(at least 3003 pages found\), so I read a share of every section/);
+});
