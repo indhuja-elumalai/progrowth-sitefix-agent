@@ -32,6 +32,16 @@ const LARGE_BANNER = Buffer.from(
   `<!-- ${"padding ".repeat(40 * 1024)} --></svg>\n`
 );
 
+// Page speed (F-31, F-34): a hero image the server sends after 4.5 seconds, and a
+// 3.3 MB background file. Generated here so no large file is committed.
+// The hero has real detail (many shapes): Chrome ignores near-empty images for LCP.
+const SLOW_HERO = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="412" height="700"><rect width="412" height="700" fill="#3D5A80"/>' +
+  Array.from({ length: 600 }, (_, i) => `<circle cx="${(i * 37) % 412}" cy="${(i * 53) % 700}" r="${4 + (i % 9)}" fill="hsl(${(i * 47) % 360},60%,${40 + (i % 30)}%)"/>`).join("") + "</svg>\n");
+const HEAVY_TEXTURE = Buffer.from(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"><rect width="24" height="24" fill="#98C1D9"/>' +
+  `<!-- ${"texture ".repeat(420 * 1024)} --></svg>\n`
+);
+
 const types = {
   ".html": "text/html; charset=utf-8",
   ".svg": "image/svg+xml",
@@ -45,6 +55,15 @@ const main = http.createServer(async (req, res) => {
     const [code, to] = redirects[p];
     res.writeHead(code, { Location: to });
     return res.end();
+  }
+  if (p === "/img/slow-hero.svg") {
+    await new Promise((r) => setTimeout(r, 4500));
+    res.writeHead(200, { "Content-Type": "image/svg+xml", "Content-Length": SLOW_HERO.length });
+    return res.end(SLOW_HERO);
+  }
+  if (p === "/img/heavy-texture.svg") {
+    res.writeHead(200, { "Content-Type": "image/svg+xml", "Content-Length": HEAVY_TEXTURE.length });
+    return res.end(HEAVY_TEXTURE);
   }
   if (p === "/img/large-banner.svg") {
     res.writeHead(200, { "Content-Type": "image/svg+xml", "Content-Length": LARGE_BANNER.length });

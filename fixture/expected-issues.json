@@ -1,8 +1,8 @@
 {
-  "fixtureVersion": 7,
+  "fixtureVersion": 8,
   "baseUrl": "http://localhost:4000",
   "externalBaseUrl": "http://localhost:4001",
-  "plantedCount": 30,
+  "plantedCount": 34,
   "issues": [
     {
       "id": "F-01",
@@ -303,6 +303,46 @@
         "/"
       ],
       "detail": "\"recieve\" and \"seperate\" (common misspellings)"
+    },
+    {
+      "id": "F-31",
+      "category": "Page speed",
+      "type": "speed-lcp-slow",
+      "affectedUrl": "/slow-hero.html",
+      "foundOn": [
+        "/"
+      ],
+      "detail": "Hero image arrives after 4.5 s, so the main content appears late"
+    },
+    {
+      "id": "F-32",
+      "category": "Page speed",
+      "type": "speed-cls-high",
+      "affectedUrl": "/layout-shift.html",
+      "foundOn": [
+        "/"
+      ],
+      "detail": "A 420 px banner is inserted at the top after 0.5 s"
+    },
+    {
+      "id": "F-33",
+      "category": "Page speed",
+      "type": "speed-tbt-high",
+      "affectedUrl": "/busy-page.html",
+      "foundOn": [
+        "/"
+      ],
+      "detail": "Three 400 ms scripts after loading"
+    },
+    {
+      "id": "F-34",
+      "category": "Page speed",
+      "type": "speed-page-heavy",
+      "affectedUrl": "/heavy-page.html",
+      "foundOn": [
+        "/"
+      ],
+      "detail": "A 3.3 MB background file"
     }
   ],
   "controlPages": [
