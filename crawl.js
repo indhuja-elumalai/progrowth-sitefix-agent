@@ -86,6 +86,7 @@ import { followRedirects, classifyRedirect, redirectIssueType, siteLevelChecks }
 import { pickImageSrc, isDecorative, summarizeImages, imageFindings, formatBytes, IMAGE_LIMITS } from "./lib/images.js";
 import { createThrottle, createPool } from "./lib/throttle.js";
 import { createProgress } from "./lib/progress.js";
+import { resolveStart } from "./lib/start-url.js";
 import { trackerPatterns } from "./lib/trackers.js";
 
 // ---------- command line ----------
@@ -120,7 +121,11 @@ const MAX_HOPS = 10;
 const LINK_TIMEOUT_MS = 10000;
 const UA = "progrowth-sitefix-agent/0.6 (site QA crawler)";
 
-const startUrl = new URL(startArg).href; // normalises "https://x.com" to "https://x.com/"
+// Follow the start address to where the site really is (http -> https, www twin), so
+// its pages count as the same site (lib/start-url.js).
+const resolved = await resolveStart(new URL(startArg).href); // normalises "https://x.com" to "https://x.com/"
+if (resolved.changed) console.log(`${resolved.from} redirects to ${resolved.url}: crawling from there.`);
+const startUrl = resolved.url;
 const origin = new URL(startUrl).origin;
 const visited = new Set();
 const report = [];
@@ -512,7 +517,7 @@ async function main() {
     return true;
   };
   enqueue(startUrl);
-  progress.set({ phase: "crawl", pages: { done: 0, found: 1, cap: MAX_PAGES } });
+  progress.set({ phase: "crawl", pages: { done: 0, found: 1, cap: MAX_PAGES }, ...(resolved.changed ? { movedTo: { from: resolved.from, to: startUrl } } : {}) });
   let capReached = false;
 
   // The sitemap is read while the first pages are already being crawled; workers
