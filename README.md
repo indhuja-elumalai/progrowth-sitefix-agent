@@ -188,6 +188,9 @@ progrowth-sitefix-agent/
 │   ├── progress.js                    live progress lines from crawl.js / report.js to the UI: counts, steps, findings, time left
 │   ├── suggest.js                     suggested questions from the kinds of problems found (the page carries a copy)
 │   ├── live-answers.js                instant answers about the inspection itself: how it works, why it takes long, time left, found so far
+│   ├── list-answers.js                list answers from the report ("which images are broken?", "what should I fix first?"), no AI needed
+│   ├── screenshots.js                 screenshots with the problem outlined, shared by report.js and the chat (taken on demand)
+│   ├── start-url.js                   follows the start address to the real site (http to https, www twin) before crawling
 │   ├── throttle.js                    per-site request limits that slow down by themselves on 429 / 503
 │   ├── trackers.js                    tracking, advertising and chat scripts not loaded while pages are read
 │   ├── triage.js                      priority (P1/P2/P3), who fixes it, effort, quick wins
@@ -219,6 +222,9 @@ progrowth-sitefix-agent/
 │   ├── report-html.test.js            report sections, escaping, screenshots, caps
 │   ├── live-answers.test.js           which questions are answered at once, the live numbers in them, self-contained copy
 │   ├── suggest.test.js                question order, no repeats, every issue type covered, self-contained copy
+│   ├── list-answers.test.js           topics in many wordings, order, limits, AI not asked, every suggestion answered
+│   ├── screenshots.test.js            what is shown and outlined, which issues get a screenshot, a real capture
+│   ├── start-url.test.js              same-site redirects followed; other sites, loops and errors left alone
 │   ├── progress.test.js               progress messages, finding counts and cap, time-left estimate, line parsing
 │   ├── trackers.test.js               the trackers seen on progrowth.services are matched; site scripts, forms, maps never are
 │   ├── throttle.test.js               per-site limits, backing off on 429 / 503, Retry-After, the check pool
@@ -1215,6 +1221,70 @@ severity numbers in the chat; the finished card folded and opened again; an
 issue link in an answer opened the web report with that issue expanded; the
 same layout when the inspection is reopened from the list; phone width fits; no
 console errors. Tests: 237, unchanged.
+
+### Day 25: answers that show the problem, in the chat
+
+Questions like "which images are broken?", "what should I fix first?", "where
+are the spelling mistakes?" or "which pages are hidden from Google?" are now
+answered straight from the report (`lib/list-answers.js`), the same with or
+without AI. The lead says how many there are ("I found 20 images that are too
+large. The 3 most urgent:"), then crisp numbered points for the top three, all
+three cards under them, and a closing line with how to fix it. One issue is shown as its card alone. When
+there are more than three, a "See all 20 images that are too large" card opens
+the web report filtered to exactly that list (`#type=…`, `#p=P1` or `#qw=1`,
+read by the web report's script); everything else stays in the chat.
+
+A general follow-up right after a list of one kind ("what should I fix
+first?" after "which images are too large?") asks first: "Just the large
+images, or across the whole site?", with both as buttons. "Just the …" answers
+within those issues, most urgent first, whatever their priority; "The whole
+site" answers for everything. Saying "overall" or "the whole site" in the
+question skips the choice.
+
+Each card shows a screenshot of the
+page with the problem outlined in red (the broken image or link, or the
+misspelt text), what and where it is, and "Details", which opens inside the
+card: the screenshot at full width, what's wrong, the fix steps, a suggested
+value to copy, every mistake on the page, the pages it was found on, and who
+usually fixes it. Clicking a screenshot shows it full size over the chat.
+Problems you can't see on the page (titles, descriptions, noindex, social tags)
+get a card without a screenshot. Every question the chat suggests has a list
+answer; counts, "why" and "how do I fix" questions still go to the count
+answers or the AI, and a question about one page ("is the title on /pricing
+ok?") goes to the AI when it is on.
+
+Screenshots are taken when a card first needs one
+(`GET /api/history/:id/shot/:issueId`): the page is opened in a shared browser
+(two at a time, closed after a minute idle), the screenshot is kept with the
+inspection and recorded in its report, so the web report shows it too. A page
+that can't be opened is not retried until the server restarts. The chat loads
+screenshots two at a time, so one still being taken never holds up the next
+answer. `lib/screenshots.js` is the one place screenshots are made; report.js
+uses it too, and now also outlines misspelt and placeholder text.
+
+The AI chat prompt was rewritten for client answers: the direct answer first,
+one line per problem with its page, every mentioned issue as a card, fix steps
+as short numbered lines, no counts unless asked, and no mention of data, AI or
+models. AI answers show the same cards. Typed questions are no longer offered
+again as suggestions.
+
+Real-site fix: inspecting `progrowth.services` read 1 page, because the site
+redirects to `www.progrowth.services` and every link then looked like another
+site. The start address now follows its redirects first (`lib/start-url.js`),
+but only within the same site (http to https, the www twin), and says so in the
+log and in the chat ("progrowth.services sends visitors to
+www.progrowth.services, so that's the site I'm checking."). Checked on the real
+site: 174 pages instead of 1.
+
+Checked in a browser on the benchmark inspection: "Which images are broken?"
+showed "I found 1 broken image:" and its card, outlined on /p/33; "Details" opened in the card with
+the large screenshot, fix steps and pages; "Which images are too large?"
+showed "I found 20 images that are too large. The 3 most urgent:", three
+points with all three cards under them; the "See all
+20" card opened the web report showing only those 20; "What should I fix
+first?" then asked "Just the large images, or across the whole site?" and each
+button gave the right list; answers came back the same after a reload; phone
+width fits with no sideways scroll; no console errors. Tests: 257 (20 new).
 
 ## 13. Security principles
 

@@ -145,3 +145,14 @@ test("summarize works without a report", () => {
     assert.equal(m.hasReport, false);
     assert.equal(m.byPriority, null);
 });
+
+test("setShot records a screenshot taken later in the saved report; queued writes never clash", async () => {
+    const root = await project();
+    const h = createHistory({ root });
+    const { id } = await h.sync();
+    const results = await Promise.all([h.setShot(id, "ISS-0123456789"), h.setShot(id, "ISS-abcdefabcd"), h.setShot(id, "ISS-0123456789")]);
+    assert.deepEqual(results, [true, false, true], "an issue that is not in the report is not recorded");
+    const { report } = await h.load(id);
+    assert.equal(report.types[0].issues[0].screenshot, `shots/${SHOT}`);
+    assert.throws(() => h.setShot("../x", "ISS-0123456789"), /bad inspection id/);
+});

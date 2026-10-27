@@ -13,13 +13,16 @@
 //   GET  /api/report.pdf → the PDF report
 //   GET  /api/shots/:id  → one screenshot from the report
 //   GET  /api/ai-status  → whether AI is on, which provider and model
-//   POST /api/ask        → { question, inspectionId? } → an answer from that inspection only
+//   POST /api/ask        → { question, inspectionId?, scope? } → an answer from that inspection only
+//                          (scope: issue types a follow-up stays within, e.g. the broken images)
 //
 // History (lib/history.js): every finished inspection is kept in history/<run-id>/.
 //   GET    /api/history                  → past inspections, newest first
 //   GET    /api/history/:id              → { meta, registry, report, chat }
 //   GET    /api/history/:id/report.pdf   → that inspection's PDF
 //   GET    /api/history/:id/shots/:name  → one of its screenshots
+//   GET    /api/history/:id/shot/:issueId → the screenshot for one issue; taken now (and
+//                                          kept) when the report has none (lib/screenshots.js)
 //   DELETE /api/history/:id              → delete one inspection
 //   DELETE /api/history                  → delete all inspections
 //   GET    /report/:id                   → the web report for one inspection (lib/web-report.js)
@@ -41,11 +44,15 @@ import { answerQuestion } from "../lib/chat.js";
 import { createHistory, isRunId } from "../lib/history.js";
 import { buildWebReport, reportFileName } from "../lib/web-report.js";
 import { parseProgressLine } from "../lib/progress.js";
+import { shotPlan, createShooter } from "../lib/screenshots.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, ".."); // project root
 const REPORT_DIR = path.join(ROOT, "audit-report");
 const history = createHistory({ root: ROOT, max: Number(process.env.SITEFIX_HISTORY_MAX) || undefined });
+// Screenshots for the chat: one shared browser, two pages at a time, closed when idle.
+const shooter = createShooter({ concurrency: 2 });
+const shotJobs = new Map(), shotFailed = new Set();
 
 loadEnv(path.join(ROOT, ".env"));
 const AI = aiConfig();
@@ -69,6 +76,29 @@ function makeRunId() {
 
 function mime(ext) {
   return { ".html": "text/html", ".css": "text/css", ".js": "application/javascript", ".json": "application/json", ".svg": "image/svg+xml", ".pdf": "application/pdf", ".jpg": "image/jpeg" }[ext] || "text/plain";
+}
+
+// The screenshot of one issue of a saved inspection. When the report has none, the page
+// is opened now (the problem outlined), the screenshot kept with the inspection, and the
+// report updated. A page that can't be opened is not tried again until a restart.
+async function issueShot(res, id, issueId) {
+  if (!/^ISS-[0-9a-f]{10}$/.test(issueId)) return json(res, 400, { error: "Bad issue id" });
+  const file = history.file(id, `shots/${issueId}.jpg`);
+  if (await access(file).then(() => true, () => false)) return serveFile(res, file);
+  const key = `${id}/${issueId}`;
+  if (shotFailed.has(key)) return json(res, 404, { error: "The page could not be opened for a screenshot" });
+  let job = shotJobs.get(key);
+  if (!job) {
+    const saved = await history.load(id);
+    const issue = saved?.report?.types?.flatMap((t) => t.issues || []).find((i) => i.id === issueId);
+    const plan = shotPlan(issue);
+    if (!plan) return json(res, 404, { error: "No screenshot for this issue" });
+    job = shooter.take(plan, file)
+      .then(async (ok) => { if (ok) await history.setShot(id, issueId); else shotFailed.add(key); return ok; })
+      .finally(() => shotJobs.delete(key));
+    shotJobs.set(key, job);
+  }
+  return (await job) ? serveFile(res, file) : json(res, 404, { error: "The page could not be opened for a screenshot" });
 }
 
 async function serveFile(res, filePath) {
@@ -324,8 +354,9 @@ const server = createServer(async (req, res) => {
       const saved = await history.load(body.inspectionId);
       if (!saved) return json(res, 404, { error: "That inspection was deleted" });
       if (!saved.report) return json(res, 200, { answer: "This inspection has no explained report (the report step did not finish), so I cannot answer questions about it. Run it again to chat about it.", issueIds: [], source: "none" });
-      const result = await answerQuestion({ question: body.question, report: saved.report, provider });
-      if (String(body.question || "").trim()) await history.appendChat(body.inspectionId, { question: String(body.question).trim().slice(0, 500), answer: result.answer, issueIds: result.issueIds || [], source: result.source });
+      const scope = Array.isArray(body.scope) ? body.scope.filter((t) => typeof t === "string" && /^[a-z0-9-]{2,40}$/.test(t)).slice(0, 20) : undefined;
+      const result = await answerQuestion({ question: body.question, report: saved.report, provider, scope });
+      if (String(body.question || "").trim()) await history.appendChat(body.inspectionId, { question: String(body.question).trim().slice(0, 500), answer: result.answer, issueIds: result.issueIds || [], source: result.source, ...(result.display ? { display: result.display, lead: result.lead, tail: result.tail, more: result.more, moreIds: result.moreIds || [], reportHash: result.reportHash, moreLabel: result.moreLabel, ...(result.scope ? { scope: result.scope } : {}) } : {}) });
       return json(res, 200, result);
     }
     const result = await answerQuestion({ question: body.question, report: await currentReport(), provider });
@@ -382,6 +413,7 @@ const server = createServer(async (req, res) => {
         return json(res, 405, { error: "Method not allowed" });
       }
       if (method !== "GET") return json(res, 405, { error: "Method not allowed" });
+      if (parts[1] === "shot" && parts.length === 3) return issueShot(res, id, parts[2]);
       const file = history.file(id, parts.slice(1).join("/"));
       if (file.endsWith(".pdf")) {
         try {

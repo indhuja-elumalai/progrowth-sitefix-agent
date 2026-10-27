@@ -5,7 +5,7 @@
 // 2. Triage: priority (P1/P2/P3), who fixes it, effort (lib/triage.js).
 // 3. Explanations and suggested fixes: AI with guardrails, or standard guidance
 //    when AI is off or an answer fails a check (lib/explain.js).
-// 4. Screenshots of the affected pages, with the broken link or image outlined,
+// 4. Screenshots of the affected pages, with the problem outlined (lib/screenshots.js),
 //    taken while the explanations are being written (both at the same time).
 // 5. Writes audit-report/explained.json, report.html, sitefix-report.pdf and
 //    web-report.html (the interactive report as one file, screenshots built in).
@@ -23,6 +23,7 @@ import { explainIssues, groupByType } from "./lib/explain.js";
 import { buildReportHtml } from "./lib/report-html.js";
 import { buildWebReport } from "./lib/web-report.js";
 import { createProgress } from "./lib/progress.js";
+import { shotPlan, capture } from "./lib/screenshots.js";
 
 const progress = createProgress({ enabled: process.env.SITEFIX_PROGRESS === "1" });
 
@@ -36,20 +37,20 @@ const CACHE_FILE = ".sitefix-ai-cache.json";
 const readJson = async (file) => { try { return JSON.parse(await readFile(file, "utf8")); } catch { return null; } };
 
 // ---------- screenshots ----------
-const SHOWN_ON = new Set(["image", "http", "redirect"]);
+// One per kind of problem first, then more of the P1s (lib/screenshots.js takes them).
 function pickShots(types, max) {
     const picks = [];
     const seen = new Set();
     const add = (i) => {
-        const page = SHOWN_ON.has(i.evidence?.kind) ? i.foundOn?.[0] : i.affectedUrl;
-        if (!page) return;
-        const key = `${page}|${SHOWN_ON.has(i.evidence?.kind) ? i.affectedUrl : ""}`;
+        const plan = shotPlan(i);
+        if (!plan) return;
+        const key = `${plan.page}|${plan.target || ""}`;
         if (seen.has(key) || picks.length >= max) return;
         seen.add(key);
-        picks.push({ id: i.id, page, target: SHOWN_ON.has(i.evidence?.kind) ? i.affectedUrl : null, kind: i.evidence?.kind });
+        picks.push({ id: i.id, ...plan });
     };
-    for (const t of types) if (t.issues[0]) add(t.issues[0]); // one per type first
-    for (const t of types) for (const i of t.issues) if (i.priority === "P1") add(i); // then more P1s
+    for (const t of types) if (t.issues[0]) add(t.issues[0]);
+    for (const t of types) for (const i of t.issues) if (i.priority === "P1") add(i);
     return picks;
 }
 
@@ -64,33 +65,8 @@ async function takeShots(picks, dir) {
     await Promise.all(Array.from({ length: Math.min(6, picks.length) }, async () => {
         while (next < picks.length) {
             const p = picks[next++];
-            const page = await context.newPage();
-            try {
-                await page.goto(p.page, { waitUntil: "domcontentloaded", timeout: 20000 });
-                // Wait for the page's images to arrive (the "load" event), not for the
-                // network to go quiet: analytics and chat widgets never do.
-                await page.waitForLoadState("load", { timeout: 4000 }).catch(() => { });
-                await page.waitForTimeout(250);
-                if (p.target) {
-                    // Outline the broken link or image if it can be found on the page.
-                    await page.evaluate(({ target, kind }) => {
-                        const same = (a, b) => { try { return new URL(a, location.href).href.replace(/\/$/, "") === new URL(b).href.replace(/\/$/, ""); } catch { return false; } };
-                        const els = kind === "image" ? [...document.images].filter((i) => same(i.currentSrc || i.src, target) || same(i.getAttribute("src") || "", target))
-                            : [...document.querySelectorAll("a[href]")].filter((a) => same(a.href, target));
-                        const el = els[0];
-                        if (!el) return false;
-                        el.scrollIntoView({ block: "center" });
-                        el.style.outline = "4px solid #ff2d55";
-                        el.style.outlineOffset = "3px";
-                        el.style.boxShadow = "0 0 0 9999px rgba(0,0,0,.25)";
-                        return true;
-                    }, { target: p.target, kind: p.kind });
-                }
-                const file = path.join(dir, `${p.id}.jpg`);
-                await page.screenshot({ path: file, type: "jpeg", quality: 60 });
-                shots.set(p.id, file);
-            } catch { /* page unreachable: no screenshot */ }
-            await page.close();
+            const file = path.join(dir, `${p.id}.jpg`);
+            if (await capture(context, p, file)) shots.set(p.id, file);
             console.log(`  screenshot ${++done}/${picks.length}`);
             shotProgress(done, picks.length);
         }

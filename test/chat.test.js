@@ -57,7 +57,7 @@ test("GUARDRAIL: ids mentioned only in the text are picked up; empty or broken a
 test("answerQuestion: no report, no key, and a working provider", async () => {
     assert.match((await answerQuestion({ question: "hi", report: null, provider: null })).answer, /Inspect a site first/);
     assert.match((await answerQuestion({ question: "hi", report, provider: null })).answer, /AI answers aren't switched on/);
-    const r = await answerQuestion({ question: "Which images are broken?", report, provider: mockProvider(mockRespond) });
+    const r = await answerQuestion({ question: "What is wrong with the hero image?", report, provider: mockProvider(mockRespond) });
     assert.equal(r.source, "mock");
     assert.deepEqual(r.issueIds[0], "ISS-aaaaaaaaaa");
     assert.match(r.answer, /hero\.jpg/);
@@ -66,8 +66,8 @@ test("answerQuestion: no report, no key, and a working provider", async () => {
 test("answerQuestion: the AI's request contains the question and only this report's data", async () => {
     let seen;
     const provider = mockProvider(({ user }) => { seen = user; return { answer: "ok", issueIds: [] }; });
-    await answerQuestion({ question: "broken images?", report, provider });
-    assert.equal(seen.question, "broken images?");
+    await answerQuestion({ question: "tell me about the images", report, provider });
+    assert.equal(seen.question, "tell me about the images");
     assert.equal(seen.data.site, "https://x.test/");
     assert.ok(seen.data.issues.every((i) => i.id.startsWith("ISS-")));
 });
