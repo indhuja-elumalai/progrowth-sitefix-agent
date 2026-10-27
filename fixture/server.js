@@ -33,14 +33,17 @@ const LARGE_BANNER = Buffer.from(
 );
 
 // Page speed (F-31, F-34): a hero image the server sends after 4.5 seconds, and a
-// 3.3 MB background file. Generated here so no large file is committed.
+// 3.3 MB background file. Generated here so no large file is committed. The heavy
+// file is a 1x1 PNG followed by 3.3 MB of padding the decoder never reads, so it
+// costs download time only: a 3.3 MB SVG kept a slow CI machine busy parsing it,
+// which also showed up as blocking time.
 // The hero has real detail (many shapes): Chrome ignores near-empty images for LCP.
 const SLOW_HERO = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="412" height="700"><rect width="412" height="700" fill="#3D5A80"/>' +
   Array.from({ length: 600 }, (_, i) => `<circle cx="${(i * 37) % 412}" cy="${(i * 53) % 700}" r="${4 + (i % 9)}" fill="hsl(${(i * 47) % 360},60%,${40 + (i % 30)}%)"/>`).join("") + "</svg>\n");
-const HEAVY_TEXTURE = Buffer.from(
-  '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"><rect width="24" height="24" fill="#98C1D9"/>' +
-  `<!-- ${"texture ".repeat(420 * 1024)} --></svg>\n`
-);
+const HEAVY_TEXTURE = Buffer.concat([
+  Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mOY+v//fwAJBAPG2s6hNQAAAABJRU5ErkJggg==", "base64"),
+  Buffer.alloc(3.3 * 1024 * 1024),
+]);
 
 const types = {
   ".html": "text/html; charset=utf-8",
@@ -61,8 +64,8 @@ const main = http.createServer(async (req, res) => {
     res.writeHead(200, { "Content-Type": "image/svg+xml", "Content-Length": SLOW_HERO.length });
     return res.end(SLOW_HERO);
   }
-  if (p === "/img/heavy-texture.svg") {
-    res.writeHead(200, { "Content-Type": "image/svg+xml", "Content-Length": HEAVY_TEXTURE.length });
+  if (p === "/img/heavy-texture.png") {
+    res.writeHead(200, { "Content-Type": "image/png", "Content-Length": HEAVY_TEXTURE.length });
     return res.end(HEAVY_TEXTURE);
   }
   if (p === "/img/large-banner.svg") {

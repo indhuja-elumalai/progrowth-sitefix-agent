@@ -308,7 +308,7 @@ const pages = [
     desc: "A page with a small decorative background that is a very large file, used to test the total page weight rule.",
     h1: "Our materials",
     body: long("A small textured badge sits below this text.") +
-      '<div style="width:24px;height:24px;background:url(/img/heavy-texture.svg) center/cover"></div>'
+      '<div style="width:24px;height:24px;background:url(/img/heavy-texture.png) center/cover"></div>'
   },
   {
     file: "canonical-to-404.html", title: "Canonical Pointing at a Missing Page",
