@@ -6,6 +6,7 @@ import path from "node:path";
 import { suggestQuestions } from "../lib/suggest.js";
 import { answerProcessQuestion } from "../lib/live-answers.js";
 import { isVisual } from "../lib/screenshots.js";
+import { classifyInput } from "../lib/input.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const out = path.join(__dirname, "index.html");
@@ -487,13 +488,37 @@ urlIn.addEventListener('input',()=>{urlIn.classList.remove('invalid');inpErr.sty
 function syncBtn(){inspBtn.disabled=!urlIn.value.trim();if(typeof syncHistButtons==='function'&&hist)syncHistButtons();}
 syncBtn();
 inspBtn.addEventListener('click',()=>submit());
-// One box for both: a URL starts an inspection, anything else is a question about the last report.
-function looksLikeUrl(s){s=s.trim();return !/\s/.test(s)&&(/^https?:\/\//i.test(s)||/^(localhost|127\.0\.0\.1)(:|\/|$)/i.test(s)||/^[\w-]+(\.[\w-]+)+(:\d+)?(\/|$)/.test(s));}
+// One box for everything (lib/input.js, copied in when this page is built): a website
+// starts an inspection; several websites, an almost-address or an address that isn't a
+// website get a short reply with buttons; anything else is a question about the report.
+${classifyInput.toString()}
 function submit(){
   const v=urlIn.value.trim();if(!v)return;
-  if(!looksLikeUrl(v)){ask(v);return;}
-  if(running){inpErr.textContent='An inspection is already running. You can open past inspections meanwhile.';inpErr.style.display='inline';inpOk.style.display='none';return;}
-  start();
+  const c=classifyInput(v);
+  if(c.kind==='question'){ask(v);return;}
+  if(c.kind==='url'){
+    if(running){inpErr.textContent='An inspection is already running. You can open past inspections meanwhile.';inpErr.style.display='inline';inpOk.style.display='none';return;}
+    start(c.url);return;
+  }
+  urlIn.value='';syncBtn();
+  if(empty.parentNode===chatIn)empty.style.display='none';
+  addMsg('user',esc(v));
+  if(c.kind==='not-web'){addMsg('agent','That looks like '+esc(c.what)+'. I can only check websites, like <b>example.com</b> or <b>https://www.example.com</b>.');return;}
+  const pick=(label,url)=>({label,run:()=>{if(running){addMsg('agent','An inspection is already running. I&rsquo;ll be free once it finishes.');return;}start(url);}});
+  if(c.kind==='urls'){
+    choiceRow('I can check one website at a time. Which one first?',c.urls.map(u=>pick(hostOf(u).replace(/^www\./,''),u)));
+    return;
+  }
+  if(c.kind==='near-url')choiceRow('Did you mean <b>'+esc(hostOf(c.suggestion))+'</b>?',[pick('Yes, check '+hostOf(c.suggestion),c.suggestion),{label:'No, it was a question',run:()=>ask(v)}]);
+}
+// A short reply with buttons; the buttons go away once one is picked.
+function choiceRow(html,choices){
+  const bbl=addMsg('agent',html);
+  const row=el('div','suggest scope-pick');
+  row.innerHTML='<div class="sg-chips">'+choices.map((x,i)=>'<button type="button" class="sq" data-i="'+i+'">'+esc(x.label)+'</button>').join('')+'</div>';
+  bbl.closest('.chat-msg').after(row);
+  row.querySelectorAll('.sq').forEach(b=>b.addEventListener('click',()=>{row.remove();choices[Number(b.dataset.i)].run();}));
+  scroll();
 }
 S('#clear-btn').addEventListener('click',()=>clear());
 S('#new-btn').addEventListener('click',()=>{clear();closeSide();urlIn.focus();});
@@ -537,7 +562,7 @@ function liveCtx(){
 }
 function doneCtx(){
   const l=(current&&current.report&&current.report.summaries&&current.report.summaries.links)||{},run=(current&&current.run)||{};
-  return {running:false,site:run.startUrl,pages:{done:run.pagesCrawled||l.pagesCrawled||0},seconds:l.seconds,avgLoadMs:l.pageTiming&&l.pageTiming.averageLoadMs,label:issueLabel};
+  return {running:false,site:run.startUrl,pages:{done:run.pagesCrawled||l.pagesCrawled||0},seconds:l.seconds,avgLoadMs:l.pageTiming&&l.pageTiming.averageLoadMs,partial:run.partial||null,label:issueLabel};
 }
 // A message in the running inspection's conversation: kept with the run, so it is
 // still there after opening a past inspection and coming back.
@@ -642,7 +667,7 @@ function subOf(p){
     case 'seo':return 'Reading titles, tags and headings';
     case 'content':return 'Checking page content';
     case 'spelling':return 'Checking spelling and grammar'+(st.total?' ('+st.done+'/'+st.total+' pages)':'');
-    case 'speed':return 'Timing pages on a phone over 4G'+(st.total?' ('+st.done+'/'+st.total+' pages)':'');
+    case 'speed':return 'Finishing the phone speed test'+(st.total?' ('+st.done+'/'+st.total+' pages)':'');
     case 'crawled':return 'Crawl finished &middot; preparing the report';
     case 'report':{const e=p.explain||{},sh=p.shots||{};return 'Writing explanations'+(e.total?' ('+e.done+'/'+e.total+')':'')+' and taking screenshots'+(sh.total?' ('+sh.done+'/'+sh.total+')':'');}
     case 'pdf':return 'Building the PDF and web report';
@@ -697,7 +722,7 @@ function updateLive(p){
     if(i===0&&(pg.done||cur===0))v=cur===0?(pg.done||0)+'/'+(pg.cap?Math.min(tot,pg.cap):tot):String(pg.done||0);
     if(i===1&&p.checks&&p.checks.total)v=p.checks.done+'/'+p.checks.total;
     if(i===3&&p.phase==='spelling'&&p.step&&p.step.total)v=p.step.done+'/'+p.step.total;
-    if(i===4&&p.phase==='speed'&&p.step&&p.step.total)v=p.step.done+'/'+p.step.total;
+    if(i===4&&p.speed&&p.speed.total)v=(p.phase==='speed'&&p.step&&p.step.total?p.step.done+'/'+p.step.total:p.speed.done+'/'+p.speed.total);
     if(i===5&&p.explain&&p.explain.total)v=p.explain.done+'/'+p.explain.total+' &middot; '+((p.shots&&p.shots.done)||0)+'/'+((p.shots&&p.shots.total)||0);
     S('.sval',li).innerHTML=v?' '+v:'';
   });
@@ -708,8 +733,7 @@ function updateLive(p){
   if(p.movedTo)narrate('moved',esc(hostOf(p.movedTo.from))+' sends visitors to <b>'+esc(hostOf(p.movedTo.to))+'</b>, so that&rsquo;s the site I&rsquo;m checking.');
   if(pg.sitemap)narrate('sitemap','Found your sitemap: '+pg.sitemap+' page'+(pg.sitemap===1?'':'s')+' listed. I&rsquo;ll check those, plus anything they link to.');
   if(p.phase==='crawl'&&tot>=40&&pg.done>=tot/2)narrate('half','Halfway through the pages: '+pg.done+' of '+(pg.found>pg.done?'at least ':'')+tot+' read.');
-  if(['links','images','seo','content','spelling'].includes(p.phase))narrate('pages','All '+(pg.done||0)+' pages read. Now comparing pages with each other and checking spelling.');
-  if(p.phase==='speed')narrate('speed','Now timing your pages the way a visitor on a phone over 4G would see them: how fast the main content shows, whether the layout jumps, and how heavy each page is.');
+  if(['links','images','seo','content','spelling','speed'].includes(p.phase))narrate('pages','All '+(pg.done||0)+' pages read. Now comparing pages with each other and checking spelling'+(p.speed&&p.speed.total?', and timing up to '+p.speed.total+' pages the way a visitor on a phone over 4G sees them: how fast the main content shows, whether the layout jumps, and how heavy each page is.':'.'));
   if(p.phase==='report')narrate('report','Writing up what I found: what to fix first, why it matters and how, with screenshots.');
   if(p.phase!==live.lastPhase){live.lastPhase=p.phase;live.sgSig=null;refreshLiveSuggest();}
   renderLiveRow();
@@ -780,6 +804,18 @@ function streamRun(){
   });
 }
 
+function couldNotOpen(run,f){
+  const c=run.card,host=hostOf(f.url||run.url).replace(/^www\./,'');
+  c.classList.add('err','done');S('.ps',c).classList.add('err');
+  S('.p-sub',c).innerHTML='<span style="color:var(--high)">Couldn&rsquo;t open '+esc(host)+'</span>';
+  S('.steps',c).querySelectorAll('li').forEach(li=>li.className='');
+  run.done=true;run.failed=true;run.endedAt=Date.now();
+  if(run.sgEl){run.sgEl.remove();run.sgEl=null;}
+  for(const it of run.queue){it.bubble.innerHTML='<span class="queued missed">I couldn&rsquo;t answer this because the site couldn&rsquo;t be opened.</span>';}
+  if(viewingLive)addMsg('agent','I couldn&rsquo;t open <b>'+esc(host)+'</b>: '+esc(f.message)+'<br><span style="font-size:13px;color:var(--text-2)">Nothing was checked, so there&rsquo;s no report. You can type another address, or the same one to try again.</span>');
+  if(viewingLive){live=null;renderLiveRow();markActive();if(!current)urlIn.placeholder='Website address, e.g. example.com';}else renderLiveRow();
+  document.title=BASE_TITLE;
+}
 function failLive(msg){
   const c=live.card;c.classList.add('err');
   S('.ps',c).classList.add('err');S('.p-sub',c).innerHTML='<span style="color:var(--high)">'+esc(msg)+'</span>';
@@ -798,6 +834,9 @@ async function followRun(){
   running=false;syncBtn();
   if(live!==run)return;
   try{
+    // The site couldn't be opened (lib/start-url.js): say why, plainly, and stop.
+    const fail=code===3&&run.progress&&run.progress.failure;
+    if(fail){couldNotOpen(run,fail);return;}
     if(code!==0)throw new Error(code===-1?'the connection to SiteFix was lost':'the inspection stopped with an error; the details are below');
     const r=await fetch('/api/results?runId='+encodeURIComponent(run.runId));
     const reg=await r.json();
@@ -835,8 +874,8 @@ function beginLive(runId,url,startedAt){
   followRun();
 }
 
-async function start(){
-  const v=validateUrl(urlIn.value);
+async function start(url){
+  const v=validateUrl(url||urlIn.value);
   if(!v.ok){urlIn.classList.add('invalid');inpErr.textContent=v.msg;inpErr.style.display='inline';inpOk.style.display='none';return;}
   const siteUrl=v.url;
   clear();
@@ -878,6 +917,7 @@ function renderResults(reg,siteUrl,report,id,meta){
     const sm=report.summaries||{},l=sm.links||{},im=sm.images||{};
     const sp=sm.speed;
     const speedLine=sp&&sp.pagesTested&&sp.median&&sp.median.lcpMs!=null?' On a phone over 4G, your pages show their main content in about '+(sp.median.lcpMs/1000).toFixed(1)+' s (good is under 2.5 s).':'';
+    if(run.partial&&run.partial.reason==='time')addMsg('agent','This is a large site: I found at least '+run.partial.pagesFound+' pages, so I read '+pages+' of them, a share of every section, to keep the inspection to a couple of minutes. Everything below is about those pages.');
     addMsg('agent','The report includes screenshots and suggested fixes. I checked '+(pages||l.pagesCrawled||0)+' pages'+(l.linksChecked?', '+l.linksChecked+' links':'')+(im.imagesFound?' and '+im.imagesFound+' images':'')+' across the site.'+speedLine+' Nothing changed on the site. Ask me about anything in it.');
     if(id)chatIn.appendChild(reportCard(siteUrl,run,counts.total,issues,id));
   }else{

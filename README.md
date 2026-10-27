@@ -166,7 +166,8 @@ progrowth-sitefix-agent/
 │   ├── server.js                      a 200-page site with heavy images, a web font, never-idle analytics and slow responses
 │   ├── time.js                        times crawl.js step by step against any URL
 │   ├── settle-diag.js                 shows what keeps changing on a page that never "settles"
-│   └── load-diag.js                   shows what a page waits for before it can be read, one page vs 8 at once
+│   ├── load-diag.js                   shows what a page waits for before it can be read, one page vs 8 at once
+│   └── speed-diag.js                  times the phone speed test on the bench site and prints what it measured
 ├── fixture/                           controlled test site with planted faults
 │   ├── generate-site.js               writes the 24 HTML pages and the small images into site/
 │   ├── server.js                      serves them with real HTTP redirects (and generates the oversized test image)
@@ -185,6 +186,8 @@ progrowth-sitefix-agent/
 │   ├── content.js                     content rules: boilerplate removal, thin pages, near-duplicates (MinHash), placeholder text, repeated words
 │   ├── images.js                      image rules: pick the real src, decorative or not, alt text, size, mixed content
 │   ├── speed.js                       phone speed test: LCP, CLS, TBT, TTFB, page weight; which pages; ratings and issues
+│   ├── queue.js                       the crawl queue, fair across the site's sections (large sites)
+│   ├── input.js                       what was typed in the chat box: a site, several sites, almost an address, or a question
 │   ├── issues.js                      issue schema, severity and fix-class catalog, registry builder and validator
 │   ├── progress.js                    live progress lines from crawl.js / report.js to the UI: counts, steps, findings, time left
 │   ├── suggest.js                     suggested questions from the kinds of problems found (the page carries a copy)
@@ -214,7 +217,9 @@ progrowth-sitefix-agent/
 │   ├── copy.test.js                   misspellings list, quote-must-exist and site-vocabulary guardrails, caching
 │   ├── content.test.js                unit tests for lib/content.js
 │   ├── images.test.js                 unit tests for lib/images.js
-│   ├── speed.test.js                  thresholds, page sample, CLS windows, issues, summary, a real phone test
+│   ├── speed.test.js                  thresholds, page sample, CLS windows, issues, summary, a real phone test, time budget
+│   ├── queue.test.js                  sections in turn, every section reached on a big site, pages added while crawling
+│   ├── input.test.js                  one site, several sites, almost-addresses, emails, questions, self-contained copy
 │   ├── issues.test.js                 unit tests for lib/issues.js
 │   ├── triage.test.js                 priority, effort, owner; every type has a rule and guidance
 │   ├── explain.test.js                guardrails (invented URLs, bad ids, value lengths), fallbacks, cache
@@ -440,6 +445,8 @@ node crawl.js https://your-site.com            # whole site, no page cap
 node crawl.js https://your-site.com --max-pages 50   # quick partial run
 node crawl.js https://your-site.com --speed-pages 0  # phone speed test on every page (default: 40)
 node crawl.js https://your-site.com --no-speed       # skip the speed test
+node crawl.js https://your-site.com --speed-seconds 30 # stop starting speed tests after 30 s (default: no limit; the chat UI uses 30)
+node crawl.js https://your-site.com --time-budget 45 # stop reading new pages after 45 s (large sites; the chat UI uses 45)
 ```
 
 By default it crawls every internal page it can reach: everything linked
@@ -1359,6 +1366,97 @@ content in about 1.0 s on the median page (8 pages over 2.5 s), blocking time
 about 295 ms on every page (the same scripts load everywhere), server response
 over 0.8 s on 11 pages, one page whose layout jumps (CLS 0.27) and one page over
 3 MB.
+
+### Day 27: large sites, and a faster inspection
+
+An inspection from the chat now aims for about a minute, two at most, on any
+site, without dropping checks.
+
+**Faster speed test.** The phone speed test (Day 26) took most of the time:
+about 150 s for 40 pages, because each page waited for its whole download on
+slow 4G (8 s for a 1.5 MB page) and then 2 s more. Now (`lib/speed.js`):
+
+- the network is slowed only until the first screen is finished: something
+  drawn, the main content unchanged for a second, the web fonts in, and every
+  image and background image on the first screen arrived a second ago. That is
+  everything LCP, FCP and TTFB depend on. The rest of the page then loads at
+  full speed with the CPU still 4x slower, so CLS, blocking time (TBT) and the
+  page weight are still measured in full (the bytes don't depend on the speed);
+- it waits after loading only until the scripts have been quiet for a second
+  (at most 3 s) instead of always 2 s;
+- it starts as soon as the pages are read, while the links, images, content and
+  spelling are checked (they mostly wait on the network);
+- pages run as many at a time as the machine has cores to spare (2 to 6);
+- the chat UI gives it 30 s (`--speed-seconds`): the home page and one page of
+  each kind go first, so the pages left out are more of the same kinds.
+
+On the bench site made heavy like progrowth.services (`--weight-kb 1300`: 1.5
+MB pages, 40 to 60 files): the crawl took 175 s before and 61 s now with
+the chat UI's settings, with exactly the same issues, and the same medians for
+the pages timed: main content 1.6 s both ways, layout shift 0.008, page weight
+1.53 MB against 1.56 MB (fewer analytics beacons in the shorter visit).
+`bench/speed-diag.js` times the speed test alone. A timer the speed test left
+running kept the crawl process alive for 20 s after it finished; it is cleared now.
+
+**Large sites.** The chat UI now gives page reading a time budget of 45 s
+(`--time-budget`, `SITEFIX_TIME_BUDGET`; 0 reads every page however long it
+takes; the command line has no budget unless asked). Sites read in under 45 s,
+like progrowth.services (174 pages in 24 s), are read in full as before. On a
+bigger site:
+
+- the queue is fair across sections (`lib/queue.js`): pages are grouped like
+  `/blog/*`, `/products/*`, `/about`, and taken one section at a time in turn,
+  closest to the home page first, so the pages read are a share of every
+  section instead of the first few hundred blog posts;
+- when the budget runs out, no new page is read; link and image checks still
+  waiting 20 s later are left unverified (never reported as broken) instead of
+  holding up the report; AI proofreading gets 30 s, after which pages get the
+  dictionary check only;
+- `links.json` has a `coverage` summary (stopped by time or page limit, pages
+  read and found, sections read and found, each section's numbers, checks left
+  unverified), and the run in `issues.json` says `partial`;
+- the chat says so after the results ("This is a large site: I found at least
+  3003 pages, so I read 140 of them, a share of every section, to keep the
+  inspection to a couple of minutes."), "how many pages were checked?" says
+  so, and the web report says so under its title.
+
+Checked on the bench site with 3,000 pages and a 20 s budget: 149 pages read
+from all 3 sections, crawl done in 53 s, the same planted issues found; through
+the chat with the same budget, the report card arrived after 63 s with the
+large-site message. Fixture: 34 of 34, no false positives (the command line
+keeps no limits, so CI tests every page). Tests: 274 (8 new).
+
+Not in this step: resuming a stopped crawl later, and Google's real-user speed
+data.
+
+**What you type, and sites that can't be opened.** One chat box takes both
+addresses and questions; `lib/input.js` (copied into the page) now decides what
+was typed:
+
+| Typed | What happens |
+|---|---|
+| `progrowth.services`, `https://…/blog`, `check progrowth.services` | inspects that site |
+| `site1.com site2.com`, `a.com, b.org` | "I can check one website at a time. Which one first?" with a button per site |
+| `progrowthservices`, `progrowth .services` | "Did you mean progrowth.services?" with "Yes, check it" and "No, it was a question" |
+| `info@site.com`, `ftp://…` | "That looks like an email address. I can only check websites…" |
+| anything else (`Which images are broken?`) | a question about the report on screen |
+
+A site that can't be opened no longer gives an empty report that looks clean
+(before, a misspelt domain read 1 page, found 0 issues and showed "No issues
+found"). The crawler now stops with exit code 3 and a plain reason
+(`lib/start-url.js`), and the chat says "I couldn't open … : …. Nothing was
+checked, so there's no report.":
+
+- before crawling, when the address can't be reached at all: no such domain,
+  connection refused, invalid certificate, connection cut off (a slow answer is
+  not a failure here; the browser gets longer to try);
+- after reading, when not one page opened: blocked (401/403), not found
+  (404/410), too many requests (429), server error (5xx), or no answer.
+
+Nothing is saved to the history for a site that couldn't be opened. Checked in
+a browser: two sites, an almost-address, an email, a domain that doesn't exist
+and a start page that is a 404 each got the right reply; the fixture still
+scores 34 of 34. Tests: 282 (8 more).
 
 ## 13. Security principles
 

@@ -38,7 +38,7 @@ test("CLS is the worst window of shifts, not the sum of all of them", () => {
 });
 
 const result = (url, m, extra = {}) => {
-    const metrics = { lcpMs: 1500, cls: 0, tbtMs: 50, ttfbMs: 300, fcpMs: 900, loadMs: 2000, bytes: 1e6, requests: 20, ...m };
+    const metrics = { lcpMs: 1500, cls: 0, tbtMs: 50, ttfbMs: 300, fcpMs: 900, readyMs: 2000, bytes: 1e6, requests: 20, ...m };
     return { url, ok: true, metrics, ratings: { lcp: rate("lcp", metrics.lcpMs), cls: rate("cls", metrics.cls), tbt: rate("tbt", metrics.tbtMs), ttfb: rate("ttfb", metrics.ttfbMs), bytes: rate("bytes", metrics.bytes) }, lcpElement: "the image hero.jpg", shifts: [{ value: metrics.cls, el: "a <div> block" }], biggest: [{ url: "https://x.test/hero.jpg", type: "image", bytes: 900000 }], byType: {}, ...extra };
 };
 
@@ -87,6 +87,38 @@ test("a real phone test: a late hero image is the slow main content; a late bann
         assert.ok(hero.metrics.ttfbMs >= 150, "the slowed network is in the server response time");
         assert.ok(shift.metrics.cls > 0.25, `CLS ${shift.metrics.cls}`);
         assert.ok(shift.metrics.bytes > 0 && shift.metrics.requests >= 1);
+    } finally {
+        server.close();
+    }
+});
+
+test("with a time budget, no new page is started after it; the most telling pages (first in the list) are timed", async () => {
+    const server = createServer((req, res) => { res.writeHead(200, { "Content-Type": "text/html" }); res.end("<!doctype html><p>Quick page.</p>"); });
+    await new Promise((r) => server.listen(0, "127.0.0.1", r));
+    const base = `http://127.0.0.1:${server.address().port}`;
+    try {
+        const urls = Array.from({ length: 12 }, (_, i) => `${base}/p${i}`);
+        const t0 = Date.now();
+        const r = await measurePages(urls, { chromium, concurrency: 2, budgetMs: 1, settleMs: 200 });
+        assert.equal(r.length, 2, "only the pages already started finish");
+        assert.deepEqual(r.map((x) => x.url), urls.slice(0, 2));
+        assert.ok(Date.now() - t0 < 15000);
+    } finally {
+        server.close();
+    }
+});
+
+test("the first screen is done once its images have arrived, not when the whole page has", async () => {
+    const server = createServer((req, res) => {
+        if (req.url.startsWith("/big")) { res.writeHead(200, { "Content-Type": "image/svg+xml" }); return res.end(`<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><!-- ${"x".repeat(600 * 1024)} --></svg>`); }
+        res.writeHead(200, { "Content-Type": "text/html" });
+        res.end(`<!doctype html><meta name="viewport" content="width=device-width"><h1>Title</h1><p>Text on the first screen.</p><div style="height:3000px"></div>${Array.from({ length: 4 }, (_, i) => `<img src="/big${i}.svg" width="10" height="10" alt="">`).join("")}`);
+    });
+    await new Promise((r) => server.listen(0, "127.0.0.1", r));
+    try {
+        const [r] = await measurePages([`http://127.0.0.1:${server.address().port}/`], { chromium, settleMs: 300 });
+        assert.ok(r.metrics.bytes > 2.3 * 1024 * 1024, "the images further down still count in the page weight");
+        assert.ok(r.metrics.readyMs < 6000, `ready after ${r.metrics.readyMs} ms (2.4 MB on slow 4G would take over 12 s)`);
     } finally {
         server.close();
     }
