@@ -23,7 +23,10 @@ import { explainIssues, groupByType } from "./lib/explain.js";
 import { buildReportHtml } from "./lib/report-html.js";
 import { buildWebReport } from "./lib/web-report.js";
 import { createProgress } from "./lib/progress.js";
-import { shotPlan, capture } from "./lib/screenshots.js";
+import { shotPlan, capture, SHOT_VERSION } from "./lib/screenshots.js";
+import { siteScore, areaOf } from "./lib/score.js";
+import { buildCoach } from "./lib/coach.js";
+import { templateFor } from "./lib/explain-templates.js";
 
 const progress = createProgress({ enabled: process.env.SITEFIX_PROGRESS === "1" });
 
@@ -99,7 +102,15 @@ async function main() {
     const sendReportProgress = () => progress.set({ phase: "report", step: { done: work.explained + work.shots, total: typeCount + picks.length }, explain: { done: work.explained, total: typeCount }, shots: { done: work.shots, total: picks.length } });
     shotProgress = (done) => { work.shots = done; sendReportProgress(); };
     sendReportProgress();
-    const [{ types, stats }, shotFiles] = await Promise.all([
+    // The live report's coach messages (lib/coach.js) need only the kinds of problems,
+    // so they are written at the same time as the explanations and screenshots.
+    const PRI = { P1: 0, P2: 1, P3: 2 }, EFF = { easy: 0, medium: 1, hard: 2 };
+    const coachTypes = groupByType(issues).map((t) => {
+        const top = [...t.list].sort((a, b) => PRI[a.priority] - PRI[b.priority] || EFF[a.effort] - EFF[b.effort])[0];
+        const g = templateFor(t.type);
+        return { type: t.type, title: g.title, why: g.why, severity: top.severity, priority: top.priority, area: areaOf(t.type), effort: top.effort, count: t.list.length };
+    });
+    const [{ types, stats }, shotFiles, coach] = await Promise.all([
         explainIssues({
             issues, provider, cache,
             onProgress: ({ done, total, type, source, problems }) => {
@@ -108,7 +119,9 @@ async function main() {
             },
         }),
         takeShots(picks, path.join(OUT, "shots")),
+        buildCoach({ types: coachTypes, provider, cache }),
     ]);
+    console.log(`\n=== Live report ===\n  coach messages: ${coach.source === "ai" ? `${coach.aiMessages} written by AI` : "standard"}${coach.problems.length ? ` (${coach.problems.length} AI message(s) failed a check and use the standard text, e.g. ${coach.problems[0]})` : ""}`);
     if (provider) await writeFile(CACHE_FILE, JSON.stringify(cacheData));
 
     console.log("\n=== Screenshots ===");
@@ -120,8 +133,12 @@ async function main() {
         ai: { provider: provider ? provider.name : "none", model: provider ? provider.model : null, ...stats },
         summary: triageSummary(issues),
         summaries: { links: links?.summary, images: images?.summary, content: content?.summary, metadata: metadata?.summary, speed: speed?.summary || null },
-        types: types.map((t) => ({ ...t, issues: t.issues.map((i) => ({ ...i, screenshot: shotFiles.has(i.id) ? `shots/${i.id}.jpg` : null })) })),
+        types: types.map((t) => ({ ...t, issues: t.issues.map((i) => ({ ...i, screenshot: shotFiles.has(i.id) ? `shots/${i.id}.jpg` : null, ...(shotFiles.has(i.id) ? { shotVersion: SHOT_VERSION } : {}) })) })),
+        // The live report: the score (lib/score.js) and the coach's messages (lib/coach.js).
+        score: siteScore(issues, []),
+        coach: { bank: coach.bank, source: coach.source, problems: coach.problems.slice(0, 20) },
     };
+    report.score.byType = undefined;
     await mkdir(OUT, { recursive: true });
     await writeFile(path.join(OUT, "explained.json"), JSON.stringify(report, null, 2));
 

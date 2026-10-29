@@ -275,6 +275,7 @@
   .val-box .v{flex:1;font-size:13px;font-weight:500;overflow-wrap:anywhere}
   .copy{border:none;background:var(--bg);border-radius:6px;font-size:11px;padding:2px 8px;cursor:pointer;color:var(--text-2)}
   .ev-shot{display:block;max-width:360px;width:100%;border-radius:8px;border:1px solid var(--border);margin-top:4px}
+  .ev-img{display:block;max-width:240px;max-height:180px;border-radius:8px;border:1px solid var(--border);margin-top:4px;object-fit:contain}
   .ans ul{margin:4px 0 0 18px}.ans li{margin:2px 0}
   /* Evidence cards: the issues an answer is about, each with a screenshot of the page */
   .ev-list{display:flex;flex-direction:column;gap:8px;width:min(540px,100%);margin-top:8px}
@@ -1154,7 +1155,8 @@ function isVisual(issue) {
     const kind = issue.evidence && issue.evidence.kind;
     if (kind === "image" || kind === "http" || kind === "redirect") return true;
     // Problems that are visible on the page itself.
-    return ["soft-404", "content-placeholder", "content-thin", "content-duplicate", "content-repeated-word", "copy-spelling", "copy-grammar", "h1-missing", "h1-multiple", "heading-skip", "viewport-missing"].indexOf(issue.type) !== -1;
+    // (A missing H1 or phone set-up has nothing to point at on the page.)
+    return ["soft-404", "content-placeholder", "content-thin", "content-duplicate", "content-repeated-word", "copy-spelling", "copy-grammar", "h1-multiple", "heading-skip"].indexOf(issue.type) !== -1;
 }
 // An answer: the text in the bubble, then a card for each issue it is about (screenshot
 // of the page with the problem outlined, what and where, a link into the report), then
@@ -1266,6 +1268,8 @@ function evDetails(i,pages,on,src){
   let h='';
   if(src)h+='<img class="ev-big" alt="" src="'+esc(src)+'">'+'<div class="ev-cap">The problem is outlined in red where it could be found.</div>';
   if(i.explanation)h+='<h4>What&rsquo;s wrong</h4><p>'+esc(i.explanation)+'</p>';
+  // Image problems: the image itself (a broken one can't be shown, so say so).
+  if(i.evidence&&i.evidence.kind==='image'&&/^https?:\/\//.test(i.affectedUrl||''))h+=/broken$/.test(i.type)?'<p class="ev-cap">The image itself can&rsquo;t be shown: it doesn&rsquo;t load'+(i.evidence.status?' (the server answers '+esc(String(i.evidence.status))+')':'')+', which is the problem.</p>':'<h4>The image</h4><img class="ev-img" alt="The image at '+esc(i.affectedUrl)+'" src="'+esc(i.affectedUrl)+'" referrerpolicy="no-referrer">';
   if(i.evidence&&i.evidence.kind==='speed')h+=speedTable(i.evidence);
   if(steps.length)h+='<h4>How to fix it</h4><ol>'+steps.map(x=>'<li>'+esc(x)+'</li>').join('')+'</ol>';
   if(i.suggestedValue)h+='<h4>Suggested</h4><div class="ev-sugg"><span>'+esc(i.suggestedValue)+'</span><button type="button" class="copy" data-copy="'+esc(i.suggestedValue)+'">Copy</button></div>';
@@ -1276,6 +1280,7 @@ function evDetails(i,pages,on,src){
   if(facts.length)h+='<div class="ev-facts">'+esc(facts.join(' \u00b7 '))+'</div>';
   box.innerHTML=h||'<p>'+esc(i.detail||'')+'</p>';
   const big=box.querySelector('.ev-big');if(big)big.onerror=()=>{big.nextSibling&&big.nextSibling.remove();big.remove();};
+  const own=box.querySelector('.ev-img');if(own)own.onerror=()=>{const n=el('p','ev-cap');n.textContent='The image doesn\u2019t load right now.';own.replaceWith(n);};
   return box;
 }
 function viewShot(src,caption){

@@ -203,7 +203,10 @@ progrowth-sitefix-agent/
 │   ├── chat.js                        answers questions from one report only; checks every cited issue id
 │   ├── history.js                     past inspections in history/<run-id>/: save, list, open, delete
 │   ├── report-html.js                 the printable report (HTML that report.js turns into the PDF)
-│   ├── web-report.js                  the interactive web report: filters, search, screenshots; also a single downloadable file
+│   ├── web-report.js                  the live web report: score, On-page / Technical / Off-page, select fixes, Fix button; also one downloadable file
+│   ├── score.js                       the site score (0-100, on-page / technical / off-page), points per fix, levels
+│   ├── coach.js                       the live report's messages: AI wording, checked; numbers are placeholders
+│   ├── verify.js                      Check it now: the crawl's rules run again on the live site for chosen issues
 │   ├── ai-provider.js                 the only code that talks to an AI: OpenAI or the mock, from .env
 │   ├── ai-mock.js                     the mock AI (no key, no network) for demos, tests and CI
 │   └── env.js                         reads .env without overriding real environment variables
@@ -1457,6 +1460,284 @@ Nothing is saved to the history for a site that couldn't be opened. Checked in
 a browser: two sites, an almost-address, an email, a domain that doesn't exist
 and a start page that is a 404 each got the right reply; the fixture still
 scores 34 of 34. Tests: 282 (8 more).
+
+### Day 28: the live report
+
+The report the chat links to (`/report/<run-id>`) is no longer a list to read.
+It coaches the client through the fixes, and the score goes up as they work.
+The chat itself is unchanged, and so are the PDF, Print and Download.
+
+**The score** (`lib/score.js`). The page opens with a score out of 100 and three
+area scores:
+
+- on-page: titles, descriptions, headings, content, spelling, alt text;
+- technical: links, redirects, indexing, security, phone set-up, images
+  loading, speed;
+- off-page: sharing tags and links to other sites. Backlinks and reviews need
+  outside data and aren't measured yet, and the page says so.
+
+The score is rule-based, so the same site always gets the same score:
+
+- each issue costs points by severity (high 6, medium 3, low 1), more when it
+  is on many pages;
+- each kind of problem levels off below a cap (high 20, medium 10, low 4), so
+  one problem on 170 pages can't sink the score;
+- an area scores `100 / (1 + lost / 100)`, so it never reaches 0 and every fix
+  shows.
+
+A broken link, image or redirect counts every page it is on. Any other problem
+counts its own page only: the pages that merely link to a misspelt page don't
+make the mistake bigger. The issue details say "Found on" for the first kind and
+"Linked from" for the second, in the web report and the PDF.
+
+The real sites inspected this week score between 49 and 88. Fixing all the
+urgent issues is worth about 7 to 11 points.
+
+**Pick fixes and see the score they lead to.** SiteFix doesn't change the site
+yet (the fix stage comes later), so the report works like this:
+
+- The **site's name** heads the report, with a link to the site.
+- The **score is always in the top bar**. Ticking a fix moves it at once: "66 → 73".
+- On the **Fix tab**, a score meter like a credit-score dial, in four bands: Needs
+  work (0-49), Fair (50-69), Good (70-84) and Excellent (85-100). The pointer
+  is at the score with the ticked fixes, and a dot on the dial marks today's
+  score. Today's score only counts fixes confirmed on the live site.
+- The Fix tab has **three columns: On-page, Technical and Off-page**. Each shows
+  its own score (now → with the selection) and its fixes, easiest or most useful
+  first: Recommended, Quick wins, Biggest boost or Urgent first. On a phone, one
+  column at a time.
+- A **selection bar** at the bottom shows how many fixes are ticked, the points,
+  the score they lead to and what each area gains, with **Fix these**.
+  - Fix these is visible but not active yet: "Automatic fixing is coming soon".
+  - The bar also says how many of the ticked fixes SiteFix will be able to make
+    (from each problem type's `fixClass`) and how many are for the developer.
+  - The fix stage only has to provide the fix endpoint: with `links.fix` set,
+    the button sends the selected issues, and the fixes confirmed count in
+    today's score. No redesign is needed.
+- Clicking a fix opens the **fix panel**:
+  - the points and the scores it moves ("score 66 → 68 · On-page 72 → 77");
+  - whether SiteFix will be able to fix it;
+  - what visitors face, why it matters and the steps;
+  - every page with its evidence and screenshot; each page can be selected on
+    its own;
+  - "Select this fix", "Next", and, on the live page, "Fixed it yourself? Check
+    your live site".
+- **All issues**: every kind of problem with search, filters (area, level,
+  effort) and sorting, also with tick boxes.
+- Levels (urgent, important, polish) stay as a label on each fix.
+- Download, PDF and Print are under Export.
+  - The menu closes on a click anywhere else, on Escape, or once an option is
+    chosen.
+  - Download says it is preparing the file, the PDF opens in a new tab, and
+    Print waits for the menu to close.
+  - The full report with every page stays in the PDF and in print.
+- The chat's links open the right place: `#type=` and `#p=` open the list
+  filtered, one kind opens straight in the panel, and `#ISS-…` opens that page's
+  issue.
+
+**Images, not links.** Every issue that can be seen on a page shows a screenshot.
+report.js takes up to 30 of them. On the live report, an issue without one gets
+it when the issue is first opened, from the same endpoint the chat uses, and it
+is kept. Image problems also show the image itself; a broken image says it
+can't be shown and why. The chat's issue details show the image too. The
+downloaded file has the screenshots taken so far built into it.
+
+**Points for each issue, not only each kind** (`pointsOf`, `projected` in
+`lib/score.js`).
+
+Ticking one page of a fix used to show "less than a point" until every page was
+ticked, because each kind of problem levels off.
+
+- **Each area's points still to win** (100 minus its score) are shared between its
+  kinds of problem, by how much each costs on its own.
+- **Each kind's points** are shared equally between its issues.
+
+So:
+
+- one page of "Redirect to a missing page" (+5, 25 pages) shows **+0.2**, and
+  ticking two adds +0.4;
+- a whole kind adds its points;
+- fixing everything adds up to exactly 100.
+
+Points show with one decimal under 10. A part-selected fix shows "+0.4 of 5", and
+each page in the fix panel shows its own share.
+
+**The score meter** keeps the credit-score bands as a thin outer ring:
+
+- Needs work, Fair, Good, Excellent;
+- inside it, a thick arc in the report's earlier style: solid green up to today's
+  score, lighter green on to the score with the selected fixes.
+
+**Every screenshot shows the problem, boxed in red, or there is none.**
+
+A screenshot is kept only when the problem was found on the page and is visible
+on screen after the page settles. If SiteFix can't point at the problem, there is
+no screenshot, so none shows something unrelated.
+
+What gets the red box:
+
+| Problem | What is boxed |
+|---|---|
+| Broken link or image, redirect | the link or image, on the page it is on (not one hidden in a closed menu) |
+| Spelling, grammar, placeholder, repeated word | the words, found across bold text, links and line breaks; the mistake with a word or two either side first, then wider, then the word alone, then the quoted text |
+| Heading that skips a level | the heading's words |
+| More than one H1 | each H1 |
+| Error page served as a normal page, thin or duplicate content | the whole screen, framed |
+
+- A missing H1 or phone set-up has nothing to point at, so it gets no screenshot.
+- Cookie and consent banners are hidden first.
+- The page is scrolled to the problem and given a moment to settle (lazy images,
+  text that fades in) before the box is drawn.
+- Screenshots record how they were taken (`SHOT_VERSION`). Screenshots from
+  earlier reports are taken again the first time they are asked for, in the web
+  report or the chat. Only up-to-date ones go into the downloaded file.
+
+**Screenshots are ready before they are opened.** Taking one means opening the
+page in a browser (2 to 3 seconds), so they are now taken ahead of time:
+
+- **When:** as soon as an inspection finishes, and again whenever its report is
+  opened, for any still missing.
+- **Order:** the first page of each kind of problem goes first, most urgent first,
+  since that is what a fix shows when it opens. Then the rest.
+- **Priority:** a screenshot someone is looking at (in the report or the chat)
+  jumps ahead of the queue, and the same screenshot is never taken twice at once.
+- **In the report:** a fix asks for its screenshots as soon as the pointer is over
+  it and when it opens. They are cached in the browser, and a soft shimmer shows
+  while one is still coming.
+- **Settle time:** the wait for a page to settle is shorter (0.3 s, and longer
+  only when the problem isn't visible yet).
+
+On the test site, every screenshot was served in under 10 ms once the report had
+been open for 15 seconds.
+
+**The PDF has every screenshot too.** report.js puts up to 30 screenshots in the
+PDF, and the rest are taken later. When the PDF is opened, SiteFix checks for new
+screenshots:
+
+- **What it adds:** screenshots for the pages the PDF lists (up to 25 per kind of
+  problem) that it doesn't have yet.
+- **Waiting:** it waits up to 8 seconds for any of those still being taken.
+- **Rebuilding:** it makes the PDF again from the saved report and keeps it.
+- **Caching:** a note (`report-pdf.json`) records which screenshots are in it, so
+  the same PDF opens at once until there are new ones.
+
+On the test site, the PDF went from 5 screenshots to all 19 that can be shown (8.5 s
+the first time, with every screenshot taken from scratch; 23 ms after that).
+
+Before, a quoted sentence that ran across a bold label ("**Sending the emails or
+DMs:** … in atleast 4 phases") was not found, and the screenshot showed the top of
+the page, cookie banner included, with nothing outlined.
+
+**Keep as is.** Some flagged items may be on purpose and don't harm visitors. For
+example, `/contact` and `/contact?cta=insights-hub` show the same page, from
+different links. These can be kept as they are:
+
+- **Which kinds:** near-identical or thin pages, repeated titles and descriptions,
+  title or description length, heading order, extra H1s, long alt text, noindex
+  or nofollow, a redirect chain, a missing canonical tag, missing sharing tags,
+  and spelling or grammar (a brand name). Broken links and images, placeholder
+  text, error pages and speed can't be kept: they are real problems
+  (`KEEPABLE` in `lib/web-report.js`).
+- **How:** in the fix panel, "Keep as is" keeps the whole fix, and "Keep this page
+  as it is" keeps one page.
+- **Where it goes:** to a fourth column, **Kept as is**, next to On-page, Technical
+  and Off-page (a "Kept" tab on a phone, and "Kept as is" in All issues' area
+  filter), with **Undo**.
+- **The score:** a kept item stops counting against it, adding exactly the points
+  it showed. SiteFix says so: "Got it: … stays as it is, on purpose. It no longer
+  counts against your score, which is now 70. 👌"
+- **Saved:** kept items are saved with the inspection like the selection
+  (`kept` in `progress.json`).
+
+**SiteFix's messages** appear beside the score:
+
+- the first message, or "welcome back" on a return visit;
+- after ticking, the fixes selected and the score they lead to;
+- confirmation after a live check, or reassurance if the problem is still there;
+- now and then, a fix not yet selected (with "Show me").
+
+The message always matches what is selected now:
+
+- ticking or unticking rewrites the latest selection message rather than stacking
+  new ones;
+- when nothing is left selected, it says "No fixes selected right now, so your
+  score stays at 68";
+- other messages, like a suggestion or a live check, are kept.
+
+Each message carries a friendly emoji: 👋 hello, 💡🎯 a fix to try, 🚀📈✨ after
+selecting, ✅🎉 when a fix is confirmed, 🔍 when it is still there. The emoji is added
+by the page after the words were checked, so it never changes what a message says.
+
+**AI writes the words, never the facts** (`lib/coach.js`). With AI on,
+`report.js` asks the model once for the wording of every message, and a visitor
+line and a nudge for each kind of problem. Every number, issue name and site
+name is a placeholder like `{score}`, `{gain}`, `{issue}`. The page fills these
+in from the measured data and the score.
+
+Every AI message is checked before it is used. A message is rejected if it has:
+
+- a number of its own (only "out of 100" is allowed);
+- an address or site name;
+- a placeholder that message may not use;
+- a promise ("guarantee", "rank first", "double your traffic");
+- HTML;
+- another issue's name;
+- the wrong length.
+
+A message that fails, and every message when AI is off, uses the built-in text.
+So the words can change, but the issue, the fix and the numbers can't. The mock
+AI's answer for one kind of problem fails a check on the fixture, and the
+report uses the standard line instead. Older reports without these messages get
+the built-in ones.
+
+**Checking the live site** (`lib/verify.js`, `POST /api/history/:id/verify`), for a
+client who fixed something themselves. It runs the crawl's own rules again on the
+live site:
+
+- titles, descriptions, headings, indexing, sharing tags, page set-up,
+  placeholders, repeated words: the page is opened in Chromium again;
+- spelling: the quoted mistakes must be gone;
+- links and images: the address works again, or the pages no longer use it;
+- alt text: on the pages it was found on;
+- image size: the image is downloaded again;
+- redirects: followed hop by hop;
+- speed: the phone speed test runs on that page.
+
+Duplicates, thin content, soft 404s and the https/www checks need the whole
+site, so they are confirmed by the next inspection, and the page says so. Each
+check opens at most 20 pages. The page sends the rest in further rounds. One
+check runs at a time.
+
+**Progress is kept.**
+
+- On the live page: in `history/<run-id>/progress.json` (`GET`/`PUT
+  /api/history/:id/progress`, same origin only, cleaned to known shapes): the
+  fixes selected, the fixes confirmed on the live site, and the messages.
+- In the downloaded file: in the client's own browser. That file has no live
+  check and no links back to the server, as before.
+
+The page still loads nothing from the network. It reads and prints fine without
+JavaScript: print opens every card and hides the buttons and messages.
+
+**Checked.**
+
+- In a browser on the fixture through the UI server:
+  - ticking two fixes moved the score from 74 to 76 in the top bar, the ring
+    and the selection bar; Fix these stayed inactive;
+  - checking the live site on the unchanged fixture said "still there";
+  - a reload kept the selection, and Clear emptied it;
+  - the downloaded file kept its selection in the browser;
+  - the chat's links opened the right tab, filter and panel;
+  - print shows the full report.
+
+  Also checked on a real 366-issue report, at desktop and phone width, light and
+  dark.
+- `lib/verify.js` on all 34 fixture issues: all 26 it can check came back
+  "still", with none falsely fixed. After real edits to fixture pages (a title
+  added, a broken link replaced, alt text added, `lang` added), those came back
+  "fixed".
+- Fixture: 34 of 34.
+- Tests: 332 (50 new: score, coach checks, verify rules, progress, the page, screenshots).
 
 ## 13. Security principles
 

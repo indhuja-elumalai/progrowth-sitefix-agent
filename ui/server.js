@@ -19,13 +19,18 @@
 // History (lib/history.js): every finished inspection is kept in history/<run-id>/.
 //   GET    /api/history                  → past inspections, newest first
 //   GET    /api/history/:id              → { meta, registry, report, chat }
-//   GET    /api/history/:id/report.pdf   → that inspection's PDF
+//   GET    /api/history/:id/report.pdf   → that inspection's PDF, with every screenshot taken
+//                                          so far (made again when there are new ones)
 //   GET    /api/history/:id/shots/:name  → one of its screenshots
 //   GET    /api/history/:id/shot/:issueId → the screenshot for one issue; taken now (and
 //                                          kept) when the report has none (lib/screenshots.js)
 //   DELETE /api/history/:id              → delete one inspection
 //   DELETE /api/history                  → delete all inspections
-//   GET    /report/:id                   → the web report for one inspection (lib/web-report.js)
+//   GET    /api/history/:id/progress     → the live report's progress (what the client fixed, messages)
+//   PUT    /api/history/:id/progress     → save it (same origin only, like DELETE)
+//   POST   /api/history/:id/verify       → { ids } → checks the live site again for those issues
+//                                          (lib/verify.js): { results: { [id]: { status, detail } } }
+//   GET    /report/:id                   → the live web report for one inspection (lib/web-report.js)
 //   GET    /report/:id/download          → the same report as one file, screenshots built in
 // DELETE is same-origin only: the CORS preflight below never allows it.
 //
@@ -34,7 +39,7 @@
 // writes audit-report/. AI settings come from .env (see lib/ai-provider.js).
 
 import { createServer } from "node:http";
-import { readFile, access } from "node:fs/promises";
+import { readFile, writeFile, rename, access, rm } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -43,8 +48,11 @@ import { aiConfig, providerFromConfig } from "../lib/ai-provider.js";
 import { answerQuestion } from "../lib/chat.js";
 import { createHistory, isRunId } from "../lib/history.js";
 import { buildWebReport, reportFileName } from "../lib/web-report.js";
+import { buildReportHtml, MAX_INSTANCES_IN_PDF } from "../lib/report-html.js";
 import { parseProgressLine } from "../lib/progress.js";
-import { shotPlan, createShooter } from "../lib/screenshots.js";
+import { shotPlan, createShooter, SHOT_VERSION } from "../lib/screenshots.js";
+import { verifyIssues, createRenderer, MAX_VERIFY } from "../lib/verify.js";
+import { measurePages } from "../lib/speed.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, ".."); // project root
@@ -82,30 +90,108 @@ function mime(ext) {
 // The screenshot of one issue of a saved inspection. When the report has none, the page
 // is opened now (the problem outlined), the screenshot kept with the inspection, and the
 // report updated. A page that can't be opened is not tried again until a restart.
+// One issue's screenshot: true when an up-to-date one is saved (taken now if needed).
+// urgent: someone is looking at it, so it goes ahead of the ones taken in advance.
+const shotReady = new Set(); // "<run>/<issue>" known to be saved and up to date
+async function ensureShot(id, issue, urgent) {
+  const key = `${id}/${issue.id}`;
+  if (shotReady.has(key)) return true;
+  if (shotFailed.has(key)) return false;
+  const file = history.file(id, `shots/${issue.id}.jpg`);
+  // A saved screenshot is used when it was taken the current way; an older one is
+  // taken again (it may not show the problem outlined).
+  if (issue.shotVersion === SHOT_VERSION && await access(file).then(() => true, () => false)) { shotReady.add(key); return true; }
+  let job = shotJobs.get(key);
+  if (!job) {
+    const plan = shotPlan(issue);
+    if (!plan) { shotFailed.add(key); return false; }
+    job = shooter.take(plan, file, { urgent })
+      .then(async (ok) => { if (ok) { shotReady.add(key); await history.setShot(id, issue.id, SHOT_VERSION); } else { shotFailed.add(key); await rm(file, { force: true }).catch(() => {}); } return ok; })
+      .finally(() => shotJobs.delete(key));
+    shotJobs.set(key, job);
+  } else if (urgent) shooter.take(shotPlan(issue), file, { urgent: true }); // moves it to the front
+  return job;
+}
+
 async function issueShot(res, id, issueId) {
   if (!/^ISS-[0-9a-f]{10}$/.test(issueId)) return json(res, 400, { error: "Bad issue id" });
   const file = history.file(id, `shots/${issueId}.jpg`);
-  if (await access(file).then(() => true, () => false)) return serveFile(res, file);
-  const key = `${id}/${issueId}`;
-  if (shotFailed.has(key)) return json(res, 404, { error: "The page could not be opened for a screenshot" });
-  let job = shotJobs.get(key);
-  if (!job) {
-    const saved = await history.load(id);
-    const issue = saved?.report?.types?.flatMap((t) => t.issues || []).find((i) => i.id === issueId);
-    const plan = shotPlan(issue);
-    if (!plan) return json(res, 404, { error: "No screenshot for this issue" });
-    job = shooter.take(plan, file)
-      .then(async (ok) => { if (ok) await history.setShot(id, issueId); else shotFailed.add(key); return ok; })
-      .finally(() => shotJobs.delete(key));
-    shotJobs.set(key, job);
-  }
-  return (await job) ? serveFile(res, file) : json(res, 404, { error: "The page could not be opened for a screenshot" });
+  if (shotReady.has(`${id}/${issueId}`)) return serveFile(res, file, true);
+  const saved = await history.load(id);
+  const issue = saved?.report?.types?.flatMap((t) => t.issues || []).find((i) => i.id === issueId);
+  if (!issue) return json(res, 404, { error: "No such issue" });
+  return (await ensureShot(id, issue, true)) ? serveFile(res, file, true) : json(res, 404, { error: "The problem could not be found on the page for a screenshot" });
 }
 
-async function serveFile(res, filePath) {
+// The PDF with every screenshot: report.js puts up to 30 in it; the rest are taken
+// later (ahead of time, or when an issue is opened). When the PDF is opened and there are
+// screenshots it doesn't have yet, it is made again from the saved report, after waiting
+// a few seconds for any of its pages still missing one. The screenshots in it are noted
+// (report-pdf.json), so it is only made again when there is something new.
+const pdfJobs = new Map();
+const PDF_WAIT_MS = 8000;
+function inspectionPdf(id) {
+  if (!pdfJobs.has(id)) pdfJobs.set(id, makePdf(id).finally(() => pdfJobs.delete(id)));
+  return pdfJobs.get(id);
+}
+async function makePdf(id) {
+  const pdfFile = history.file(id, "report.pdf");
+  const noteFile = path.join(history.dir, id, "report-pdf.json");
+  const first = await history.load(id);
+  if (!first?.report) return null;
+  // The pages the PDF lists (up to MAX_INSTANCES_IN_PDF of each kind) that can have a screenshot.
+  const listed = (r) => (r.types || []).flatMap((t) => (t.issues || []).slice(0, MAX_INSTANCES_IN_PDF)).filter((i) => shotPlan(i));
+  await Promise.race([Promise.all(listed(first.report).map((i) => ensureShot(id, i, true).catch(() => false))), new Promise((r) => setTimeout(r, PDF_WAIT_MS))]);
+  const saved = await history.load(id);
+  const shots = new Map();
+  for (const i of listed(saved.report)) {
+    if (!i.screenshot || i.shotVersion !== SHOT_VERSION) continue;
+    try { shots.set(i.id, `data:image/jpeg;base64,${(await readFile(history.file(id, i.screenshot))).toString("base64")}`); } catch { /* not there: shown without one */ }
+  }
+  const key = [...shots.keys()].sort().join(",");
+  const note = await readFile(noteFile, "utf8").then(JSON.parse, () => null);
+  const have = await access(pdfFile).then(() => true, () => false);
+  if (have && note?.key === key) return pdfFile; // nothing new since it was made
+  if (have && !note && shots.size === 0) return pdfFile; // report.js made it; nothing to add
+  const { chromium } = await import("playwright");
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage();
+    await page.setContent(buildReportHtml({ report: saved.report, shots }), { waitUntil: "load" });
+    const tmp = `${pdfFile}.${process.pid}.tmp`;
+    await page.pdf({ path: tmp, format: "A4", printBackground: true, margin: { top: "16mm", bottom: "16mm", left: "14mm", right: "14mm" } });
+    await rename(tmp, pdfFile);
+    await writeFile(noteFile, JSON.stringify({ key, shots: shots.size, madeAt: new Date().toISOString() }));
+  } finally {
+    await browser.close().catch(() => {});
+  }
+  return pdfFile;
+}
+
+// Screenshots taken ahead of time, so they are ready when an issue is opened: after an
+// inspection finishes and when its report is opened. The first page of each kind of
+// problem goes first (that is what the report shows when a fix is opened), most urgent
+// kinds first, then the rest. They wait behind any screenshot someone is looking at.
+const warming = new Set();
+async function warmShots(id) {
+  if (warming.has(id)) return;
+  warming.add(id);
+  try {
+    const saved = await history.load(id);
+    const types = [...(saved?.report?.types || [])].sort((a, b) => (a.issues?.[0]?.priority || "P3").localeCompare(b.issues?.[0]?.priority || "P3"));
+    const firsts = types.map((t) => t.issues?.[0]).filter(Boolean);
+    const rest = types.flatMap((t) => (t.issues || []).slice(1));
+    const todo = [...firsts, ...rest].filter((i) => shotPlan(i)).slice(0, 500);
+    await Promise.all(todo.map((i) => ensureShot(id, i, false).catch(() => false)));
+  } finally {
+    warming.delete(id);
+  }
+}
+
+async function serveFile(res, filePath, cache = false) {
   try {
     const data = await readFile(filePath);
-    res.writeHead(200, { "Content-Type": mime(path.extname(filePath)) });
+    res.writeHead(200, { "Content-Type": mime(path.extname(filePath)), ...(cache ? { "Cache-Control": "private, max-age=600" } : {}) });
     res.end(data);
   } catch {
     res.writeHead(404, { "Content-Type": "text/plain" });
@@ -126,6 +212,36 @@ function parseBody(req, limit = 20000) {
     req.on("end", () => { try { resolve(JSON.parse(buf || "{}")); } catch { resolve({}); } });
     req.on("error", reject);
   });
+}
+
+// "Check it now" in the live report: one check at a time, so the site (and this
+// machine) never gets several browsers at once.
+let verifying = Promise.resolve();
+async function verifyRequest(req, res, id) {
+  const body = await parseBody(req, 50000);
+  const ids = new Set((Array.isArray(body.ids) ? body.ids : []).filter((x) => typeof x === "string" && /^ISS-[0-9a-f]{10}$/.test(x)).slice(0, MAX_VERIFY));
+  if (!ids.size) return json(res, 400, { error: "No issues to check" });
+  const saved = await history.load(id);
+  if (!saved?.report) return json(res, 404, { error: "Inspection not found" });
+  const issues = (saved.report.types || []).flatMap((t) => t.issues || []).filter((i) => ids.has(i.id));
+  const run = async () => {
+    const { chromium } = await import("playwright");
+    const renderer = createRenderer({ chromium });
+    try {
+      return await verifyIssues(issues, {
+        renderPage: (u) => renderer.render(u),
+        measure: async (u) => (await measurePages([u], { chromium, concurrency: 1 }))[0] || null,
+        timeBudgetMs: 60000,
+      });
+    } finally { await renderer.close(); }
+  };
+  const job = verifying.then(run, run);
+  verifying = job.catch(() => {});
+  try {
+    return json(res, 200, { results: await job, checkedAt: new Date().toISOString() });
+  } catch (err) {
+    return json(res, 500, { error: `The check could not run: ${err.message}` });
+  }
 }
 
 const server = createServer(async (req, res) => {
@@ -242,6 +358,7 @@ const server = createServer(async (req, res) => {
         // Keep this inspection: it stays in the sidebar after a reload or restart.
         try {
           const meta = await history.sync();
+          if (meta?.id) warmShots(meta.id).catch(() => {});
           if (meta) { entry.inspectionId = meta.id; broadcast(`__SAVED__:${meta.id}`); }
         } catch (err) {
           broadcast(`Could not save this inspection to history: ${err.message}`);
@@ -382,10 +499,13 @@ const server = createServer(async (req, res) => {
     if (!saved.report) return page(404, "No report for this inspection", "The report step did not finish for this inspection, so there are no explanations to show. Run the inspection again to get a full report.");
     const base = `/api/history/${encodeURIComponent(id)}/`;
     if (!download) {
+      warmShots(id).catch(() => {});
       const html = buildWebReport({
         report: saved.report,
-        shotSrc: (i) => (i.screenshot ? base + i.screenshot : null),
-        links: { download: `/report/${encodeURIComponent(id)}/download`, pdf: saved.meta.hasPdf ? `${base}report.pdf` : null },
+        // Through the screenshot endpoint: it serves the saved one, or takes it again if
+        // it was deleted (e.g. after the way screenshots are taken improved).
+        shotSrc: (i) => (i.screenshot ? `${base}shot/${encodeURIComponent(i.id)}` : null),
+        links: { download: `/report/${encodeURIComponent(id)}/download`, pdf: saved.meta.hasPdf ? `${base}report.pdf` : null, api: base, shot: `${base}shot/` },
       });
       res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
       return res.end(html);
@@ -393,7 +513,7 @@ const server = createServer(async (req, res) => {
     // One file to send to a client: screenshots built in as data: URIs, no links back here.
     const shots = new Map();
     for (const t of saved.report.types || []) for (const i of t.issues || []) {
-      if (!i.screenshot) continue;
+      if (!i.screenshot || i.shotVersion !== SHOT_VERSION) continue; // only screenshots that show the problem outlined
       try { shots.set(i.id, `data:image/jpeg;base64,${(await readFile(history.file(id, i.screenshot))).toString("base64")}`); } catch { /* missing screenshot: shown without one */ }
     }
     const html = buildWebReport({ report: saved.report, standalone: true, shotSrc: (i) => shots.get(i.id) || null });
@@ -417,12 +537,22 @@ const server = createServer(async (req, res) => {
         if (method === "DELETE") return (await history.remove(id)) ? json(res, 200, { deleted: id }) : json(res, 404, { error: "Inspection not found" });
         return json(res, 405, { error: "Method not allowed" });
       }
+      if (parts[1] === "progress" && parts.length === 2) {
+        if (method === "GET") { const p = await history.getProgress(id); return p ? json(res, 200, p) : json(res, 404, { error: "Inspection not found" }); }
+        if (method === "PUT") return (await history.setProgress(id, await parseBody(req, 200000))) ? json(res, 200, { saved: true }) : json(res, 404, { error: "Inspection not found" });
+        return json(res, 405, { error: "Method not allowed" });
+      }
+      if (parts[1] === "verify" && parts.length === 2) {
+        if (method !== "POST") return json(res, 405, { error: "Method not allowed" });
+        return verifyRequest(req, res, id);
+      }
       if (method !== "GET") return json(res, 405, { error: "Method not allowed" });
       if (parts[1] === "shot" && parts.length === 3) return issueShot(res, id, parts[2]);
       const file = history.file(id, parts.slice(1).join("/"));
       if (file.endsWith(".pdf")) {
         try {
-          const data = await readFile(file);
+          const made = await inspectionPdf(id).catch(() => null); // with every screenshot so far
+          const data = await readFile(made || file);
           res.writeHead(200, { "Content-Type": "application/pdf", "Content-Disposition": `inline; filename="sitefix-${id}.pdf"` });
           return res.end(data);
         } catch { return json(res, 404, { error: "No PDF was made for this inspection" }); }
