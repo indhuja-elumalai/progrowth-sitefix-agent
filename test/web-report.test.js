@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildWebReport, reportFileName, fixFirst, bandOf, BANDS } from "../lib/web-report.js";
+import { buildWebReport, reportFileName, fixFirst, bandOf, BANDS, KEEPABLE } from "../lib/web-report.js";
 import { siteScore } from "../lib/score.js";
 
 const issue = (o) => ({
@@ -268,4 +268,20 @@ test("the selection message follows what is selected now, including when nothing
     const html = buildWebReport({ report: sample() });
     assert.match(dataOf(html).bank.selectionCleared, /\{score\}/);
     assert.match(html, /function selectionChanged\(\)/);
+});
+
+test("keep as is: only for problems a site may have on purpose, per kind and per page", () => {
+    const r = sample();
+    r.types.push({ type: "content-duplicate", category: "Content", title: "Nearly the same text", summary: "", why: "", fixSteps: [],
+        issues: [issue({ id: "ISS-00000000d1", type: "content-duplicate", affectedUrl: "https://example.com/contact?cta=x", evidence: { kind: "content" } })] });
+    const html = buildWebReport({ report: r });
+    const d = dataOf(html);
+    assert.deepEqual(d.types.map((t) => [t.type, t.canKeep]), [["title-missing", false], ["content-duplicate", true], ["image-alt-missing", false]]);
+    assert.match(html, /<button type="button" class="keep1" data-keep-id="ISS-00000000d1">Keep this page as it is<\/button>/);
+    assert.ok(!html.includes('data-keep-id="ISS-0000000001"'), "a missing title is a real problem: no keep");
+    assert.match(html, /id="dr-keep" hidden>Keep as is/);
+    assert.match(html, /<button type="button" data-area="kept"/, "its own column, like the areas");
+    assert.match(html, /<option value="kept">Kept as is<\/option>/);
+    assert.ok(d.bank.afterKeep.includes("{issue}"));
+    for (const t of ["http-4xx-internal", "image-broken", "content-placeholder", "speed-lcp-slow", "soft-404"]) assert.ok(!KEEPABLE.has(t), t);
 });

@@ -162,7 +162,7 @@ test("the live report's progress is saved with the inspection, cleaned, and the 
     const h = createHistory({ root });
     await h.sync();
     const id = "run-20261019T101500";
-    assert.deepEqual(await h.getProgress(id), { selected: {}, verified: {}, posts: [], visits: 0, last: 0 });
+    assert.deepEqual(await h.getProgress(id), { selected: {}, verified: {}, kept: {}, posts: [], visits: 0, last: 0 });
     await Promise.all([
         h.setProgress(id, { selected: { "ISS-0123456789": true }, visits: 1 }),
         h.setProgress(id, { selected: { "ISS-abcdefabcd": true, "../../etc": true, "ISS-ffffffffff": false }, verified: { "ISS-0123456789": 5, "bad": 1 }, posts: [{ at: 1, text: "Hi", action: { type: "lang-missing" } }, { at: 2, text: 5 }, { at: 3, text: "x", action: { type: "<b>" } }], visits: 2, last: 9 }),
@@ -170,6 +170,7 @@ test("the live report's progress is saved with the inspection, cleaned, and the 
     assert.deepEqual(await h.getProgress(id), {
         selected: { "ISS-abcdefabcd": true },
         verified: { "ISS-0123456789": 5 },
+        kept: {},
         posts: [{ at: 1, text: "Hi", action: { type: "lang-missing" } }, { at: 3, text: "x", action: null }],
         visits: 2, last: 9,
     });
@@ -190,4 +191,11 @@ test("a message's kind is kept, so the page can rewrite its selection message", 
     const p = cleanProgress({ posts: [{ at: 1, text: "2 fixes selected", kind: "select" }, { at: 2, text: "x", kind: "<script>" }] });
     assert.equal(p.posts[0].kind, "select");
     assert.ok(!("kind" in p.posts[1]));
+});
+
+test("issues kept as is are saved, and stop being selected", () => {
+    const p = cleanProgress({ selected: { "ISS-0123456789": true, "ISS-abcdefabcd": true }, kept: { "ISS-0123456789": 7, "bad": 1 }, verified: { "ISS-ffffffffff": 1 } });
+    assert.deepEqual(p.kept, { "ISS-0123456789": 7 });
+    assert.deepEqual(p.selected, { "ISS-abcdefabcd": true });
+    assert.deepEqual(cleanProgress({ kept: { "ISS-ffffffffff": 1 }, verified: { "ISS-ffffffffff": 1 } }).kept, {}, "a confirmed fix isn't also kept");
 });

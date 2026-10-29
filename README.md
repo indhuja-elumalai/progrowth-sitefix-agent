@@ -1614,6 +1614,27 @@ Before, a quoted sentence that ran across a bold label ("**Sending the emails or
 DMs:** … in atleast 4 phases") was not found, and the screenshot showed the top of
 the page, cookie banner included, with nothing outlined.
 
+**Keep as is.** Some flagged items may be on purpose and don't harm visitors. For
+example, `/contact` and `/contact?cta=insights-hub` show the same page, from
+different links. These can be kept as they are:
+
+- **Which kinds:** near-identical or thin pages, repeated titles and descriptions,
+  title or description length, heading order, extra H1s, long alt text, noindex
+  or nofollow, a redirect chain, a missing canonical tag, missing sharing tags,
+  and spelling or grammar (a brand name). Broken links and images, placeholder
+  text, error pages and speed can't be kept: they are real problems
+  (`KEEPABLE` in `lib/web-report.js`).
+- **How:** in the fix panel, "Keep as is" keeps the whole fix, and "Keep this page
+  as it is" keeps one page.
+- **Where it goes:** to a fourth column, **Kept as is**, next to On-page, Technical
+  and Off-page (a "Kept" tab on a phone, and "Kept as is" in All issues' area
+  filter), with **Undo**.
+- **The score:** a kept item stops counting against it, adding exactly the points
+  it showed. SiteFix says so: "Got it: … stays as it is, on purpose. It no longer
+  counts against your score, which is now 70. 👌"
+- **Saved:** kept items are saved with the inspection like the selection
+  (`kept` in `progress.json`).
+
 **SiteFix's messages** appear beside the score:
 
 - the first message, or "welcome back" on a return visit;
@@ -1702,7 +1723,7 @@ JavaScript: print opens every card and hides the buttons and messages.
   added, a broken link replaced, alt text added, `lang` added), those came back
   "fixed".
 - Fixture: 34 of 34.
-- Tests: 330 (48 new: score, coach checks, verify rules, progress, the page, screenshots).
+- Tests: 332 (50 new: score, coach checks, verify rules, progress, the page, screenshots).
 
 ## 13. Security principles
 
