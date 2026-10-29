@@ -1566,6 +1566,24 @@ What gets the red box:
   earlier reports are taken again the first time they are asked for, in the web
   report or the chat. Only up-to-date ones go into the downloaded file.
 
+**Screenshots are ready before they are opened.** Taking one means opening the
+page in a browser (2 to 3 seconds), so they are now taken ahead of time:
+
+- **When:** as soon as an inspection finishes, and again whenever its report is
+  opened, for any still missing.
+- **Order:** the first page of each kind of problem goes first, most urgent first,
+  since that is what a fix shows when it opens. Then the rest.
+- **Priority:** a screenshot someone is looking at (in the report or the chat)
+  jumps ahead of the queue, and the same screenshot is never taken twice at once.
+- **In the report:** a fix asks for its screenshots as soon as the pointer is over
+  it and when it opens. They are cached in the browser, and a soft shimmer shows
+  while one is still coming.
+- **Settle time:** the wait for a page to settle is shorter (0.3 s, and longer
+  only when the problem isn't visible yet).
+
+On the test site, every screenshot was served in under 10 ms once the report had
+been open for 15 seconds.
+
 Before, a quoted sentence that ran across a bold label ("**Sending the emails or
 DMs:** … in atleast 4 phases") was not found, and the screenshot showed the top of
 the page, cookie banner included, with nothing outlined.
@@ -1646,7 +1664,7 @@ JavaScript: print opens every card and hides the buttons and messages.
   added, a broken link replaced, alt text added, `lang` added), those came back
   "fixed".
 - Fixture: 34 of 34.
-- Tests: 324 (42 new: score, coach checks, verify rules, progress, the page, screenshots).
+- Tests: 325 (43 new: score, coach checks, verify rules, progress, the page, screenshots).
 
 ## 13. Security principles
 
