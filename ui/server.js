@@ -88,32 +88,63 @@ function mime(ext) {
 // The screenshot of one issue of a saved inspection. When the report has none, the page
 // is opened now (the problem outlined), the screenshot kept with the inspection, and the
 // report updated. A page that can't be opened is not tried again until a restart.
+// One issue's screenshot: true when an up-to-date one is saved (taken now if needed).
+// urgent: someone is looking at it, so it goes ahead of the ones taken in advance.
+const shotReady = new Set(); // "<run>/<issue>" known to be saved and up to date
+async function ensureShot(id, issue, urgent) {
+  const key = `${id}/${issue.id}`;
+  if (shotReady.has(key)) return true;
+  if (shotFailed.has(key)) return false;
+  const file = history.file(id, `shots/${issue.id}.jpg`);
+  // A saved screenshot is used when it was taken the current way; an older one is
+  // taken again (it may not show the problem outlined).
+  if (issue.shotVersion === SHOT_VERSION && await access(file).then(() => true, () => false)) { shotReady.add(key); return true; }
+  let job = shotJobs.get(key);
+  if (!job) {
+    const plan = shotPlan(issue);
+    if (!plan) { shotFailed.add(key); return false; }
+    job = shooter.take(plan, file, { urgent })
+      .then(async (ok) => { if (ok) { shotReady.add(key); await history.setShot(id, issue.id, SHOT_VERSION); } else { shotFailed.add(key); await rm(file, { force: true }).catch(() => {}); } return ok; })
+      .finally(() => shotJobs.delete(key));
+    shotJobs.set(key, job);
+  } else if (urgent) shooter.take(shotPlan(issue), file, { urgent: true }); // moves it to the front
+  return job;
+}
+
 async function issueShot(res, id, issueId) {
   if (!/^ISS-[0-9a-f]{10}$/.test(issueId)) return json(res, 400, { error: "Bad issue id" });
   const file = history.file(id, `shots/${issueId}.jpg`);
-  const key = `${id}/${issueId}`;
-  if (shotFailed.has(key)) return json(res, 404, { error: "The problem could not be found on the page for a screenshot" });
-  let job = shotJobs.get(key);
-  if (!job) {
-    const saved = await history.load(id);
-    const issue = saved?.report?.types?.flatMap((t) => t.issues || []).find((i) => i.id === issueId);
-    // A saved screenshot is served when it was taken the current way; an older one is
-    // taken again (it may not show the problem outlined).
-    if (issue?.shotVersion === SHOT_VERSION && await access(file).then(() => true, () => false)) return serveFile(res, file);
-    const plan = shotPlan(issue);
-    if (!plan) return json(res, 404, { error: "No screenshot for this issue" });
-    job = shooter.take(plan, file)
-      .then(async (ok) => { if (ok) await history.setShot(id, issueId, SHOT_VERSION); else { shotFailed.add(key); await rm(file, { force: true }).catch(() => {}); } return ok; })
-      .finally(() => shotJobs.delete(key));
-    shotJobs.set(key, job);
-  }
-  return (await job) ? serveFile(res, file) : json(res, 404, { error: "The page could not be opened for a screenshot" });
+  if (shotReady.has(`${id}/${issueId}`)) return serveFile(res, file, true);
+  const saved = await history.load(id);
+  const issue = saved?.report?.types?.flatMap((t) => t.issues || []).find((i) => i.id === issueId);
+  if (!issue) return json(res, 404, { error: "No such issue" });
+  return (await ensureShot(id, issue, true)) ? serveFile(res, file, true) : json(res, 404, { error: "The problem could not be found on the page for a screenshot" });
 }
 
-async function serveFile(res, filePath) {
+// Screenshots taken ahead of time, so they are ready when an issue is opened: after an
+// inspection finishes and when its report is opened. The first page of each kind of
+// problem goes first (that is what the report shows when a fix is opened), most urgent
+// kinds first, then the rest. They wait behind any screenshot someone is looking at.
+const warming = new Set();
+async function warmShots(id) {
+  if (warming.has(id)) return;
+  warming.add(id);
+  try {
+    const saved = await history.load(id);
+    const types = [...(saved?.report?.types || [])].sort((a, b) => (a.issues?.[0]?.priority || "P3").localeCompare(b.issues?.[0]?.priority || "P3"));
+    const firsts = types.map((t) => t.issues?.[0]).filter(Boolean);
+    const rest = types.flatMap((t) => (t.issues || []).slice(1));
+    const todo = [...firsts, ...rest].filter((i) => shotPlan(i)).slice(0, 500);
+    await Promise.all(todo.map((i) => ensureShot(id, i, false).catch(() => false)));
+  } finally {
+    warming.delete(id);
+  }
+}
+
+async function serveFile(res, filePath, cache = false) {
   try {
     const data = await readFile(filePath);
-    res.writeHead(200, { "Content-Type": mime(path.extname(filePath)) });
+    res.writeHead(200, { "Content-Type": mime(path.extname(filePath)), ...(cache ? { "Cache-Control": "private, max-age=600" } : {}) });
     res.end(data);
   } catch {
     res.writeHead(404, { "Content-Type": "text/plain" });
@@ -280,6 +311,7 @@ const server = createServer(async (req, res) => {
         // Keep this inspection: it stays in the sidebar after a reload or restart.
         try {
           const meta = await history.sync();
+          if (meta?.id) warmShots(meta.id).catch(() => {});
           if (meta) { entry.inspectionId = meta.id; broadcast(`__SAVED__:${meta.id}`); }
         } catch (err) {
           broadcast(`Could not save this inspection to history: ${err.message}`);
@@ -420,6 +452,7 @@ const server = createServer(async (req, res) => {
     if (!saved.report) return page(404, "No report for this inspection", "The report step did not finish for this inspection, so there are no explanations to show. Run the inspection again to get a full report.");
     const base = `/api/history/${encodeURIComponent(id)}/`;
     if (!download) {
+      warmShots(id).catch(() => {});
       const html = buildWebReport({
         report: saved.report,
         // Through the screenshot endpoint: it serves the saved one, or takes it again if

@@ -116,3 +116,18 @@ test("a problem with nothing to point at gets no screenshot plan", () => {
     assert.equal(shotPlan({ type: "copy-spelling", affectedUrl: "https://x.test/a", evidence: { kind: "content", matches: [] } }), null, "no quoted text: nothing to outline");
     assert.equal(shotPlan({ type: "soft-404", affectedUrl: "https://x.test/a", evidence: { kind: "soft-404" } }).mode, "page");
 });
+
+test("the shooter takes each file once, and someone looking at one goes ahead of those taken in advance", async () => {
+    const order = [];
+    const fakeBrowser = { newContext: async () => ({ newPage: async () => { throw new Error("no pages in this test"); } }), close: async () => {} };
+    const shooter = createShooter({ concurrency: 1, idleMs: 10, launch: async () => fakeBrowser });
+    const plan = (n) => ({ page: `http://x.test/${n}`, mode: "page" });
+    const track = (n, p) => p.then(() => order.push(n));
+    const a = shooter.take(plan("a"), "/tmp/a.jpg");
+    const jobs = [track("a", a), track("b", shooter.take(plan("b"), "/tmp/b.jpg")), track("c", shooter.take(plan("c"), "/tmp/c.jpg"))];
+    assert.equal(shooter.take(plan("a"), "/tmp/a.jpg"), a, "the same file: the same job");
+    jobs.push(track("c-again", shooter.take(plan("c"), "/tmp/c.jpg", { urgent: true })));
+    await Promise.all(jobs);
+    assert.deepEqual(order.filter((x) => x !== "c-again"), ["a", "c", "b"], "c was asked for urgently, so it went before b");
+    await shooter.close();
+});
