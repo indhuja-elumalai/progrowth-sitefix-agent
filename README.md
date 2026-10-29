@@ -1491,10 +1491,12 @@ urgent issues is worth about 8 to 12 points.
 **Pick fixes and see the score they lead to.** SiteFix doesn't change the site
 yet (the fix stage comes later), so the report works like this:
 
+- The **site's name** heads the report, with a link to the site.
 - The **score is always in the top bar**. Ticking a fix moves it at once: "66 → 73".
-- On the **Fix tab**, the score ring is solid up to today's score and lighter up to
-  the score with the ticked fixes. Today's score only counts fixes confirmed on the
-  live site.
+- On the **Fix tab**, a score meter like a credit-score dial, in four bands: Needs
+  work (0-49), Fair (50-69), Good (70-84) and Excellent (85-100). The pointer
+  is at the score with the ticked fixes, and a dot on the dial marks today's
+  score. Today's score only counts fixes confirmed on the live site.
 - The Fix tab has **three columns: On-page, Technical and Off-page**. Each shows
   its own score (now → with the selection) and its fixes, easiest or most useful
   first: Recommended, Quick wins, Biggest boost or Urgent first. On a phone, one
@@ -1518,8 +1520,12 @@ yet (the fix stage comes later), so the report works like this:
 - **All issues**: every kind of problem with search, filters (area, level,
   effort) and sorting, also with tick boxes.
 - Levels (urgent, important, polish) stay as a label on each fix.
-- Download, PDF and Print are under Export. The full report with every page
-  stays in the PDF and in print.
+- Download, PDF and Print are under Export.
+  - The menu closes on a click anywhere else, on Escape, or once an option is
+    chosen.
+  - Download says it is preparing the file, the PDF opens in a new tab, and
+    Print waits for the menu to close.
+  - The full report with every page stays in the PDF and in print.
 - The chat's links open the right place: `#type=` and `#p=` open the list
   filtered, one kind opens straight in the panel, and `#ISS-…` opens that page's
   issue.
@@ -1600,7 +1606,7 @@ JavaScript: print opens every card and hides the buttons and messages.
   added, a broken link replaced, alt text added, `lang` added), those came back
   "fixed".
 - Fixture: 34 of 34.
-- Tests: 315 (33 new: score, coach checks, verify rules, progress, the page).
+- Tests: 316 (34 new: score, coach checks, verify rules, progress, the page).
 
 ## 13. Security principles
 
