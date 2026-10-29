@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildWebReport, reportFileName, fixFirst } from "../lib/web-report.js";
+import { buildWebReport, reportFileName, fixFirst, bandOf, BANDS, KEEPABLE } from "../lib/web-report.js";
+import { siteScore } from "../lib/score.js";
 
 const issue = (o) => ({
     id: "ISS-0000000001", type: "title-missing", category: "SEO: titles & descriptions", severity: "high",
@@ -32,8 +33,8 @@ test("every issue is on the page, with its priority, category and owner as filte
     assert.match(html, /id="ISS-0000000002" data-p="P2" data-cat="Images" data-owner="Developer" data-qw="0"/);
     assert.match(html, /id="ISS-0000000001" data-p="P1" data-cat="SEO: titles &amp; descriptions" data-owner="Content writer" data-qw="1"/);
     assert.match(html, /Suggested title<\/div><div class="v"><span>About us \| Example<\/span><button type="button" class="copy" data-copy="About us \| Example">/);
-    assert.match(html, /Found on 2 pages/);
-    assert.match(html, /<option>Content writer<\/option><option>Developer<\/option>/);
+    assert.match(html, /Linked from 2 pages/, "a problem on the page itself: the pages that link to it");
+    assert.match(html, /Content writer · 1 issue · worth/, "who fixes it");
 });
 
 test("page text from the crawled site is escaped, so a hostile page cannot inject script", () => {
@@ -49,7 +50,9 @@ test("page text from the crawled site is escaped, so a hostile page cannot injec
 });
 
 test("the standalone file loads nothing from the network and has no links back to the server", () => {
-    const html = buildWebReport({ report: sample(), standalone: true, links: { pdf: "/api/history/x/report.pdf", download: "/report/x/download" }, shotSrc: (i) => (i.screenshot ? "data:image/jpeg;base64,AAAA" : null) });
+    const r = sample();
+    r.types[1].issues[0].evidence = { kind: "http", status: 404 }; // a problem a screenshot can point at
+    const html = buildWebReport({ report: r, standalone: true, links: { pdf: "/api/history/x/report.pdf", download: "/report/x/download" }, shotSrc: (i) => (i.screenshot ? "data:image/jpeg;base64,AAAA" : null) });
     assert.ok(!/<script[^>]+src=/i.test(html));
     assert.ok(!/<link[^>]+stylesheet/i.test(html));
     assert.ok(!/@import|url\(http/i.test(html));
@@ -59,7 +62,9 @@ test("the standalone file loads nothing from the network and has no links back t
 });
 
 test("the live page links to the PDF and the download, and uses the screenshot URLs it is given", () => {
-    const html = buildWebReport({ report: sample(), links: { pdf: "/api/history/r/report.pdf", download: "/report/r/download" }, shotSrc: (i) => (i.screenshot ? `/api/history/r/${i.screenshot}` : null) });
+    const r = sample();
+    r.types[1].issues[0].evidence = { kind: "http", status: 404 };
+    const html = buildWebReport({ report: r, links: { pdf: "/api/history/r/report.pdf", download: "/report/r/download" }, shotSrc: (i) => (i.screenshot ? `/api/history/r/${i.screenshot}` : null) });
     assert.match(html, /href="\/report\/r\/download" download>Download this report/);
     assert.match(html, /href="\/api\/history\/r\/report.pdf"/);
     assert.match(html, /<img src="\/api\/history\/r\/shots\/ISS-0000000002.jpg"/);
@@ -98,6 +103,187 @@ test("a large site read in part says so under the title, and the chat's filter l
     const html = buildWebReport({ report: r });
     assert.match(html, /12 pages crawled \(a share of every section of a larger site: at least 3003 pages found\)/);
     assert.match(html, /function fromHash\(h\)/, "reads #type=, #p= and #qw= from links in the chat");
+});
+
+// ---------- the live report (Day 29) ----------
+const dataOf = (html) => JSON.parse(html.match(/<script type="application\/json" id="sf-data">([\s\S]*?)<\/script>/)[1]);
+
+test("the page is an app: Fix and All issues tabs, the score always in the top bar", () => {
+    const r = sample();
+    const html = buildWebReport({ report: r });
+    const s = siteScore(r.types.flatMap((t) => t.issues), []);
+    for (const t of ["fix", "issues"]) {
+        assert.match(html, new RegExp(`data-tab="${t}"`));
+        assert.match(html, new RegExp(`<section class="panel" id="panel-${t}" role="tabpanel"`));
+    }
+    assert.ok(!html.includes('data-tab="progress"'));
+    assert.match(html, new RegExp(`<div class="spill" aria-live="polite"><span>Score</span><b id="sp-now">${s.score}</b>`));
+    assert.match(html, /All issues <span class="n">2<\/span>/);
+    assert.match(html, /id="q" placeholder="Search problems or pages"/, "search, filters and sorting live in All issues");
+});
+
+test("the Fix tab: score ring (today and with the selection), SiteFix's message, sorting and the three areas", () => {
+    const r = sample();
+    const html = buildWebReport({ report: r });
+    const s = siteScore(r.types.flatMap((t) => t.issues), []);
+    assert.match(html, new RegExp(`<div class="g-num"><b>${s.score}</b><span class="g-band-name b\\d">`), "the score meter");
+    assert.match(html, /Tick fixes below to see your score climb/);
+    assert.match(html, new RegExp(`Your site scores ${s.score} out of 100 today\\. There is 1 urgent thing to fix first`));
+    for (const k of ["rec", "quick", "boost", "urgent"]) assert.match(html, new RegExp(`data-sort="${k}"`));
+    for (const a of ["on-page", "technical", "off-page"]) assert.match(html, new RegExp(`<button type="button" data-area="${a}"`));
+    assert.match(html, /<div class="cols" id="cols"><\/div>/);
+});
+
+test("the selection bar: Fix these is shown but not active until the fix stage", () => {
+    const html = buildWebReport({ report: sample(), links: { api: "/api/history/r/" } });
+    assert.match(html, /<button type="button" class="btn primary" id="sb-fix" disabled aria-describedby="sb-soon">Fix these<\/button><small id="sb-soon">Automatic fixing is coming soon<\/small>/);
+    assert.equal(dataOf(html).fix, null);
+    const later = buildWebReport({ report: sample(), links: { api: "/api/history/r/", fix: "/api/history/r/fix" } });
+    assert.equal(dataOf(later).fix, "/api/history/r/fix", "the fix stage turns the button on with one link");
+    assert.equal(dataOf(buildWebReport({ report: sample(), standalone: true, links: { fix: "/x" } })).fix, null);
+});
+
+test("each kind of problem carries the facts the page needs, from the report only", () => {
+    const r = sample();
+    r.types[0].issues[0].fixClass = "ai-proposed";
+    r.types[1].issues.forEach((i) => { i.fixClass = "not-automatable"; });
+    const d = dataOf(buildWebReport({ report: r }));
+    assert.deepEqual(d.types.map((t) => [t.type, t.level, t.area, t.effort, t.owner, t.pages, t.ids, t.canFix]), [
+        ["title-missing", "P1", "on-page", "easy", "Content writer", 1, ["ISS-0000000001"], true],
+        ["image-alt-missing", "P2", "on-page", "easy", "Developer", 2, ["ISS-0000000002", "ISS-0000000003"], false],
+    ]);
+    assert.equal(d.types[0].visitor, "Search results show the URL.", "what visitors face: the standard line comes from the guidance");
+    assert.deepEqual(d.issues.map((i) => [i.id, i.t, i.p]), [["ISS-0000000001", "title-missing", "P1"], ["ISS-0000000002", "image-alt-missing", "P2"], ["ISS-0000000003", "image-alt-missing", "P3"]]);
+    assert.ok(d.bank.afterSelect.includes("{score}"), "messages travel as templates");
+});
+
+test("the full detail of every kind is on the page, for the fix panel, print and no JavaScript", () => {
+    const html = buildWebReport({ report: sample() });
+    assert.match(html, /<div class="full"><h2>Level 1 · Urgent fixes<\/h2>\n<section class="tdetail" id="t-title-missing" data-type="title-missing" data-area="on-page" data-effort="easy" data-level="P1">/);
+    assert.match(html, /<h2>Level 2 · Important fixes<\/h2>\n<section class="tdetail" id="t-image-alt-missing"/);
+    assert.match(html, /<div class="fix"><div class="k">How to fix<\/div><ol><li>Add a title\.<\/li><\/ol><\/div>/);
+    assert.match(html, /<input type="checkbox" data-sel-id="ISS-0000000002"> Include this page in the fix/, "each page can be selected on its own");
+    assert.match(html, /<html lang="en" class="nojs">/);
+    assert.match(html, /\.nojs \.full\{display:block\}/);
+    assert.match(html, /@media print\{\.top,\.app,\.drawer,\.scrim,\.toast,\.selbar/);
+});
+
+test("checking the live site and saved progress only on the live page; the download keeps the selection in the browser", () => {
+    const live = buildWebReport({ report: sample(), links: { api: "/api/history/r/" } });
+    assert.equal(dataOf(live).api, "/api/history/r/");
+    assert.match(live, /id="dr-check">Fixed it yourself\? Check your live site<\/button>/);
+    const file = buildWebReport({ report: sample(), standalone: true, links: { api: "/api/history/r/" } });
+    assert.equal(dataOf(file).api, null);
+    assert.ok(!file.includes('id="dr-check"'));
+    assert.ok(!file.includes("/api/history/"));
+    assert.match(file, /id="dr-sel">Select this fix/);
+});
+
+test("the page's data is safely embedded", () => {
+    const r = sample();
+    r.types[0].title = "</script><script>alert(1)</script>";
+    const html = buildWebReport({ report: r });
+    assert.equal((html.match(/<\/script>/g) || []).length, 2, "only the data block and SiteFix's script end a script");
+    assert.equal(dataOf(html).types[0].title, "</script><script>alert(1)</script>");
+});
+
+test("the coach's AI words are used when the report has them; missing ones get the standard text", () => {
+    const r = sample();
+    r.coach = { source: "ai", bank: { intro: "Hello {site}, you are at {score}.", welcomeBack: "Back: {score}.", level: { 1: "Urgent: {count} left.", 2: "Two: {count}.", 3: "Three: {count}.", 4: "All done." }, levelUp: { 2: "Up {score}", 3: "Up {score}", 4: "Up {score}" }, afterMark: "a {issue}", afterVerify: "b {issue}", stillThere: "c {issue}", nextUp: "d {issue}", types: { "title-missing": { visitor: "People see a bare address.", nudge: "Easy, {gain} points." } } } };
+    const html = buildWebReport({ report: r });
+    assert.match(html, /Hello example\.com, you are at \d+\./);
+    const d = dataOf(html);
+    assert.equal(d.types[0].visitor, "People see a bare address.");
+    assert.ok(d.types[1].visitor.length > 8, "a kind the AI left out still gets a line");
+    assert.match(d.bank.afterSelect, /\{count\} fixes selected/, "reports made before selecting existed get the standard message");
+    assert.match(html, /SiteFix's messages are worded by AI/);
+});
+
+test("the site's name is the page heading, and the score meter has four bands", () => {
+    const html = buildWebReport({ report: sample() });
+    assert.match(html, /<div class="site-h"><h1>example\.com<\/h1><a href="https:\/\/example\.com\/" target="_blank" rel="noopener noreferrer">Visit site/);
+    assert.equal((html.match(/<path class="g-band b\d"/g) || []).length, 4);
+    assert.deepEqual([0, 49, 50, 69, 70, 84, 85, 100].map((v) => bandOf(v).name), ["Needs work", "Needs work", "Fair", "Fair", "Good", "Good", "Excellent", "Excellent"]);
+    assert.deepEqual(BANDS.map((b) => [b.min, b.max]), [[0, 49], [50, 69], [70, 84], [85, 100]], "the bands cover 0 to 100 with no gap");
+});
+
+test("Download, PDF and Print are in the Export menu, which closes on any click elsewhere or after choosing", () => {
+    const html = buildWebReport({ report: sample(), links: { pdf: "/p.pdf", download: "/d" } });
+    assert.match(html, /<details class="export"><summary>Export<\/summary>/);
+    assert.match(html, /<button type="button" data-print>Print/);
+    assert.match(html, /if \(ex && ex\.open && !ex\.contains\(e\.target\)\) closeExport\(\);/);
+});
+
+test("images: screenshots taken when opened on the live page, and the image itself for image problems", () => {
+    const r = sample();
+    r.types.push({ type: "image-broken", category: "Images", title: "Broken image", summary: "", why: "", fixSteps: [],
+        issues: [issue({ id: "ISS-0000000009", type: "image-broken", affectedUrl: "https://example.com/gone.png", foundOn: ["https://example.com/"], evidence: { kind: "image", status: 404 } })] });
+    r.types[1].issues[0].evidence = { kind: "image", status: 200 };
+    const live = buildWebReport({ report: r, links: { api: "/api/history/r/", shot: "/api/history/r/shot/" }, shotSrc: (i) => (i.screenshot ? "/s/" + i.id : null) });
+    assert.match(live, /<img src="\/s\/ISS-0000000002"/, "a screenshot report.js took is used");
+    assert.match(live, /<img data-src="\/api\/history\/r\/shot\/ISS-0000000009"/, "an issue without one gets one when it is opened");
+    assert.match(live, /<img src="https:\/\/example\.com\/i\.png" alt="The image at https:\/\/example\.com\/i\.png" loading="lazy" referrerpolicy="no-referrer"><figcaption>The image itself/);
+    assert.match(live, /The image itself can't be shown: it doesn't load \(the server answers 404\), which is the problem\./);
+    const file = buildWebReport({ report: r, standalone: true, links: { shot: "/api/history/r/shot/" } });
+    assert.ok(!file.includes("data-src="), "the downloaded file only has the screenshots built into it");
+});
+
+test("pages: a broken link or image counts the pages it is on; any other problem only its own page", () => {
+    const r = report([
+        { type: "copy-spelling", category: "Content", title: "Spelling", summary: "", fixSteps: [], issues: [
+            issue({ id: "ISS-00000000a1", type: "copy-spelling", affectedUrl: "https://example.com/a", foundOn: ["https://example.com/", "https://example.com/b", "https://example.com/c"], evidence: { kind: "content" } }),
+            issue({ id: "ISS-00000000a2", type: "copy-spelling", affectedUrl: "https://example.com/d", foundOn: ["https://example.com/"], evidence: { kind: "content" } })] },
+        { type: "http-4xx-external", category: "HTTP", title: "Broken outside link", summary: "", fixSteps: [], issues: [
+            issue({ id: "ISS-00000000b1", type: "http-4xx-external", affectedUrl: "https://gone.example/x", foundOn: ["https://example.com/", "https://example.com/b", "https://example.com/c"], evidence: { kind: "http", status: 404 } })] },
+    ]);
+    const html = buildWebReport({ report: r });
+    const d = dataOf(html);
+    assert.deepEqual(d.types.map((t) => [t.type, t.pages]), [["copy-spelling", 2], ["http-4xx-external", 3]]);
+    assert.deepEqual(d.issues.map((i) => i.n), [1, 1, 3]);
+    assert.match(html, /Linked from 3 pages/);
+    assert.match(html, /Found on 3 pages/);
+});
+
+test("a screenshot is only shown for a problem it can point at", () => {
+    const r = sample(); // the alt-text issue here has no page evidence: nothing to outline
+    const html = buildWebReport({ report: r, shotSrc: (i) => (i.screenshot ? "/s/" + i.id : null) });
+    assert.ok(!html.includes('src="/s/ISS-0000000002"'), "a saved screenshot that can't show the problem is left out");
+});
+
+test("each page of a fix shows its share of the points, and the meter has today's and the selection's arcs", () => {
+    const html = buildWebReport({ report: sample() });
+    assert.match(html, /<span class="ipts" data-id="ISS-0000000002"><\/span>/, "filled in by the page with that issue's points");
+    assert.match(html, /<path class="g-arc-sel"[^>]*pathLength="100"/);
+    assert.match(html, /<path class="g-arc-now"[^>]*pathLength="100"/);
+    assert.match(html, /function pointsOf\(issues, fixed\)/, "the page works out the points the same way");
+});
+
+test("SiteFix's messages get a friendly emoji, added after the words were checked", () => {
+    const html = buildWebReport({ report: sample() });
+    assert.match(html, /<div class="bubble">\u{1F44B} Your site scores/u, "the first message waves hello");
+    assert.match(html, /function withEmoji\(text, kind\)/);
+});
+
+test("the selection message follows what is selected now, including when nothing is", () => {
+    const html = buildWebReport({ report: sample() });
+    assert.match(dataOf(html).bank.selectionCleared, /\{score\}/);
+    assert.match(html, /function selectionChanged\(\)/);
+});
+
+test("keep as is: only for problems a site may have on purpose, per kind and per page", () => {
+    const r = sample();
+    r.types.push({ type: "content-duplicate", category: "Content", title: "Nearly the same text", summary: "", why: "", fixSteps: [],
+        issues: [issue({ id: "ISS-00000000d1", type: "content-duplicate", affectedUrl: "https://example.com/contact?cta=x", evidence: { kind: "content" } })] });
+    const html = buildWebReport({ report: r });
+    const d = dataOf(html);
+    assert.deepEqual(d.types.map((t) => [t.type, t.canKeep]), [["title-missing", false], ["content-duplicate", true], ["image-alt-missing", false]]);
+    assert.match(html, /<button type="button" class="keep1" data-keep-id="ISS-00000000d1">Keep this page as it is<\/button>/);
+    assert.ok(!html.includes('data-keep-id="ISS-0000000001"'), "a missing title is a real problem: no keep");
+    assert.match(html, /id="dr-keep" hidden>Keep as is/);
+    assert.match(html, /<button type="button" data-area="kept"/, "its own column, like the areas");
+    assert.match(html, /<option value="kept">Kept as is<\/option>/);
+    assert.ok(d.bank.afterKeep.includes("{issue}"));
+    for (const t of ["http-4xx-internal", "image-broken", "content-placeholder", "speed-lcp-slow", "soft-404"]) assert.ok(!KEEPABLE.has(t), t);
 });
 
 test("a stopped inspection says so under the title", () => {
