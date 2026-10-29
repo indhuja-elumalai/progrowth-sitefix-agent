@@ -1542,6 +1542,32 @@ is kept. Image problems also show the image itself; a broken image says it
 can't be shown and why. The chat's issue details show the image too. The
 downloaded file has the screenshots taken so far built into it.
 
+**Points for each issue, not only each kind** (`pointsOf`, `projected` in
+`lib/score.js`).
+
+Ticking one page of a fix used to show "less than a point" until every page was
+ticked, because each kind of problem levels off.
+
+- **Each area's points still to win** (100 minus its score) are shared between its
+  kinds of problem, by how much each costs on its own.
+- **Each kind's points** are shared equally between its issues.
+
+So:
+
+- one page of "Redirect to a missing page" (+5, 25 pages) shows **+0.2**, and
+  ticking two adds +0.4;
+- a whole kind adds its points;
+- fixing everything adds up to exactly 100.
+
+Points show with one decimal under 10. A part-selected fix shows "+0.4 of 5", and
+each page in the fix panel shows its own share.
+
+**The score meter** keeps the credit-score bands as a thin outer ring:
+
+- Needs work, Fair, Good, Excellent;
+- inside it, a thick arc in the report's earlier style: solid green up to today's
+  score, lighter green on to the score with the selected fixes.
+
 **Every screenshot shows the problem, boxed in red, or there is none.**
 
 A screenshot is kept only when the problem was found on the page and is visible
@@ -1664,7 +1690,7 @@ JavaScript: print opens every card and hides the buttons and messages.
   added, a broken link replaced, alt text added, `lang` added), those came back
   "fixed".
 - Fixture: 34 of 34.
-- Tests: 325 (43 new: score, coach checks, verify rules, progress, the page, screenshots).
+- Tests: 327 (45 new: score, coach checks, verify rules, progress, the page, screenshots).
 
 ## 13. Security principles
 
