@@ -63,3 +63,13 @@ test("the score functions are self-contained, so the web report can copy them in
     assert.deepEqual(fns.siteScore(list, ["b"]), siteScore(list, ["b"]));
     assert.equal(fns.gainOf(list, [], ["a"]), gainOf(list, [], ["a"]));
 });
+
+test("only broken links, images and redirects count the pages they were found on", () => {
+    const linking = Array.from({ length: 40 }, (_, k) => `https://e.com/${k}`);
+    const page = siteScore([{ id: "a", type: "copy-spelling", severity: "medium", foundOn: linking, evidence: { kind: "content" } }], []);
+    const one = siteScore([{ id: "a", type: "copy-spelling", severity: "medium", foundOn: [], evidence: { kind: "content" } }], []);
+    assert.deepEqual(page, one, "pages that link to a misspelt page don't make the mistake bigger");
+    const link = siteScore([{ id: "b", type: "http-4xx-internal", severity: "high", foundOn: linking, evidence: { kind: "http" } }], []);
+    const linkOnce = siteScore([{ id: "b", type: "http-4xx-internal", severity: "high", foundOn: linking.slice(0, 1), evidence: { kind: "http" } }], []);
+    assert.ok(link.exact < linkOnce.exact, "a broken link on 40 pages costs more than on one");
+});
