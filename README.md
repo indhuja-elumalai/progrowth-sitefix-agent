@@ -1530,6 +1530,13 @@ yet (the fix stage comes later), so the report works like this:
   filtered, one kind opens straight in the panel, and `#ISS-…` opens that page's
   issue.
 
+**Images, not links.** Every issue that can be seen on a page shows a screenshot.
+report.js takes up to 30 of them. On the live report, an issue without one gets
+it when the issue is first opened, from the same endpoint the chat uses, and it
+is kept. Image problems also show the image itself; a broken image says it
+can't be shown and why. The chat's issue details show the image too. The
+downloaded file has the screenshots taken so far built into it.
+
 **SiteFix's messages** appear beside the score:
 
 - the first message, or "welcome back" on a return visit;
@@ -1606,7 +1613,7 @@ JavaScript: print opens every card and hides the buttons and messages.
   added, a broken link replaced, alt text added, `lang` added), those came back
   "fixed".
 - Fixture: 34 of 34.
-- Tests: 316 (34 new: score, coach checks, verify rules, progress, the page).
+- Tests: 317 (35 new: score, coach checks, verify rules, progress, the page).
 
 ## 13. Security principles
 
