@@ -23,7 +23,7 @@ import { explainIssues, groupByType } from "./lib/explain.js";
 import { buildReportHtml } from "./lib/report-html.js";
 import { buildWebReport } from "./lib/web-report.js";
 import { createProgress } from "./lib/progress.js";
-import { shotPlan, capture } from "./lib/screenshots.js";
+import { shotPlan, capture, SHOT_VERSION } from "./lib/screenshots.js";
 import { siteScore, areaOf } from "./lib/score.js";
 import { buildCoach } from "./lib/coach.js";
 import { templateFor } from "./lib/explain-templates.js";
@@ -133,7 +133,7 @@ async function main() {
         ai: { provider: provider ? provider.name : "none", model: provider ? provider.model : null, ...stats },
         summary: triageSummary(issues),
         summaries: { links: links?.summary, images: images?.summary, content: content?.summary, metadata: metadata?.summary, speed: speed?.summary || null },
-        types: types.map((t) => ({ ...t, issues: t.issues.map((i) => ({ ...i, screenshot: shotFiles.has(i.id) ? `shots/${i.id}.jpg` : null })) })),
+        types: types.map((t) => ({ ...t, issues: t.issues.map((i) => ({ ...i, screenshot: shotFiles.has(i.id) ? `shots/${i.id}.jpg` : null, ...(shotFiles.has(i.id) ? { shotVersion: SHOT_VERSION } : {}) })) })),
         // The live report: the score (lib/score.js) and the coach's messages (lib/coach.js).
         score: siteScore(issues, []),
         coach: { bank: coach.bank, source: coach.source, problems: coach.problems.slice(0, 20) },

@@ -38,7 +38,7 @@
 // writes audit-report/. AI settings come from .env (see lib/ai-provider.js).
 
 import { createServer } from "node:http";
-import { readFile, access } from "node:fs/promises";
+import { readFile, access, rm } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -48,7 +48,7 @@ import { answerQuestion } from "../lib/chat.js";
 import { createHistory, isRunId } from "../lib/history.js";
 import { buildWebReport, reportFileName } from "../lib/web-report.js";
 import { parseProgressLine } from "../lib/progress.js";
-import { shotPlan, createShooter } from "../lib/screenshots.js";
+import { shotPlan, createShooter, SHOT_VERSION } from "../lib/screenshots.js";
 import { verifyIssues, createRenderer, MAX_VERIFY } from "../lib/verify.js";
 import { measurePages } from "../lib/speed.js";
 
@@ -91,17 +91,19 @@ function mime(ext) {
 async function issueShot(res, id, issueId) {
   if (!/^ISS-[0-9a-f]{10}$/.test(issueId)) return json(res, 400, { error: "Bad issue id" });
   const file = history.file(id, `shots/${issueId}.jpg`);
-  if (await access(file).then(() => true, () => false)) return serveFile(res, file);
   const key = `${id}/${issueId}`;
-  if (shotFailed.has(key)) return json(res, 404, { error: "The page could not be opened for a screenshot" });
+  if (shotFailed.has(key)) return json(res, 404, { error: "The problem could not be found on the page for a screenshot" });
   let job = shotJobs.get(key);
   if (!job) {
     const saved = await history.load(id);
     const issue = saved?.report?.types?.flatMap((t) => t.issues || []).find((i) => i.id === issueId);
+    // A saved screenshot is served when it was taken the current way; an older one is
+    // taken again (it may not show the problem outlined).
+    if (issue?.shotVersion === SHOT_VERSION && await access(file).then(() => true, () => false)) return serveFile(res, file);
     const plan = shotPlan(issue);
     if (!plan) return json(res, 404, { error: "No screenshot for this issue" });
     job = shooter.take(plan, file)
-      .then(async (ok) => { if (ok) await history.setShot(id, issueId); else shotFailed.add(key); return ok; })
+      .then(async (ok) => { if (ok) await history.setShot(id, issueId, SHOT_VERSION); else { shotFailed.add(key); await rm(file, { force: true }).catch(() => {}); } return ok; })
       .finally(() => shotJobs.delete(key));
     shotJobs.set(key, job);
   }
@@ -420,7 +422,9 @@ const server = createServer(async (req, res) => {
     if (!download) {
       const html = buildWebReport({
         report: saved.report,
-        shotSrc: (i) => (i.screenshot ? base + i.screenshot : null),
+        // Through the screenshot endpoint: it serves the saved one, or takes it again if
+        // it was deleted (e.g. after the way screenshots are taken improved).
+        shotSrc: (i) => (i.screenshot ? `${base}shot/${encodeURIComponent(i.id)}` : null),
         links: { download: `/report/${encodeURIComponent(id)}/download`, pdf: saved.meta.hasPdf ? `${base}report.pdf` : null, api: base, shot: `${base}shot/` },
       });
       res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
@@ -429,7 +433,7 @@ const server = createServer(async (req, res) => {
     // One file to send to a client: screenshots built in as data: URIs, no links back here.
     const shots = new Map();
     for (const t of saved.report.types || []) for (const i of t.issues || []) {
-      if (!i.screenshot) continue;
+      if (!i.screenshot || i.shotVersion !== SHOT_VERSION) continue; // only screenshots that show the problem outlined
       try { shots.set(i.id, `data:image/jpeg;base64,${(await readFile(history.file(id, i.screenshot))).toString("base64")}`); } catch { /* missing screenshot: shown without one */ }
     }
     const html = buildWebReport({ report: saved.report, standalone: true, shotSrc: (i) => shots.get(i.id) || null });

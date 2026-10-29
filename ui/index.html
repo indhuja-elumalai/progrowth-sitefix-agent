@@ -1155,7 +1155,8 @@ function isVisual(issue) {
     const kind = issue.evidence && issue.evidence.kind;
     if (kind === "image" || kind === "http" || kind === "redirect") return true;
     // Problems that are visible on the page itself.
-    return ["soft-404", "content-placeholder", "content-thin", "content-duplicate", "content-repeated-word", "copy-spelling", "copy-grammar", "h1-missing", "h1-multiple", "heading-skip", "viewport-missing"].indexOf(issue.type) !== -1;
+    // (A missing H1 or phone set-up has nothing to point at on the page.)
+    return ["soft-404", "content-placeholder", "content-thin", "content-duplicate", "content-repeated-word", "copy-spelling", "copy-grammar", "h1-multiple", "heading-skip"].indexOf(issue.type) !== -1;
 }
 // An answer: the text in the bubble, then a card for each issue it is about (screenshot
 // of the page with the problem outlined, what and where, a link into the report), then
