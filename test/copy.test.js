@@ -227,3 +227,11 @@ test("with a time budget, AI calls stop after it; those pages still get the dict
     assert.equal(r.stats.aiFailures, 0, "a skipped call is not a failure");
     assert.equal(r.findings.filter((f) => f.type === "copy-spelling").length, 1, "the dictionary still finds the typo (reported once, with the other pages listed)");
 });
+
+test("a stopped inspection makes no new AI call; pages still get the dictionary check", async () => {
+    let calls = 0;
+    const provider = { name: "t", model: "t", complete: async () => { calls++; return JSON.stringify({ findings: [] }); } };
+    const r = await checkCopy({ pages: [{ url: "https://x.test/a", text: "We recieve every order and send it the same day to every customer who asks." }], provider, shouldStop: () => true });
+    assert.equal(calls, 0);
+    assert.ok(r.findings.some((f) => f.type === "copy-spelling"), "the dictionary still finds 'recieve'");
+});

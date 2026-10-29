@@ -123,3 +123,10 @@ test("the first screen is done once its images have arrived, not when the whole 
         server.close();
     }
 });
+
+test("a stopped inspection starts no new speed test", async () => {
+    let launched = 0;
+    const fake = { launch: async () => { launched++; return { close: async () => {} }; } };
+    assert.deepEqual(await measurePages(["https://x.test/a", "https://x.test/b"], { chromium: fake, shouldStop: () => true }), []);
+    assert.equal(launched, 1);
+});

@@ -132,6 +132,21 @@ const SPEED_SECONDS = Math.max(0, opt("speed-seconds", 0)); // no new page is ti
 // holding up the report.
 const TIME_BUDGET = Math.max(0, opt("time-budget", 0));
 const LATE_CHECK_MS = 20000;
+
+// Stop from the chat UI (Day 30): ui/server.js sends SIGUSR2. No new page is read, link
+// and image checks still waiting a few seconds later are left unverified, the speed test
+// and AI proofreading start nothing new, and the report covers what was read, saying the
+// inspection was stopped early. A second, hard stop (SIGTERM) ends it with no report.
+let stopRequested = false;
+const STOP_GRACE_MS = 3000;
+let onStop = [];
+process.on("SIGUSR2", () => {
+  if (stopRequested) return;
+  stopRequested = true;
+  console.log("\nStop asked: no new pages; finishing what is open, then the report.");
+  for (const f of onStop) f();
+});
+const stopped = () => new Promise((r) => { if (stopRequested) setTimeout(r, STOP_GRACE_MS); else onStop.push(() => setTimeout(r, STOP_GRACE_MS)); });
 // AI proofreading runs when a key is set (.env), except on local addresses (the test
 // fixture) so the fixture score never depends on an AI; --copy-ai forces it, --no-ai stops it.
 const NO_AI = args.includes("--no-ai");
@@ -575,6 +590,7 @@ async function main() {
     for (;;) {
       if (MAX_PAGES && visited.size >= MAX_PAGES) { if (queue.length) capReached = true; return; }
       if (TIME_BUDGET && Date.now() - t0 > TIME_BUDGET * 1000) { if (queue.length || sitemapPending) budgetReached = true; return; }
+      if (stopRequested) return;
       const url = queue.shift();
       if (!url) {
         if (!active && !sitemapPending) return;
@@ -677,6 +693,7 @@ async function main() {
     speedRun = measurePages(speedSample, {
       chromium,
       budgetMs: SPEED_SECONDS * 1000,
+      shouldStop: () => stopRequested,
       onProgress: ({ done, total }) => {
         progress.set({ speed: { done, total }, ...(progress.state.phase === "speed" ? { step: { done, total } } : {}) });
         if (done % 10 === 0) console.log(`  ${done} pages timed`);
@@ -711,9 +728,10 @@ async function main() {
   // A crawl that stopped early (page limit or time budget) can leave thousands of links
   // to pages it never read; checks still waiting after LATE_CHECK_MS are left unverified
   // (never reported as broken) so the report isn't held up. A full crawl waits for all.
-  const partial = capReached || budgetReached;
-  const lateBy = Date.now() + LATE_CHECK_MS;
-  const inTime = (p, fallback) => (partial ? Promise.race([p, new Promise((r) => setTimeout(() => r(fallback), Math.max(0, lateBy - Date.now())))]) : p);
+  let partial = capReached || budgetReached || stopRequested;
+  const lateBy = Date.now() + (stopRequested ? STOP_GRACE_MS : LATE_CHECK_MS);
+  const stopWait = stopped();
+  const inTime = (p, fallback) => Promise.race([p, stopWait.then(() => fallback), ...(partial ? [new Promise((r) => setTimeout(() => r(fallback), Math.max(0, lateBy - Date.now())))] : [])]);
   let lateLinks = 0, lateImages = 0;
   const LATE = { status: null, location: null, classification: "unverified", error: "not checked in time (the crawl stopped early)" };
   const links = await Promise.all(targets.map(async (target) => {
@@ -922,6 +940,7 @@ async function main() {
     allowWords,
     // With a time budget (the chat UI), AI proofreading gets 30 s; pages after that get the dictionary check.
     budgetMs: TIME_BUDGET ? 30000 : 0,
+    shouldStop: () => stopRequested,
     onProgress: ({ done, total }) => {
       progress.set({ step: { done, total } });
       if (copyProvider && (done % 20 === 0 || done === total)) console.log(`  ${done}/${total} pages proofread`);
@@ -964,8 +983,9 @@ async function main() {
 
   // ---------- coverage (large sites) ----------
   // When the crawl stopped early: how much of the site was found and read, by section.
+  partial = partial || stopRequested;
   const coverage = partial ? {
-    stoppedBy: budgetReached ? "time" : "pages",
+    stoppedBy: stopRequested ? "stopped" : budgetReached ? "time" : "pages",
     timeBudget: TIME_BUDGET || null,
     maxPages: MAX_PAGES || null,
     pagesCrawled: visited.size,
@@ -1032,6 +1052,7 @@ async function main() {
   console.log("\n=== Summary ===");
   console.log(JSON.stringify(summary, null, 2));
   if (capReached) console.log(`\nNOTE: stopped at the --max-pages limit of ${MAX_PAGES} with ${queue.length} pages still queued. Drop --max-pages to crawl everything.`);
+  if (stopRequested) console.log(`\nNOTE: stopped from the chat: ${visited.size} of at least ${queued.size} pages read. The report covers those pages.`);
   if (budgetReached) console.log(`\nNOTE: stopped reading new pages after the --time-budget of ${TIME_BUDGET} s: ${visited.size} of at least ${queued.size} pages read, from ${coverage.sectionsRead} of ${coverage.sectionsTotal} sections. Drop --time-budget to crawl everything.`);
 
   const foundLine = (l) => `      found on: ${l.foundOn.slice(0, 5).join(", ")}${l.foundOn.length > 5 ? ` (+${l.foundOn.length - 5} more)` : ""}`;
