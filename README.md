@@ -1621,6 +1621,10 @@ the page, cookie banner included, with nothing outlined.
 - confirmation after a live check, or reassurance if the problem is still there;
 - now and then, a fix not yet selected (with "Show me").
 
+Each message carries a friendly emoji: 👋 hello, 💡🎯 a fix to try, 🚀📈✨ after
+selecting, ✅🎉 when a fix is confirmed, 🔍 when it is still there. The emoji is added
+by the page after the words were checked, so it never changes what a message says.
+
 **AI writes the words, never the facts** (`lib/coach.js`). With AI on,
 `report.js` asks the model once for the wording of every message, and a visitor
 line and a nudge for each kind of problem. Every number, issue name and site

@@ -257,3 +257,9 @@ test("each page of a fix shows its share of the points, and the meter has today'
     assert.match(html, /<path class="g-arc-now"[^>]*pathLength="100"/);
     assert.match(html, /function pointsOf\(issues, fixed\)/, "the page works out the points the same way");
 });
+
+test("SiteFix's messages get a friendly emoji, added after the words were checked", () => {
+    const html = buildWebReport({ report: sample() });
+    assert.match(html, /<div class="bubble">\u{1F44B} Your site scores/u, "the first message waves hello");
+    assert.match(html, /function withEmoji\(text, kind\)/);
+});
