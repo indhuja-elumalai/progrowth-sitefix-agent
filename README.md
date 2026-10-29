@@ -1485,8 +1485,13 @@ The score is rule-based, so the same site always gets the same score:
 - an area scores `100 / (1 + lost / 100)`, so it never reaches 0 and every fix
   shows.
 
-The real sites inspected this week score between 48 and 86. Fixing all the
-urgent issues is worth about 8 to 12 points.
+A broken link, image or redirect counts every page it is on. Any other problem
+counts its own page only: the pages that merely link to a misspelt page don't
+make the mistake bigger. The issue details say "Found on" for the first kind and
+"Linked from" for the second, in the web report and the PDF.
+
+The real sites inspected this week score between 49 and 88. Fixing all the
+urgent issues is worth about 7 to 11 points.
 
 **Pick fixes and see the score they lead to.** SiteFix doesn't change the site
 yet (the fix stage comes later), so the report works like this:
@@ -1536,6 +1541,34 @@ it when the issue is first opened, from the same endpoint the chat uses, and it
 is kept. Image problems also show the image itself; a broken image says it
 can't be shown and why. The chat's issue details show the image too. The
 downloaded file has the screenshots taken so far built into it.
+
+**Every screenshot shows the problem, boxed in red, or there is none.**
+
+A screenshot is kept only when the problem was found on the page and is visible
+on screen after the page settles. If SiteFix can't point at the problem, there is
+no screenshot, so none shows something unrelated.
+
+What gets the red box:
+
+| Problem | What is boxed |
+|---|---|
+| Broken link or image, redirect | the link or image, on the page it is on (not one hidden in a closed menu) |
+| Spelling, grammar, placeholder, repeated word | the words, found across bold text, links and line breaks; the mistake with a word or two either side first, then wider, then the word alone, then the quoted text |
+| Heading that skips a level | the heading's words |
+| More than one H1 | each H1 |
+| Error page served as a normal page, thin or duplicate content | the whole screen, framed |
+
+- A missing H1 or phone set-up has nothing to point at, so it gets no screenshot.
+- Cookie and consent banners are hidden first.
+- The page is scrolled to the problem and given a moment to settle (lazy images,
+  text that fades in) before the box is drawn.
+- Screenshots record how they were taken (`SHOT_VERSION`). Screenshots from
+  earlier reports are taken again the first time they are asked for, in the web
+  report or the chat. Only up-to-date ones go into the downloaded file.
+
+Before, a quoted sentence that ran across a bold label ("**Sending the emails or
+DMs:** … in atleast 4 phases") was not found, and the screenshot showed the top of
+the page, cookie banner included, with nothing outlined.
 
 **SiteFix's messages** appear beside the score:
 
@@ -1613,7 +1646,7 @@ JavaScript: print opens every card and hides the buttons and messages.
   added, a broken link replaced, alt text added, `lang` added), those came back
   "fixed".
 - Fixture: 34 of 34.
-- Tests: 317 (35 new: score, coach checks, verify rules, progress, the page).
+- Tests: 324 (42 new: score, coach checks, verify rules, progress, the page, screenshots).
 
 ## 13. Security principles
 
