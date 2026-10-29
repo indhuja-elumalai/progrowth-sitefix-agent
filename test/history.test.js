@@ -185,3 +185,9 @@ test("progress saved by the earlier live report is read as selected and verified
     assert.deepEqual(p.verified, { "ISS-abcdefabcd": 0 });
     assert.deepEqual(cleanProgress({ selected: { "ISS-0123456789": true }, verified: { "ISS-0123456789": 3 } }).selected, {}, "a confirmed fix is no longer just selected");
 });
+
+test("a message's kind is kept, so the page can rewrite its selection message", () => {
+    const p = cleanProgress({ posts: [{ at: 1, text: "2 fixes selected", kind: "select" }, { at: 2, text: "x", kind: "<script>" }] });
+    assert.equal(p.posts[0].kind, "select");
+    assert.ok(!("kind" in p.posts[1]));
+});

@@ -263,3 +263,9 @@ test("SiteFix's messages get a friendly emoji, added after the words were checke
     assert.match(html, /<div class="bubble">\u{1F44B} Your site scores/u, "the first message waves hello");
     assert.match(html, /function withEmoji\(text, kind\)/);
 });
+
+test("the selection message follows what is selected now, including when nothing is", () => {
+    const html = buildWebReport({ report: sample() });
+    assert.match(dataOf(html).bank.selectionCleared, /\{score\}/);
+    assert.match(html, /function selectionChanged\(\)/);
+});

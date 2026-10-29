@@ -1621,6 +1621,14 @@ the page, cookie banner included, with nothing outlined.
 - confirmation after a live check, or reassurance if the problem is still there;
 - now and then, a fix not yet selected (with "Show me").
 
+The message always matches what is selected now:
+
+- ticking or unticking rewrites the latest selection message rather than stacking
+  new ones;
+- when nothing is left selected, it says "No fixes selected right now, so your
+  score stays at 68";
+- other messages, like a suggestion or a live check, are kept.
+
 Each message carries a friendly emoji: 👋 hello, 💡🎯 a fix to try, 🚀📈✨ after
 selecting, ✅🎉 when a fix is confirmed, 🔍 when it is still there. The emoji is added
 by the page after the words were checked, so it never changes what a message says.
@@ -1694,7 +1702,7 @@ JavaScript: print opens every card and hides the buttons and messages.
   added, a broken link replaced, alt text added, `lang` added), those came back
   "fixed".
 - Fixture: 34 of 34.
-- Tests: 327 (45 new: score, coach checks, verify rules, progress, the page, screenshots).
+- Tests: 330 (48 new: score, coach checks, verify rules, progress, the page, screenshots).
 
 ## 13. Security principles
 
