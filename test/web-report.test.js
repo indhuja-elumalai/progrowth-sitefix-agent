@@ -33,7 +33,7 @@ test("every issue is on the page, with its priority, category and owner as filte
     assert.match(html, /id="ISS-0000000002" data-p="P2" data-cat="Images" data-owner="Developer" data-qw="0"/);
     assert.match(html, /id="ISS-0000000001" data-p="P1" data-cat="SEO: titles &amp; descriptions" data-owner="Content writer" data-qw="1"/);
     assert.match(html, /Suggested title<\/div><div class="v"><span>About us \| Example<\/span><button type="button" class="copy" data-copy="About us \| Example">/);
-    assert.match(html, /Found on 2 pages/);
+    assert.match(html, /Linked from 2 pages/, "a problem on the page itself: the pages that link to it");
     assert.match(html, /Content writer · 1 issue · worth/, "who fixes it");
 });
 
@@ -50,7 +50,9 @@ test("page text from the crawled site is escaped, so a hostile page cannot injec
 });
 
 test("the standalone file loads nothing from the network and has no links back to the server", () => {
-    const html = buildWebReport({ report: sample(), standalone: true, links: { pdf: "/api/history/x/report.pdf", download: "/report/x/download" }, shotSrc: (i) => (i.screenshot ? "data:image/jpeg;base64,AAAA" : null) });
+    const r = sample();
+    r.types[1].issues[0].evidence = { kind: "http", status: 404 }; // a problem a screenshot can point at
+    const html = buildWebReport({ report: r, standalone: true, links: { pdf: "/api/history/x/report.pdf", download: "/report/x/download" }, shotSrc: (i) => (i.screenshot ? "data:image/jpeg;base64,AAAA" : null) });
     assert.ok(!/<script[^>]+src=/i.test(html));
     assert.ok(!/<link[^>]+stylesheet/i.test(html));
     assert.ok(!/@import|url\(http/i.test(html));
@@ -60,7 +62,9 @@ test("the standalone file loads nothing from the network and has no links back t
 });
 
 test("the live page links to the PDF and the download, and uses the screenshot URLs it is given", () => {
-    const html = buildWebReport({ report: sample(), links: { pdf: "/api/history/r/report.pdf", download: "/report/r/download" }, shotSrc: (i) => (i.screenshot ? `/api/history/r/${i.screenshot}` : null) });
+    const r = sample();
+    r.types[1].issues[0].evidence = { kind: "http", status: 404 };
+    const html = buildWebReport({ report: r, links: { pdf: "/api/history/r/report.pdf", download: "/report/r/download" }, shotSrc: (i) => (i.screenshot ? `/api/history/r/${i.screenshot}` : null) });
     assert.match(html, /href="\/report\/r\/download" download>Download this report/);
     assert.match(html, /href="\/api\/history\/r\/report.pdf"/);
     assert.match(html, /<img src="\/api\/history\/r\/shots\/ISS-0000000002.jpg"/);
@@ -146,7 +150,7 @@ test("each kind of problem carries the facts the page needs, from the report onl
     const d = dataOf(buildWebReport({ report: r }));
     assert.deepEqual(d.types.map((t) => [t.type, t.level, t.area, t.effort, t.owner, t.pages, t.ids, t.canFix]), [
         ["title-missing", "P1", "on-page", "easy", "Content writer", 1, ["ISS-0000000001"], true],
-        ["image-alt-missing", "P2", "on-page", "easy", "Developer", 3, ["ISS-0000000002", "ISS-0000000003"], false],
+        ["image-alt-missing", "P2", "on-page", "easy", "Developer", 2, ["ISS-0000000002", "ISS-0000000003"], false],
     ]);
     assert.equal(d.types[0].visitor, "Search results show the URL.", "what visitors face: the standard line comes from the guidance");
     assert.deepEqual(d.issues.map((i) => [i.id, i.t, i.p]), [["ISS-0000000001", "title-missing", "P1"], ["ISS-0000000002", "image-alt-missing", "P2"], ["ISS-0000000003", "image-alt-missing", "P3"]]);
@@ -222,4 +226,26 @@ test("images: screenshots taken when opened on the live page, and the image itse
     assert.match(live, /The image itself can't be shown: it doesn't load \(the server answers 404\), which is the problem\./);
     const file = buildWebReport({ report: r, standalone: true, links: { shot: "/api/history/r/shot/" } });
     assert.ok(!file.includes("data-src="), "the downloaded file only has the screenshots built into it");
+});
+
+test("pages: a broken link or image counts the pages it is on; any other problem only its own page", () => {
+    const r = report([
+        { type: "copy-spelling", category: "Content", title: "Spelling", summary: "", fixSteps: [], issues: [
+            issue({ id: "ISS-00000000a1", type: "copy-spelling", affectedUrl: "https://example.com/a", foundOn: ["https://example.com/", "https://example.com/b", "https://example.com/c"], evidence: { kind: "content" } }),
+            issue({ id: "ISS-00000000a2", type: "copy-spelling", affectedUrl: "https://example.com/d", foundOn: ["https://example.com/"], evidence: { kind: "content" } })] },
+        { type: "http-4xx-external", category: "HTTP", title: "Broken outside link", summary: "", fixSteps: [], issues: [
+            issue({ id: "ISS-00000000b1", type: "http-4xx-external", affectedUrl: "https://gone.example/x", foundOn: ["https://example.com/", "https://example.com/b", "https://example.com/c"], evidence: { kind: "http", status: 404 } })] },
+    ]);
+    const html = buildWebReport({ report: r });
+    const d = dataOf(html);
+    assert.deepEqual(d.types.map((t) => [t.type, t.pages]), [["copy-spelling", 2], ["http-4xx-external", 3]]);
+    assert.deepEqual(d.issues.map((i) => i.n), [1, 1, 3]);
+    assert.match(html, /Linked from 3 pages/);
+    assert.match(html, /Found on 3 pages/);
+});
+
+test("a screenshot is only shown for a problem it can point at", () => {
+    const r = sample(); // the alt-text issue here has no page evidence: nothing to outline
+    const html = buildWebReport({ report: r, shotSrc: (i) => (i.screenshot ? "/s/" + i.id : null) });
+    assert.ok(!html.includes('src="/s/ISS-0000000002"'), "a saved screenshot that can't show the problem is left out");
 });
