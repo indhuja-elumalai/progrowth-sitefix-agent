@@ -1458,6 +1458,33 @@ a browser: two sites, an almost-address, an email, a domain that doesn't exist
 and a start page that is a 404 each got the right reply; the fixture still
 scores 34 of 34. Tests: 282 (8 more).
 
+### Stop an inspection
+
+While an inspection runs, its progress card in the chat has a **Stop** button.
+
+- **Stop:** no new page is read. Link and image checks still waiting 3 seconds
+  later are left unverified, never reported as broken. The speed test and AI
+  proofreading start nothing new, and the pages already read get the full report:
+  score, explanations, PDF and web report.
+  - The chat then says: "You stopped the inspection early, so I read 62 of the 603
+    or more pages I found. Everything below is about those pages."
+  - The web report says "stopped early" under the title, and "how many pages were
+    checked?" says so too.
+- **Stop now, no report:** the button changes to this once Stop is pressed. It ends
+  everything at once. Nothing is saved, and the chat says so.
+- **When the report is already being written,** Stop just lets it finish.
+
+How it works:
+
+- `POST /api/run/:id/stop` sends the crawler `SIGUSR2`. `crawl.js` treats it like
+  running out of time budget, with `partial.reason: "stopped"` in `issues.json`.
+- `{ now: true }` ends the crawler or report with `SIGTERM`, and the run ends with
+  code 130.
+
+On the bench site with 600 pages, Stop after 12 seconds gave the full report for
+the 62 pages read, 15 seconds later. "Stop now" ended it in 3 seconds, with no
+browser left running. Tests: 286 (4 new).
+
 ## 13. Security principles
 
 - Every client site is its own isolated tenant: separate credentials,
