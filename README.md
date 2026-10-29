@@ -203,7 +203,7 @@ progrowth-sitefix-agent/
 │   ├── chat.js                        answers questions from one report only; checks every cited issue id
 │   ├── history.js                     past inspections in history/<run-id>/: save, list, open, delete
 │   ├── report-html.js                 the printable report (HTML that report.js turns into the PDF)
-│   ├── web-report.js                  the live web report: score, levels, coach messages, I fixed it / Check it now; also one downloadable file
+│   ├── web-report.js                  the live web report: score, On-page / Technical / Off-page, select fixes, Fix button; also one downloadable file
 │   ├── score.js                       the site score (0-100, on-page / technical / off-page), points per fix, levels
 │   ├── coach.js                       the live report's messages: AI wording, checked; numbers are placeholders
 │   ├── verify.js                      Check it now: the crawl's rules run again on the live site for chosen issues
@@ -1488,53 +1488,48 @@ The score is rule-based, so the same site always gets the same score:
 The real sites inspected this week score between 48 and 86. Fixing all the
 urgent issues is worth about 8 to 12 points.
 
-**An app, not a long report.** The page has three tabs. The full list of every
-issue stays in the PDF, and in print.
+**Pick fixes and see the score they lead to.** SiteFix doesn't change the site
+yet (the fix stage comes later), so the report works like this:
 
-- **Fix**, where the page opens:
-  - the score;
-  - SiteFix's latest message;
-  - the three levels: Level 1 urgent fixes (P1), Level 2 important fixes (P2)
-    and Level 3 polish (P3), each with its progress;
-  - "Choose what to fix": a set of fixes to pick from (Recommended, Quick wins,
-    Biggest boost, On-page, Technical, Off-page, or one level).
+- The **score is always in the top bar**. Ticking a fix moves it at once: "66 → 73".
+- On the **Fix tab**, the score ring is solid up to today's score and lighter up to
+  the score with the ticked fixes. Today's score only counts fixes confirmed on the
+  live site.
+- The Fix tab has **three columns: On-page, Technical and Off-page**. Each shows
+  its own score (now → with the selection) and its fixes, easiest or most useful
+  first: Recommended, Quick wins, Biggest boost or Urgent first. On a phone, one
+  column at a time.
+- A **selection bar** at the bottom shows how many fixes are ticked, the points,
+  the score they lead to and what each area gains, with **Fix these**.
+  - Fix these is visible but not active yet: "Automatic fixing is coming soon".
+  - The bar also says how many of the ticked fixes SiteFix will be able to make
+    (from each problem type's `fixClass`) and how many are for the developer.
+  - The fix stage only has to provide the fix endpoint: with `links.fix` set,
+    the button sends the selected issues, and the fixes confirmed count in
+    today's score. No redesign is needed.
+- Clicking a fix opens the **fix panel**:
+  - the points and the scores it moves ("score 66 → 68 · On-page 72 → 77");
+  - whether SiteFix will be able to fix it;
+  - what visitors face, why it matters and the steps;
+  - every page with its evidence and screenshot; each page can be selected on
+    its own;
+  - "Select this fix", "Next", and, on the live page, "Fixed it yourself? Check
+    your live site".
+- **All issues**: every kind of problem with search, filters (area, level,
+  effort) and sorting, also with tick boxes.
+- Levels (urgent, important, polish) stay as a label on each fix.
+- Download, PDF and Print are under Export. The full report with every page
+  stays in the PDF and in print.
+- The chat's links open the right place: `#type=` and `#p=` open the list
+  filtered, one kind opens straight in the panel, and `#ISS-…` opens that page's
+  issue.
 
-  Nothing is locked, and any fix can be opened in any order. Recommended mixes
-  levels (at most three from one level), ranked by points for the effort.
-- **All issues**: every kind of problem in one list, with:
-  - search (names, meaning, pages);
-  - filters for level, area, effort, who fixes it, and open or fixed;
-  - sorting by points, urgency, effort, pages or A to Z.
-- **Progress**:
-  - the score then and now;
-  - issues fixed, and how many were confirmed on the live site;
-  - each area and level before and after;
-  - everything fixed, with Undo;
-  - all of SiteFix's messages.
-
-Download, PDF and Print are under Export.
-
-**The fix panel.** Clicking a fix anywhere opens it in a side panel (full screen
-on a phone). The panel shows:
-
-- the points it is worth, and the score it takes you to;
-- what visitors face;
-- why it matters, and the steps;
-- every page, with its evidence and screenshot and a tick per page.
-
-It ends with "I fixed it", "Check it now" and a link to the next fix. Each fix
-shows a toast with the points gained, and finishing a level shows a level-up
-message. The chat's links open the right place: `#type=` and `#p=` open the
-list filtered, one kind opens straight in the panel, and `#ISS-…` opens that
-page's issue.
-
-**SiteFix's messages.** SiteFix posts messages as the client works:
+**SiteFix's messages** appear beside the score:
 
 - the first message, or "welcome back" on a return visit;
-- a new score after each fix;
+- after ticking, the fixes selected and the score they lead to;
 - confirmation after a live check, or reassurance if the problem is still there;
-- a level finished;
-- the next easy win (with "Show me"), now and then.
+- now and then, a fix not yet selected (with "Show me").
 
 **AI writes the words, never the facts** (`lib/coach.js`). With AI on,
 `report.js` asks the model once for the wording of every message, and a visitor
@@ -1558,8 +1553,9 @@ AI's answer for one kind of problem fails a check on the fixture, and the
 report uses the standard line instead. Older reports without these messages get
 the built-in ones.
 
-**Check it now** (`lib/verify.js`, `POST /api/history/:id/verify`). This runs
-the crawl's own rules again on the live site:
+**Checking the live site** (`lib/verify.js`, `POST /api/history/:id/verify`), for a
+client who fixed something themselves. It runs the crawl's own rules again on the
+live site:
 
 - titles, descriptions, headings, indexing, sharing tags, page set-up,
   placeholders, repeated words: the page is opened in Chromium again;
@@ -1578,9 +1574,10 @@ check runs at a time.
 **Progress is kept.**
 
 - On the live page: in `history/<run-id>/progress.json` (`GET`/`PUT
-  /api/history/:id/progress`, same origin only, cleaned to known shapes).
-- In the downloaded file: in the client's own browser. That file has no "Check
-  it now" and no links back to the server, as before.
+  /api/history/:id/progress`, same origin only, cleaned to known shapes): the
+  fixes selected, the fixes confirmed on the live site, and the messages.
+- In the downloaded file: in the client's own browser. That file has no live
+  check and no links back to the server, as before.
 
 The page still loads nothing from the network. It reads and prints fine without
 JavaScript: print opens every card and hides the buttons and messages.
@@ -1588,10 +1585,11 @@ JavaScript: print opens every card and hides the buttons and messages.
 **Checked.**
 
 - In a browser on the fixture through the UI server:
-  - "I fixed it" moved the score from 74 to 76 and posted the message;
-  - "Check it now" on the unchanged site said "still there" and took the
-    points back;
-  - a reload kept the progress;
+  - ticking two fixes moved the score from 74 to 76 in the top bar, the ring
+    and the selection bar; Fix these stayed inactive;
+  - checking the live site on the unchanged fixture said "still there";
+  - a reload kept the selection, and Clear emptied it;
+  - the downloaded file kept its selection in the browser;
   - the chat's links opened the right tab, filter and panel;
   - print shows the full report.
 
@@ -1602,7 +1600,7 @@ JavaScript: print opens every card and hides the buttons and messages.
   added, a broken link replaced, alt text added, `lang` added), those came back
   "fixed".
 - Fixture: 34 of 34.
-- Tests: 313 (31 new: score, coach checks, verify rules, progress, the page).
+- Tests: 315 (33 new: score, coach checks, verify rules, progress, the page).
 
 ## 13. Security principles
 
