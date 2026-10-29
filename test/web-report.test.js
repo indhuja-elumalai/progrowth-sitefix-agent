@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildWebReport, reportFileName, fixFirst } from "../lib/web-report.js";
+import { buildWebReport, reportFileName, fixFirst, bandOf, BANDS } from "../lib/web-report.js";
 import { siteScore } from "../lib/score.js";
 
 const issue = (o) => ({
@@ -122,8 +122,7 @@ test("the Fix tab: score ring (today and with the selection), SiteFix's message,
     const r = sample();
     const html = buildWebReport({ report: r });
     const s = siteScore(r.types.flatMap((t) => t.issues), []);
-    assert.match(html, /class="ring-sel"[^>]*>.*class="ring-now"/s, "a lighter ring for the selection under today's");
-    assert.match(html, new RegExp(`<div class="dial-n"><b>${s.score}</b>`));
+    assert.match(html, new RegExp(`<div class="g-num"><b>${s.score}</b><span class="g-band-name b\\d">`), "the score meter");
     assert.match(html, /Tick fixes below to see your score climb/);
     assert.match(html, new RegExp(`Your site scores ${s.score} out of 100 today\\. There is 1 urgent thing to fix first`));
     for (const k of ["rec", "quick", "boost", "urgent"]) assert.match(html, new RegExp(`data-sort="${k}"`));
@@ -196,8 +195,17 @@ test("the coach's AI words are used when the report has them; missing ones get t
     assert.match(html, /SiteFix's messages are worded by AI/);
 });
 
-test("Download, PDF and Print are in the Export menu", () => {
+test("the site's name is the page heading, and the score meter has four bands", () => {
+    const html = buildWebReport({ report: sample() });
+    assert.match(html, /<div class="site-h"><h1>example\.com<\/h1><a href="https:\/\/example\.com\/" target="_blank" rel="noopener noreferrer">Visit site/);
+    assert.equal((html.match(/<path class="g-band b\d"/g) || []).length, 4);
+    assert.deepEqual([0, 49, 50, 69, 70, 84, 85, 100].map((v) => bandOf(v).name), ["Needs work", "Needs work", "Fair", "Fair", "Good", "Good", "Excellent", "Excellent"]);
+    assert.deepEqual(BANDS.map((b) => [b.min, b.max]), [[0, 49], [50, 69], [70, 84], [85, 100]], "the bands cover 0 to 100 with no gap");
+});
+
+test("Download, PDF and Print are in the Export menu, which closes on any click elsewhere or after choosing", () => {
     const html = buildWebReport({ report: sample(), links: { pdf: "/p.pdf", download: "/d" } });
     assert.match(html, /<details class="export"><summary>Export<\/summary>/);
     assert.match(html, /<button type="button" data-print>Print/);
+    assert.match(html, /if \(ex && ex\.open && !ex\.contains\(e\.target\)\) closeExport\(\);/);
 });
