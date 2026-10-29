@@ -1488,27 +1488,47 @@ The score is rule-based, so the same site always gets the same score:
 The real sites inspected this week score between 48 and 86. Fixing all the
 urgent issues is worth about 8 to 12 points.
 
-**Levels, not a plan.** The page has three levels: Level 1 urgent fixes (P1),
-Level 2 important fixes (P2) and Level 3 polish (P3). It names the current level
-and shows a progress bar for it. The client fixes in any order. When the last
-urgent fix is done, the next level opens with a message.
+**An app, not a long report.** The page has three tabs. The full list of every
+issue stays in the PDF, and in print.
 
-**Cards.** Each kind of problem is a card in its level, easy ones first. A card
-shows:
+- **Fix**, where the page opens:
+  - the score;
+  - SiteFix's latest message;
+  - the three levels: Level 1 urgent fixes (P1), Level 2 important fixes (P2)
+    and Level 3 polish (P3), each with its progress;
+  - "Choose what to fix": a set of fixes to pick from (Recommended, Quick wins,
+    Biggest boost, On-page, Technical, Off-page, or one level).
 
-- the points it is worth: exactly how far the score will move, or "<1" for
-  small ones;
-- how easy it is, its area and who fixes it;
-- what visitors face, and a short nudge;
-- "How to fix", which opens the steps, every page with its evidence and
-  screenshot, and a tick per page;
-- "I fixed it": the score rises at once;
-- "Check it now": SiteFix checks the live site again.
+  Nothing is locked, and any fix can be opened in any order. Recommended mixes
+  levels (at most three from one level), ranked by points for the effort.
+- **All issues**: every kind of problem in one list, with:
+  - search (names, meaning, pages);
+  - filters for level, area, effort, who fixes it, and open or fixed;
+  - sorting by points, urgency, effort, pages or A to Z.
+- **Progress**:
+  - the score then and now;
+  - issues fixed, and how many were confirmed on the live site;
+  - each area and level before and after;
+  - everything fixed, with Undo;
+  - all of SiteFix's messages.
 
-Filters: area, easy only, and search. The chat's links still open the page
-filtered (`#type=`, `#p=`, `#qw=1`) or on one issue (`#ISS-…`).
+Download, PDF and Print are under Export.
 
-**SiteFix's messages.** A feed under the score posts as the client works:
+**The fix panel.** Clicking a fix anywhere opens it in a side panel (full screen
+on a phone). The panel shows:
+
+- the points it is worth, and the score it takes you to;
+- what visitors face;
+- why it matters, and the steps;
+- every page, with its evidence and screenshot and a tick per page.
+
+It ends with "I fixed it", "Check it now" and a link to the next fix. Each fix
+shows a toast with the points gained, and finishing a level shows a level-up
+message. The chat's links open the right place: `#type=` and `#p=` open the
+list filtered, one kind opens straight in the panel, and `#ISS-…` opens that
+page's issue.
+
+**SiteFix's messages.** SiteFix posts messages as the client works:
 
 - the first message, or "welcome back" on a return visit;
 - a new score after each fix;
@@ -1567,16 +1587,22 @@ JavaScript: print opens every card and hides the buttons and messages.
 
 **Checked.**
 
-- In a browser on the fixture through the UI server: "I fixed it" moved the
-  score from 74 to 76 and posted the message; "Check it now" on the unchanged
-  site said "still there" and took the points back; a reload kept the progress;
-  the chat's links filtered and opened the right cards.
+- In a browser on the fixture through the UI server:
+  - "I fixed it" moved the score from 74 to 76 and posted the message;
+  - "Check it now" on the unchanged site said "still there" and took the
+    points back;
+  - a reload kept the progress;
+  - the chat's links opened the right tab, filter and panel;
+  - print shows the full report.
+
+  Also checked on a real 366-issue report, at desktop and phone width, light and
+  dark.
 - `lib/verify.js` on all 34 fixture issues: all 26 it can check came back
   "still", with none falsely fixed. After real edits to fixture pages (a title
   added, a broken link replaced, alt text added, `lang` added), those came back
   "fixed".
 - Fixture: 34 of 34.
-- Tests: 311 (29 new: score, coach checks, verify rules, progress, the page).
+- Tests: 313 (31 new: score, coach checks, verify rules, progress, the page).
 
 ## 13. Security principles
 
