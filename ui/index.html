@@ -146,6 +146,11 @@
   .prog-card.live .prog-hdr{padding:14px 16px 10px}
   .p-txt{flex:1;min-width:0}
   .p-time{font-size:12.5px;color:var(--text-3);font-variant-numeric:tabular-nums;flex-shrink:0}
+  .p-stop{flex-shrink:0;margin-left:10px;border:1px solid var(--border);background:var(--bg);color:var(--text-2);border-radius:999px;font:inherit;font-size:12.5px;font-weight:600;padding:4px 12px;cursor:pointer}
+  .p-stop:hover{color:var(--high);border-color:var(--high)}
+  .p-stop[disabled]{opacity:.5;cursor:default}
+  .p-stopnote{padding:0 16px 10px;font-size:13px;color:var(--text-2)}
+  .prog-card.done .p-stop,.prog-card.done .p-stopnote{display:none}
   .pbar{height:6px;margin:0 16px;border-radius:6px;background:var(--surface-2);overflow:hidden}
   .pfill{height:100%;width:2%;border-radius:6px;background:var(--accent);transition:width .4s ease}
   .prog-card.err .pfill{background:var(--high)}
@@ -689,7 +694,7 @@ function answerProcessQuestion(question, ctx) {
             }
             return { kind: "eta", answer: "All " + plural(done, "page") + " are read. I'm now " + (STEP[ctx.phase] || "finishing up") + ", the last part. It usually takes about a minute." };
         }
-        if (ctx.seconds && ctx.seconds.total) return { kind: "eta", answer: "It's finished: " + plural(done, "page") + " checked in " + dur(ctx.seconds.total * 1000) + "." + (ctx.partial && ctx.partial.pagesFound > done ? " The site is larger (at least " + ctx.partial.pagesFound + " pages found), so I read a share of every section to keep the inspection short." : "") };
+        if (ctx.seconds && ctx.seconds.total) return { kind: "eta", answer: "It's finished: " + plural(done, "page") + " checked in " + dur(ctx.seconds.total * 1000) + "." + (ctx.partial && ctx.partial.reason === "stopped" ? " You stopped it early, so the report covers those pages" + (ctx.partial.pagesFound > done ? " (at least " + ctx.partial.pagesFound + " were found)" : "") + "." : ctx.partial && ctx.partial.pagesFound > done ? " The site is larger (at least " + ctx.partial.pagesFound + " pages found), so I read a share of every section to keep the inspection short." : "") };
         return null;
     }
 
@@ -851,7 +856,7 @@ function subOf(p){
 }
 function buildLiveCard(url){
   const c=el('div','prog-card live');
-  c.innerHTML='<div class="prog-hdr"><div class="spin ps"></div><div class="p-txt"><div class="prog-title">Inspecting '+esc(hostOf(url))+'</div><div class="prog-sub"><span class="p-sub">Starting&hellip;</span> <button type="button" class="p-more">Show details</button></div></div><div class="p-time" title="Time so far">0:00</div></div>'+
+  c.innerHTML='<div class="prog-hdr"><div class="spin ps"></div><div class="p-txt"><div class="prog-title">Inspecting '+esc(hostOf(url))+'</div><div class="prog-sub"><span class="p-sub">Starting&hellip;</span> <button type="button" class="p-more">Show details</button></div></div><div class="p-time" title="Time so far">0:00</div><button type="button" class="p-stop" title="Stop the inspection">Stop</button></div><div class="p-stopnote" role="status" hidden></div>'+
     '<div class="pbar" role="progressbar" aria-label="Inspection progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="2"><div class="pfill"></div></div>'+
     '<div class="p-nums"><span class="p-count">Looking for pages&hellip;</span><span class="p-eta"></span></div>'+
     '<ol class="steps">'+STEPS.map((x,i)=>'<li data-step="'+i+'"><span class="sdot"></span>'+esc(x.lbl)+'<span class="sval"></span></li>').join('')+'</ol>'+
@@ -990,6 +995,34 @@ function couldNotOpen(run,f){
   if(viewingLive){live=null;renderLiveRow();markActive();if(!current)urlIn.placeholder='Website address, e.g. example.com';}else renderLiveRow();
   document.title=BASE_TITLE;
 }
+// Stop: the first press stops reading pages and the report covers what was read; once
+// pressed it becomes "Stop now, no report", which ends everything and saves nothing.
+async function stopRun(run){
+  const b=S('.p-stop',run.card),note=S('.p-stopnote',run.card),now=run.stopping==='crawl';
+  b.disabled=true;
+  try{
+    const r=await fetch('/api/run/'+encodeURIComponent(run.runId)+'/stop',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({now})});
+    const d=await r.json();
+    if(!r.ok)throw new Error(d.error||'it may have just finished');
+    run.stopping=d.stopping;note.hidden=false;
+    if(d.stopping==='crawl'){note.textContent='Stopping: no new pages. I\u2019m finishing the checks on the pages already read, then the report.';b.textContent='Stop now, no report';b.disabled=false;}
+    else if(d.stopping==='report'){note.textContent='Almost done: writing the report for the pages read.';b.hidden=true;}
+    else{note.textContent='Stopping now\u2026';b.hidden=true;}
+  }catch(e){b.disabled=false;note.hidden=false;note.textContent='Couldn\u2019t stop it: '+e.message;}
+}
+// Stopped with "Stop now": nothing was saved.
+function stoppedNow(run){
+  const c=run.card,host=hostOf(run.url).replace(/^www\./,'');
+  c.classList.add('done');S('.ps',c).classList.add('done');
+  S('.p-sub',c).textContent='Stopped';
+  S('.steps',c).querySelectorAll('li').forEach(li=>li.className='');
+  run.done=true;run.endedAt=Date.now();
+  if(run.sgEl){run.sgEl.remove();run.sgEl=null;}
+  for(const it of run.queue){it.bubble.innerHTML='<span class="queued missed">I couldn&rsquo;t answer this because the inspection was stopped.</span>';}
+  if(viewingLive)addMsg('agent','I stopped the inspection of <b>'+esc(host)+'</b>. Nothing was saved, so there&rsquo;s no report. Type an address to start again.');
+  if(viewingLive){live=null;renderLiveRow();markActive();if(!current)urlIn.placeholder='Website address, e.g. example.com';}else renderLiveRow();
+  document.title=BASE_TITLE;
+}
 function failLive(msg){
   const c=live.card;c.classList.add('err');
   S('.ps',c).classList.add('err');S('.p-sub',c).innerHTML='<span style="color:var(--high)">'+esc(msg)+'</span>';
@@ -1011,6 +1044,7 @@ async function followRun(){
     // The site couldn't be opened (lib/start-url.js): say why, plainly, and stop.
     const fail=code===3&&run.progress&&run.progress.failure;
     if(fail){couldNotOpen(run,fail);return;}
+    if(code===130){stoppedNow(run);return;}
     if(code!==0)throw new Error(code===-1?'the connection to SiteFix was lost':'the inspection stopped with an error; the details are below');
     const r=await fetch('/api/results?runId='+encodeURIComponent(run.runId));
     const reg=await r.json();
@@ -1044,6 +1078,8 @@ document.addEventListener('visibilitychange',()=>{if(!document.hidden&&!running)
 function beginLive(runId,url,startedAt){
   live={runId,url,startedAt:startedAt?new Date(startedAt).getTime():Date.now(),card:buildLiveCard(url),progress:null,done:false,types:[],asked:[],queue:[],sgEl:null,sgSig:null,thread:[],findings:[],said:{},lastPhase:null};
   running=true;syncBtn();
+  const run=live;
+  S('.p-stop',run.card).addEventListener('click',e=>{e.stopPropagation();stopRun(run);});
   showLive();
   followRun();
 }
@@ -1091,6 +1127,7 @@ function renderResults(reg,siteUrl,report,id,meta){
     const sm=report.summaries||{},l=sm.links||{},im=sm.images||{};
     const sp=sm.speed;
     const speedLine=sp&&sp.pagesTested&&sp.median&&sp.median.lcpMs!=null?' On a phone over 4G, your pages show their main content in about '+(sp.median.lcpMs/1000).toFixed(1)+' s (good is under 2.5 s).':'';
+    if(run.partial&&run.partial.reason==='stopped')addMsg('agent','You stopped the inspection early, so I read '+pages+' of the '+run.partial.pagesFound+' or more pages I found. Everything below is about those pages; run it again to check the whole site.');
     if(run.partial&&run.partial.reason==='time')addMsg('agent','This is a large site: I found at least '+run.partial.pagesFound+' pages, so I read '+pages+' of them, a share of every section, to keep the inspection to a couple of minutes. Everything below is about those pages.');
     addMsg('agent','The report includes screenshots and suggested fixes. I checked '+(pages||l.pagesCrawled||0)+' pages'+(l.linksChecked?', '+l.linksChecked+' links':'')+(im.imagesFound?' and '+im.imagesFound+' images':'')+' across the site.'+speedLine+' Nothing changed on the site. Ask me about anything in it.');
     if(id)chatIn.appendChild(reportCard(siteUrl,run,counts.total,issues,id));

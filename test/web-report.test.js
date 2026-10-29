@@ -285,3 +285,9 @@ test("keep as is: only for problems a site may have on purpose, per kind and per
     assert.ok(d.bank.afterKeep.includes("{issue}"));
     for (const t of ["http-4xx-internal", "image-broken", "content-placeholder", "speed-lcp-slow", "soft-404"]) assert.ok(!KEEPABLE.has(t), t);
 });
+
+test("a stopped inspection says so under the title", () => {
+    const r = sample();
+    r.run.partial = { reason: "stopped", pagesFound: 603 };
+    assert.match(buildWebReport({ report: r }), /12 pages crawled \(stopped early: at least 603 pages found\)/);
+});
