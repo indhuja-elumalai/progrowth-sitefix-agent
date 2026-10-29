@@ -249,3 +249,11 @@ test("a screenshot is only shown for a problem it can point at", () => {
     const html = buildWebReport({ report: r, shotSrc: (i) => (i.screenshot ? "/s/" + i.id : null) });
     assert.ok(!html.includes('src="/s/ISS-0000000002"'), "a saved screenshot that can't show the problem is left out");
 });
+
+test("each page of a fix shows its share of the points, and the meter has today's and the selection's arcs", () => {
+    const html = buildWebReport({ report: sample() });
+    assert.match(html, /<span class="ipts" data-id="ISS-0000000002"><\/span>/, "filled in by the page with that issue's points");
+    assert.match(html, /<path class="g-arc-sel"[^>]*pathLength="100"/);
+    assert.match(html, /<path class="g-arc-now"[^>]*pathLength="100"/);
+    assert.match(html, /function pointsOf\(issues, fixed\)/, "the page works out the points the same way");
+});
