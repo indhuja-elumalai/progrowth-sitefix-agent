@@ -421,7 +421,7 @@ const server = createServer(async (req, res) => {
       const html = buildWebReport({
         report: saved.report,
         shotSrc: (i) => (i.screenshot ? base + i.screenshot : null),
-        links: { download: `/report/${encodeURIComponent(id)}/download`, pdf: saved.meta.hasPdf ? `${base}report.pdf` : null, api: base },
+        links: { download: `/report/${encodeURIComponent(id)}/download`, pdf: saved.meta.hasPdf ? `${base}report.pdf` : null, api: base, shot: `${base}shot/` },
       });
       res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
       return res.end(html);

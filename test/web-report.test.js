@@ -209,3 +209,17 @@ test("Download, PDF and Print are in the Export menu, which closes on any click 
     assert.match(html, /<button type="button" data-print>Print/);
     assert.match(html, /if \(ex && ex\.open && !ex\.contains\(e\.target\)\) closeExport\(\);/);
 });
+
+test("images: screenshots taken when opened on the live page, and the image itself for image problems", () => {
+    const r = sample();
+    r.types.push({ type: "image-broken", category: "Images", title: "Broken image", summary: "", why: "", fixSteps: [],
+        issues: [issue({ id: "ISS-0000000009", type: "image-broken", affectedUrl: "https://example.com/gone.png", foundOn: ["https://example.com/"], evidence: { kind: "image", status: 404 } })] });
+    r.types[1].issues[0].evidence = { kind: "image", status: 200 };
+    const live = buildWebReport({ report: r, links: { api: "/api/history/r/", shot: "/api/history/r/shot/" }, shotSrc: (i) => (i.screenshot ? "/s/" + i.id : null) });
+    assert.match(live, /<img src="\/s\/ISS-0000000002"/, "a screenshot report.js took is used");
+    assert.match(live, /<img data-src="\/api\/history\/r\/shot\/ISS-0000000009"/, "an issue without one gets one when it is opened");
+    assert.match(live, /<img src="https:\/\/example\.com\/i\.png" alt="The image at https:\/\/example\.com\/i\.png" loading="lazy" referrerpolicy="no-referrer"><figcaption>The image itself/);
+    assert.match(live, /The image itself can't be shown: it doesn't load \(the server answers 404\), which is the problem\./);
+    const file = buildWebReport({ report: r, standalone: true, links: { shot: "/api/history/r/shot/" } });
+    assert.ok(!file.includes("data-src="), "the downloaded file only has the screenshots built into it");
+});
