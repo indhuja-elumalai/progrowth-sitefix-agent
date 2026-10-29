@@ -34,7 +34,7 @@ test("every issue is on the page, with its priority, category and owner as filte
     assert.match(html, /id="ISS-0000000001" data-p="P1" data-cat="SEO: titles &amp; descriptions" data-owner="Content writer" data-qw="1"/);
     assert.match(html, /Suggested title<\/div><div class="v"><span>About us \| Example<\/span><button type="button" class="copy" data-copy="About us \| Example">/);
     assert.match(html, /Found on 2 pages/);
-    assert.match(html, /<option>Content writer<\/option><option>Developer<\/option>/, "who fixes it, as a filter in All issues");
+    assert.match(html, /Content writer · 1 issue · worth/, "who fixes it");
 });
 
 test("page text from the crawled site is escaped, so a hostile page cannot inject script", () => {
@@ -101,43 +101,57 @@ test("a large site read in part says so under the title, and the chat's filter l
     assert.match(html, /function fromHash\(h\)/, "reads #type=, #p= and #qw= from links in the chat");
 });
 
-// ---------- the live report (Day 28) ----------
+// ---------- the live report (Day 29) ----------
 const dataOf = (html) => JSON.parse(html.match(/<script type="application\/json" id="sf-data">([\s\S]*?)<\/script>/)[1]);
 
-test("the page is an app with three tabs: Fix, All issues and Progress", () => {
-    const html = buildWebReport({ report: sample() });
-    assert.match(html, /<nav class="tabs" role="tablist"/);
-    for (const t of ["fix", "issues", "progress"]) {
-        assert.match(html, new RegExp(`data-tab="${t}"`));
-        assert.match(html, new RegExp(`<section class="panel" id="panel-${t}" role="tabpanel"`));
-    }
-    assert.match(html, /All issues <span class="n">2<\/span>/, "kinds of problem");
-    assert.match(html, /id="q" placeholder="Search problems or pages"/, "search, filters and sorting live in All issues");
-    assert.match(html, /<select id="f-sort"/);
-});
-
-test("the Fix tab shows the score, the areas, the levels to pick from and SiteFix's first message", () => {
+test("the page is an app: Fix and All issues tabs, the score always in the top bar", () => {
     const r = sample();
     const html = buildWebReport({ report: r });
     const s = siteScore(r.types.flatMap((t) => t.issues), []);
+    for (const t of ["fix", "issues"]) {
+        assert.match(html, new RegExp(`data-tab="${t}"`));
+        assert.match(html, new RegExp(`<section class="panel" id="panel-${t}" role="tabpanel"`));
+    }
+    assert.ok(!html.includes('data-tab="progress"'));
+    assert.match(html, new RegExp(`<div class="spill" aria-live="polite"><span>Score</span><b id="sp-now">${s.score}</b>`));
+    assert.match(html, /All issues <span class="n">2<\/span>/);
+    assert.match(html, /id="q" placeholder="Search problems or pages"/, "search, filters and sorting live in All issues");
+});
+
+test("the Fix tab: score ring (today and with the selection), SiteFix's message, sorting and the three areas", () => {
+    const r = sample();
+    const html = buildWebReport({ report: r });
+    const s = siteScore(r.types.flatMap((t) => t.issues), []);
+    assert.match(html, /class="ring-sel"[^>]*>.*class="ring-now"/s, "a lighter ring for the selection under today's");
     assert.match(html, new RegExp(`<div class="dial-n"><b>${s.score}</b>`));
-    assert.match(html, /<div class="sc-lvl">Level 1 of 3<\/div>\s*<div class="sc-name">Urgent fixes<\/div>/);
-    for (const a of ["on-page", "technical", "off-page"]) assert.match(html, new RegExp(`<div class="area" data-a="${a}">`));
-    for (const p of ["P1", "P2", "P3"]) assert.match(html, new RegExp(`class="step[^"]*" data-step="${p}"`), "every level can be opened, in any order");
+    assert.match(html, /Tick fixes below to see your score climb/);
     assert.match(html, new RegExp(`Your site scores ${s.score} out of 100 today\\. There is 1 urgent thing to fix first`));
-    for (const set of ["rec", "quick", "boost", "on-page", "technical", "off-page"]) assert.match(html, new RegExp(`data-set="${set}"`));
+    for (const k of ["rec", "quick", "boost", "urgent"]) assert.match(html, new RegExp(`data-sort="${k}"`));
+    for (const a of ["on-page", "technical", "off-page"]) assert.match(html, new RegExp(`<button type="button" data-area="${a}"`));
+    assert.match(html, /<div class="cols" id="cols"><\/div>/);
+});
+
+test("the selection bar: Fix these is shown but not active until the fix stage", () => {
+    const html = buildWebReport({ report: sample(), links: { api: "/api/history/r/" } });
+    assert.match(html, /<button type="button" class="btn primary" id="sb-fix" disabled aria-describedby="sb-soon">Fix these<\/button><small id="sb-soon">Automatic fixing is coming soon<\/small>/);
+    assert.equal(dataOf(html).fix, null);
+    const later = buildWebReport({ report: sample(), links: { api: "/api/history/r/", fix: "/api/history/r/fix" } });
+    assert.equal(dataOf(later).fix, "/api/history/r/fix", "the fix stage turns the button on with one link");
+    assert.equal(dataOf(buildWebReport({ report: sample(), standalone: true, links: { fix: "/x" } })).fix, null);
 });
 
 test("each kind of problem carries the facts the page needs, from the report only", () => {
-    const d = dataOf(buildWebReport({ report: sample() }));
-    assert.deepEqual(d.types.map((t) => [t.type, t.level, t.area, t.effort, t.owner, t.pages, t.ids]), [
-        ["title-missing", "P1", "on-page", "easy", "Content writer", 1, ["ISS-0000000001"]],
-        ["image-alt-missing", "P2", "on-page", "easy", "Developer", 3, ["ISS-0000000002", "ISS-0000000003"]],
+    const r = sample();
+    r.types[0].issues[0].fixClass = "ai-proposed";
+    r.types[1].issues.forEach((i) => { i.fixClass = "not-automatable"; });
+    const d = dataOf(buildWebReport({ report: r }));
+    assert.deepEqual(d.types.map((t) => [t.type, t.level, t.area, t.effort, t.owner, t.pages, t.ids, t.canFix]), [
+        ["title-missing", "P1", "on-page", "easy", "Content writer", 1, ["ISS-0000000001"], true],
+        ["image-alt-missing", "P2", "on-page", "easy", "Developer", 3, ["ISS-0000000002", "ISS-0000000003"], false],
     ]);
     assert.equal(d.types[0].visitor, "Search results show the URL.", "what visitors face: the standard line comes from the guidance");
-    assert.match(d.types[0].nudge, /\{gain\}/, "the page fills in the points");
     assert.deepEqual(d.issues.map((i) => [i.id, i.t, i.p]), [["ISS-0000000001", "title-missing", "P1"], ["ISS-0000000002", "image-alt-missing", "P2"], ["ISS-0000000003", "image-alt-missing", "P3"]]);
-    assert.ok(d.bank.intro.includes("{score}"), "messages travel as templates");
+    assert.ok(d.bank.afterSelect.includes("{score}"), "messages travel as templates");
 });
 
 test("the full detail of every kind is on the page, for the fix panel, print and no JavaScript", () => {
@@ -145,22 +159,21 @@ test("the full detail of every kind is on the page, for the fix panel, print and
     assert.match(html, /<div class="full"><h2>Level 1 · Urgent fixes<\/h2>\n<section class="tdetail" id="t-title-missing" data-type="title-missing" data-area="on-page" data-effort="easy" data-level="P1">/);
     assert.match(html, /<h2>Level 2 · Important fixes<\/h2>\n<section class="tdetail" id="t-image-alt-missing"/);
     assert.match(html, /<div class="fix"><div class="k">How to fix<\/div><ol><li>Add a title\.<\/li><\/ol><\/div>/);
-    assert.match(html, /<input type="checkbox" data-fix="ISS-0000000002">/);
-    assert.match(html, /<html lang="en" class="nojs">/, "without JavaScript the full report shows instead of the app");
+    assert.match(html, /<input type="checkbox" data-sel-id="ISS-0000000002"> Include this page in the fix/, "each page can be selected on its own");
+    assert.match(html, /<html lang="en" class="nojs">/);
     assert.match(html, /\.nojs \.full\{display:block\}/);
-    assert.match(html, /@media print\{\.top,\.app,\.drawer/);
-    assert.match(html, /beforeprint/);
+    assert.match(html, /@media print\{\.top,\.app,\.drawer,\.scrim,\.toast,\.selbar/);
 });
 
-test("Check it now and saved progress only on the live page; the downloaded file keeps ticks in the browser", () => {
+test("checking the live site and saved progress only on the live page; the download keeps the selection in the browser", () => {
     const live = buildWebReport({ report: sample(), links: { api: "/api/history/r/" } });
     assert.equal(dataOf(live).api, "/api/history/r/");
-    assert.match(live, /<button type="button" class="btn" id="dr-check">Check it now<\/button>/);
+    assert.match(live, /id="dr-check">Fixed it yourself\? Check your live site<\/button>/);
     const file = buildWebReport({ report: sample(), standalone: true, links: { api: "/api/history/r/" } });
     assert.equal(dataOf(file).api, null);
-    assert.ok(!file.includes('id="dr-check"'), "no Check it now button");
+    assert.ok(!file.includes('id="dr-check"'));
     assert.ok(!file.includes("/api/history/"));
-    assert.match(file, /id="dr-fix">I fixed it/);
+    assert.match(file, /id="dr-sel">Select this fix/);
 });
 
 test("the page's data is safely embedded", () => {
@@ -171,16 +184,15 @@ test("the page's data is safely embedded", () => {
     assert.equal(dataOf(html).types[0].title, "</script><script>alert(1)</script>");
 });
 
-test("the coach's AI words are used when the report has them; old reports get the standard ones", () => {
+test("the coach's AI words are used when the report has them; missing ones get the standard text", () => {
     const r = sample();
     r.coach = { source: "ai", bank: { intro: "Hello {site}, you are at {score}.", welcomeBack: "Back: {score}.", level: { 1: "Urgent: {count} left.", 2: "Two: {count}.", 3: "Three: {count}.", 4: "All done." }, levelUp: { 2: "Up {score}", 3: "Up {score}", 4: "Up {score}" }, afterMark: "a {issue}", afterVerify: "b {issue}", stillThere: "c {issue}", nextUp: "d {issue}", types: { "title-missing": { visitor: "People see a bare address.", nudge: "Easy, {gain} points." } } } };
     const html = buildWebReport({ report: r });
     assert.match(html, /Hello example\.com, you are at \d+\./);
     const d = dataOf(html);
     assert.equal(d.types[0].visitor, "People see a bare address.");
-    assert.equal(d.types[0].nudge, "Easy, {gain} points.");
     assert.ok(d.types[1].visitor.length > 8, "a kind the AI left out still gets a line");
-    assert.ok(d.types[1].nudge.includes("{gain}"));
+    assert.match(d.bank.afterSelect, /\{count\} fixes selected/, "reports made before selecting existed get the standard message");
     assert.match(html, /SiteFix's messages are worded by AI/);
 });
 

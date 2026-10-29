@@ -162,13 +162,14 @@ test("the live report's progress is saved with the inspection, cleaned, and the 
     const h = createHistory({ root });
     await h.sync();
     const id = "run-20261019T101500";
-    assert.deepEqual(await h.getProgress(id), { fixed: {}, posts: [], visits: 0, last: 0 });
+    assert.deepEqual(await h.getProgress(id), { selected: {}, verified: {}, posts: [], visits: 0, last: 0 });
     await Promise.all([
-        h.setProgress(id, { fixed: { "ISS-0123456789": "marked" }, visits: 1 }),
-        h.setProgress(id, { fixed: { "ISS-0123456789": "verified", "ISS-abcdefabcd": "marked", "../../etc": "marked", "ISS-ffffffffff": "hacked" }, posts: [{ at: 1, text: "Hi", action: { type: "lang-missing" } }, { at: 2, text: 5 }, { at: 3, text: "x", action: { type: "<b>" } }], visits: 2, last: 9 }),
+        h.setProgress(id, { selected: { "ISS-0123456789": true }, visits: 1 }),
+        h.setProgress(id, { selected: { "ISS-abcdefabcd": true, "../../etc": true, "ISS-ffffffffff": false }, verified: { "ISS-0123456789": 5, "bad": 1 }, posts: [{ at: 1, text: "Hi", action: { type: "lang-missing" } }, { at: 2, text: 5 }, { at: 3, text: "x", action: { type: "<b>" } }], visits: 2, last: 9 }),
     ]);
     assert.deepEqual(await h.getProgress(id), {
-        fixed: { "ISS-0123456789": "verified", "ISS-abcdefabcd": "marked" },
+        selected: { "ISS-abcdefabcd": true },
+        verified: { "ISS-0123456789": 5 },
         posts: [{ at: 1, text: "Hi", action: { type: "lang-missing" } }, { at: 3, text: "x", action: null }],
         visits: 2, last: 9,
     });
@@ -176,4 +177,11 @@ test("the live report's progress is saved with the inspection, cleaned, and the 
     assert.equal(await h.setProgress("run-20990101T000000", {}), false, "no folder is made for an unknown inspection");
     assert.equal(cleanProgress({ posts: Array.from({ length: 50 }, (_, k) => ({ at: k, text: "a".repeat(900) })) }).posts.length, 30);
     assert.equal(cleanProgress({ posts: [{ at: 1, text: "a".repeat(900) }] }).posts[0].text.length, 400);
+});
+
+test("progress saved by the earlier live report is read as selected and verified", () => {
+    const p = cleanProgress({ fixed: { "ISS-0123456789": "marked", "ISS-abcdefabcd": "verified" } });
+    assert.deepEqual(p.selected, { "ISS-0123456789": true });
+    assert.deepEqual(p.verified, { "ISS-abcdefabcd": 0 });
+    assert.deepEqual(cleanProgress({ selected: { "ISS-0123456789": true }, verified: { "ISS-0123456789": 3 } }).selected, {}, "a confirmed fix is no longer just selected");
 });
