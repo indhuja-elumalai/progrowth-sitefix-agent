@@ -8,6 +8,8 @@
 //   GET  /api/stream/:id → SSE stream of the run: log lines, plus { progress } and
 //                          { finding } messages from lib/progress.js
 //   GET  /api/run/active → the inspection running now ({ runId, url, startedAt }) or {}
+//   POST /api/run/:id/stop → { now }: stop reading pages and report what was read so far;
+//                          with now: true, end at once with no report (run code 130)
 //   GET  /api/results    → reads issues.json from cwd and returns it
 //   GET  /api/report     → audit-report/explained.json (priorities, explanations, fixes)
 //   GET  /api/report.pdf → the PDF report
@@ -70,6 +72,7 @@ let activeRunId = null;
 // In-memory store of active/completed runs (keyed by runId).
 // Each entry: { id, url, lines: string[], done: boolean, exitCode: number|null, subscribers: Set<res> }
 const runs = new Map();
+const STOPPED_CODE = 130; // the run was stopped with "Stop now": no report, nothing saved
 
 function makeRunId() {
   return "ui-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
@@ -184,6 +187,7 @@ const server = createServer(async (req, res) => {
     // SITEFIX_PROGRESS=1: the crawler and report also print structured progress lines.
     const childEnv = { ...process.env, SITEFIX_PROGRESS: "1" };
     const child = spawn("node", crawlArgs, { cwd: ROOT, stdio: ["ignore", "pipe", "pipe"], env: childEnv });
+    entry.child = child;
 
     function send(msg) {
       for (const sub of entry.subscribers) {
@@ -230,13 +234,16 @@ const server = createServer(async (req, res) => {
     child.stdout.on("data", lineReader());
     child.stderr.on("data", lineReader());
     child.on("close", (code) => {
+      if (entry.cancelled) return finish(STOPPED_CODE);
       if (code !== 0) return finish(code);
       // The crawl worked: build the explained report and PDF. A report failure
       // does not hide the crawl results; the UI shows them without the extras.
       const report = spawn("node", ["report.js"], { cwd: ROOT, stdio: ["ignore", "pipe", "pipe"], env: childEnv });
+      entry.reportChild = report;
       report.stdout.on("data", lineReader());
       report.stderr.on("data", lineReader());
       report.on("close", async (rcode) => {
+        if (entry.cancelled) return finish(STOPPED_CODE); // stopped with no report: nothing is saved
         entry.reportCode = rcode;
         broadcast(`__REPORT__:${rcode}`);
         // Keep this inspection: it stays in the sidebar after a reload or restart.
@@ -281,6 +288,25 @@ const server = createServer(async (req, res) => {
     entry.subscribers.add(res);
     req.on("close", () => entry.subscribers.delete(res));
     return; // keep open
+  }
+
+  // API: stop the inspection running now. { now: false }: no new pages are read, and the
+  // report covers what was read so far (crawl.js stops on SIGUSR2); once the report is
+  // being written it just finishes. { now: true }: everything ends at once, with no
+  // report and nothing saved (the run ends with code 130).
+  const stopMatch = method === "POST" && pathname.match(/^\/api\/run\/([^/]+)\/stop$/);
+  if (stopMatch) {
+    const entry = runs.get(stopMatch[1]);
+    if (!entry || entry.done) return json(res, 409, { error: "That inspection isn't running." });
+    const body = await parseBody(req);
+    if (body.now) {
+      entry.cancelled = true;
+      for (const p of [entry.child, entry.reportChild]) if (p && p.exitCode === null) p.kill("SIGTERM");
+      return json(res, 200, { stopping: "now" });
+    }
+    if (entry.reportChild) return json(res, 200, { stopping: "report" });
+    if (!entry.stopping) { entry.stopping = true; entry.child.kill("SIGUSR2"); }
+    return json(res, 200, { stopping: "crawl" });
   }
 
   // API: the inspection running now, so a reloaded page can follow it again
