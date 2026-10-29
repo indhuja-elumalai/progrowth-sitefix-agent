@@ -99,3 +99,9 @@ test("a large site read in part says so under the title, and the chat's filter l
     assert.match(html, /12 pages crawled \(a share of every section of a larger site: at least 3003 pages found\)/);
     assert.match(html, /function fromHash\(h\)/, "reads #type=, #p= and #qw= from links in the chat");
 });
+
+test("a stopped inspection says so under the title", () => {
+    const r = sample();
+    r.run.partial = { reason: "stopped", pagesFound: 603 };
+    assert.match(buildWebReport({ report: r }), /12 pages crawled \(stopped early: at least 603 pages found\)/);
+});

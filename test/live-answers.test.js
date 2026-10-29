@@ -75,3 +75,8 @@ test("after a large site was read in part, 'how many pages' says so", () => {
     const a = ans("how many pages were checked?", { running: false, pages: { done: 140 }, seconds: { total: 53 }, partial: { reason: "time", pagesFound: 3003 } }).answer;
     assert.match(a, /140 pages checked in 53 seconds\. The site is larger \(at least 3003 pages found\), so I read a share of every section/);
 });
+
+test("after an inspection was stopped, 'how many pages' says it was stopped early", () => {
+    const a = ans("how many pages were checked?", { running: false, pages: { done: 62 }, seconds: { total: 40 }, partial: { reason: "stopped", pagesFound: 603 } }).answer;
+    assert.match(a, /62 pages checked in 40 seconds\. You stopped it early, so the report covers those pages \(at least 603 were found\)\./);
+});
