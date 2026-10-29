@@ -19,7 +19,8 @@
 // History (lib/history.js): every finished inspection is kept in history/<run-id>/.
 //   GET    /api/history                  → past inspections, newest first
 //   GET    /api/history/:id              → { meta, registry, report, chat }
-//   GET    /api/history/:id/report.pdf   → that inspection's PDF
+//   GET    /api/history/:id/report.pdf   → that inspection's PDF, with every screenshot taken
+//                                          so far (made again when there are new ones)
 //   GET    /api/history/:id/shots/:name  → one of its screenshots
 //   GET    /api/history/:id/shot/:issueId → the screenshot for one issue; taken now (and
 //                                          kept) when the report has none (lib/screenshots.js)
@@ -38,7 +39,7 @@
 // writes audit-report/. AI settings come from .env (see lib/ai-provider.js).
 
 import { createServer } from "node:http";
-import { readFile, access, rm } from "node:fs/promises";
+import { readFile, writeFile, rename, access, rm } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -47,6 +48,7 @@ import { aiConfig, providerFromConfig } from "../lib/ai-provider.js";
 import { answerQuestion } from "../lib/chat.js";
 import { createHistory, isRunId } from "../lib/history.js";
 import { buildWebReport, reportFileName } from "../lib/web-report.js";
+import { buildReportHtml, MAX_INSTANCES_IN_PDF } from "../lib/report-html.js";
 import { parseProgressLine } from "../lib/progress.js";
 import { shotPlan, createShooter, SHOT_VERSION } from "../lib/screenshots.js";
 import { verifyIssues, createRenderer, MAX_VERIFY } from "../lib/verify.js";
@@ -119,6 +121,51 @@ async function issueShot(res, id, issueId) {
   const issue = saved?.report?.types?.flatMap((t) => t.issues || []).find((i) => i.id === issueId);
   if (!issue) return json(res, 404, { error: "No such issue" });
   return (await ensureShot(id, issue, true)) ? serveFile(res, file, true) : json(res, 404, { error: "The problem could not be found on the page for a screenshot" });
+}
+
+// The PDF with every screenshot: report.js puts up to 30 in it; the rest are taken
+// later (ahead of time, or when an issue is opened). When the PDF is opened and there are
+// screenshots it doesn't have yet, it is made again from the saved report, after waiting
+// a few seconds for any of its pages still missing one. The screenshots in it are noted
+// (report-pdf.json), so it is only made again when there is something new.
+const pdfJobs = new Map();
+const PDF_WAIT_MS = 8000;
+function inspectionPdf(id) {
+  if (!pdfJobs.has(id)) pdfJobs.set(id, makePdf(id).finally(() => pdfJobs.delete(id)));
+  return pdfJobs.get(id);
+}
+async function makePdf(id) {
+  const pdfFile = history.file(id, "report.pdf");
+  const noteFile = path.join(history.dir, id, "report-pdf.json");
+  const first = await history.load(id);
+  if (!first?.report) return null;
+  // The pages the PDF lists (up to MAX_INSTANCES_IN_PDF of each kind) that can have a screenshot.
+  const listed = (r) => (r.types || []).flatMap((t) => (t.issues || []).slice(0, MAX_INSTANCES_IN_PDF)).filter((i) => shotPlan(i));
+  await Promise.race([Promise.all(listed(first.report).map((i) => ensureShot(id, i, true).catch(() => false))), new Promise((r) => setTimeout(r, PDF_WAIT_MS))]);
+  const saved = await history.load(id);
+  const shots = new Map();
+  for (const i of listed(saved.report)) {
+    if (!i.screenshot || i.shotVersion !== SHOT_VERSION) continue;
+    try { shots.set(i.id, `data:image/jpeg;base64,${(await readFile(history.file(id, i.screenshot))).toString("base64")}`); } catch { /* not there: shown without one */ }
+  }
+  const key = [...shots.keys()].sort().join(",");
+  const note = await readFile(noteFile, "utf8").then(JSON.parse, () => null);
+  const have = await access(pdfFile).then(() => true, () => false);
+  if (have && note?.key === key) return pdfFile; // nothing new since it was made
+  if (have && !note && shots.size === 0) return pdfFile; // report.js made it; nothing to add
+  const { chromium } = await import("playwright");
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage();
+    await page.setContent(buildReportHtml({ report: saved.report, shots }), { waitUntil: "load" });
+    const tmp = `${pdfFile}.${process.pid}.tmp`;
+    await page.pdf({ path: tmp, format: "A4", printBackground: true, margin: { top: "16mm", bottom: "16mm", left: "14mm", right: "14mm" } });
+    await rename(tmp, pdfFile);
+    await writeFile(noteFile, JSON.stringify({ key, shots: shots.size, madeAt: new Date().toISOString() }));
+  } finally {
+    await browser.close().catch(() => {});
+  }
+  return pdfFile;
 }
 
 // Screenshots taken ahead of time, so they are ready when an issue is opened: after an
@@ -504,7 +551,8 @@ const server = createServer(async (req, res) => {
       const file = history.file(id, parts.slice(1).join("/"));
       if (file.endsWith(".pdf")) {
         try {
-          const data = await readFile(file);
+          const made = await inspectionPdf(id).catch(() => null); // with every screenshot so far
+          const data = await readFile(made || file);
           res.writeHead(200, { "Content-Type": "application/pdf", "Content-Disposition": `inline; filename="sitefix-${id}.pdf"` });
           return res.end(data);
         } catch { return json(res, 404, { error: "No PDF was made for this inspection" }); }

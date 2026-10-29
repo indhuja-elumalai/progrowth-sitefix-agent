@@ -1610,6 +1610,20 @@ page in a browser (2 to 3 seconds), so they are now taken ahead of time:
 On the test site, every screenshot was served in under 10 ms once the report had
 been open for 15 seconds.
 
+**The PDF has every screenshot too.** report.js puts up to 30 screenshots in the
+PDF, and the rest are taken later. When the PDF is opened, SiteFix checks for new
+screenshots:
+
+- **What it adds:** screenshots for the pages the PDF lists (up to 25 per kind of
+  problem) that it doesn't have yet.
+- **Waiting:** it waits up to 8 seconds for any of those still being taken.
+- **Rebuilding:** it makes the PDF again from the saved report and keeps it.
+- **Caching:** a note (`report-pdf.json`) records which screenshots are in it, so
+  the same PDF opens at once until there are new ones.
+
+On the test site, the PDF went from 5 screenshots to all 19 that can be shown (8.5 s
+the first time, with every screenshot taken from scratch; 23 ms after that).
+
 Before, a quoted sentence that ran across a bold label ("**Sending the emails or
 DMs:** … in atleast 4 phases") was not found, and the screenshot showed the top of
 the page, cookie banner included, with nothing outlined.
