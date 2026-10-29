@@ -38,6 +38,8 @@ test("fillMessage puts the measured numbers in and keeps the words right for one
     assert.equal(fillMessage("There are {urgent} urgent things to fix, worth {gain} points.", { urgent: 1, gain: 1 }), "There is 1 urgent thing to fix, worth 1 point.");
     assert.equal(fillMessage("Worth {gain} points.", { gain: "less than 1" }), "Worth less than 1 point.");
     assert.equal(fillMessage("Keep {unknown} as is.", {}), "Keep {unknown} as is.");
+    assert.equal(fillMessage("Worth {gain} points.", { gain: "4.1" }), "Worth 4.1 points.", "a decimal ending in 1 stays plural");
+    assert.equal(fillMessage("Worth {gain} points.", { gain: 11 }), "Worth 11 points.");
 });
 
 test("without AI, every message is the built-in one", async () => {

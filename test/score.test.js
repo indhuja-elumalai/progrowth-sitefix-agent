@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { siteScore, gainOf, gainText, levelOf, areaOf } from "../lib/score.js";
+import { siteScore, gainOf, gainText, levelOf, areaOf, pointsOf, projected, fmtPoints } from "../lib/score.js";
 
 const i = (id, type, severity, priority, pages = 1) => ({ id, type, severity, priority, pages });
 
@@ -72,4 +72,32 @@ test("only broken links, images and redirects count the pages they were found on
     const link = siteScore([{ id: "b", type: "http-4xx-internal", severity: "high", foundOn: linking, evidence: { kind: "http" } }], []);
     const linkOnce = siteScore([{ id: "b", type: "http-4xx-internal", severity: "high", foundOn: linking.slice(0, 1), evidence: { kind: "http" } }], []);
     assert.ok(link.exact < linkOnce.exact, "a broken link on 40 pages costs more than on one");
+});
+
+test("points: every kind and every issue has its share, and fixing everything adds up to exactly 100", async () => {
+    const { pointsOf, projected, fmtPoints } = await import("../lib/score.js");
+    const list = [
+        { id: "a1", type: "copy-spelling", severity: "medium", evidence: { kind: "content" } },
+        { id: "a2", type: "copy-spelling", severity: "medium", evidence: { kind: "content" } },
+        { id: "a3", type: "copy-spelling", severity: "medium", evidence: { kind: "content" } },
+        { id: "a4", type: "copy-spelling", severity: "medium", evidence: { kind: "content" } },
+        { id: "b1", type: "http-4xx-internal", severity: "high", foundOn: ["x", "y"], evidence: { kind: "http" } },
+        { id: "c1", type: "og-missing", severity: "low", evidence: { kind: "head" } },
+    ];
+    const P = pointsOf(list, []);
+    const total = Object.values(P.types).reduce((n, t) => n + t.points, 0);
+    assert.ok(Math.abs(total - (100 - P.now.exact)) < 1e-9, "the shares add up to the points still to win");
+    assert.ok(Math.abs(projected(P, list.map((i) => i.id)).exact - 100) < 1e-9);
+    assert.equal(projected(P, list.map((i) => i.id)).score, 100);
+    const spelling = P.types["copy-spelling"];
+    assert.ok(Math.abs(P.perIssue.a1.points - spelling.points / 4) < 1e-9, "each issue a quarter of its kind");
+    const one = projected(P, ["a1"]), two = projected(P, ["a1", "a2"]), all4 = projected(P, ["a1", "a2", "a3", "a4"]);
+    assert.ok(Math.abs((two.exact - P.now.exact) - 2 * (one.exact - P.now.exact)) < 1e-9, "two issues: twice one");
+    assert.ok(Math.abs((all4.exact - P.now.exact) - spelling.points) < 1e-9, "the whole kind: its points");
+    assert.ok(one.areasExact["on-page"] > P.now.areasExact["on-page"] && one.areasExact.technical === P.now.areasExact.technical, "only its own area moves");
+    assert.deepEqual(projected(P, ["a1", "a1", "zzz"]).exact, one.exact, "repeats and unknown ids add nothing");
+    assert.deepEqual([fmtPoints(2), fmtPoints(1.84), fmtPoints(0.2), fmtPoints(0.04), fmtPoints(0), fmtPoints(12.6)], ["2", "1.8", "0.2", "<0.1", "0", "13"]);
+    const src = ["areaOf", "siteScore", "pointsOf", "projected", "fmtPoints"].map((n) => ({ areaOf, siteScore, pointsOf, projected, fmtPoints })[n].toString()).join("\n");
+    const fns = new Function(`${src}\nreturn { pointsOf, projected };`)();
+    assert.equal(fns.projected(fns.pointsOf(list, []), ["a1"]).exact, one.exact, "self-contained, so the page can carry a copy");
 });
