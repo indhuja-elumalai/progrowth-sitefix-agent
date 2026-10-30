@@ -27,7 +27,8 @@
 //   GET    /api/history/:id/shot/:issueId → the screenshot for one issue; taken now (and
 //                                          kept) when the report has none (lib/screenshots.js)
 //   DELETE /api/history/:id              → delete one inspection
-//   DELETE /api/history                  → delete all inspections
+//   DELETE /api/history?site=            → delete all of that site's inspections
+//   GET    /api/history/:id/score        → its score, counting what was confirmed fixed or kept
 //   GET    /api/history/:id/progress     → the live report's progress (what the client fixed, messages)
 //   PUT    /api/history/:id/progress     → save it (same origin only, like DELETE)
 //   POST   /api/history/:id/verify       → { ids } → checks the live site again for those issues
@@ -35,6 +36,20 @@
 //   GET    /report/:id                   → the live web report for one inspection (lib/web-report.js)
 //   GET    /report/:id/download          → the same report as one file, screenshots built in
 // DELETE is same-origin only: the CORS preflight below never allows it.
+//
+// Workspaces (lib/profiles.js): a name and the website links someone works on. The
+// browser keeps its workspace in a cookie; everything else answers 401 without one, and
+// 403 for a site that isn't in the workspace (two workspaces with the same site share
+// its inspections).
+//   GET    /api/profile          → { profile } (null when signed out)
+//   POST   /api/profile          → { name, site }: a new workspace, signed in
+//   POST   /api/profile/sites    → { site }: add a site; it becomes the active one
+//   DELETE /api/profile/sites?site= → remove a site (never the last one)
+//   PUT    /api/profile/active   → { site }: switch to another of the workspace's sites
+//   POST   /api/profile/signout  → forget the workspace in this browser
+//   GET    /api/score?site=      → the site's score from its latest inspection, counting
+//                                  what was confirmed fixed or kept (lib/site-score.js)
+//   GET    /api/history?site=    → only that site's inspections; DELETE deletes only those
 //
 // A run is: crawl.js, then (if the crawl succeeded) report.js, both streamed over SSE.
 // The crawl writes issues.json (and the other files) to the project root; report.js
@@ -55,11 +70,14 @@ import { parseProgressLine } from "../lib/progress.js";
 import { shotPlan, createShooter, SHOT_VERSION } from "../lib/screenshots.js";
 import { verifyIssues, createRenderer, MAX_VERIFY } from "../lib/verify.js";
 import { measurePages } from "../lib/speed.js";
+import { createProfiles, sameSite } from "../lib/profiles.js";
+import { scoreSummary, answerScoreQuestion } from "../lib/site-score.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, ".."); // project root
 const REPORT_DIR = path.join(ROOT, "audit-report");
-const history = createHistory({ root: ROOT, max: Number(process.env.SITEFIX_HISTORY_MAX) || undefined });
+const history = createHistory({ root: ROOT, dir: process.env.SITEFIX_HISTORY_DIR || undefined, max: Number(process.env.SITEFIX_HISTORY_MAX) || undefined });
+const profiles = createProfiles({ file: process.env.SITEFIX_PROFILES || path.join(ROOT, "profiles.json") });
 // Screenshots for the chat: one shared browser, two pages at a time, closed when idle.
 const shooter = createShooter({ concurrency: 2 });
 const shotJobs = new Map(), shotFailed = new Set();
@@ -81,6 +99,25 @@ let activeRunId = null;
 // Each entry: { id, url, lines: string[], done: boolean, exitCode: number|null, subscribers: Set<res> }
 const runs = new Map();
 const STOPPED_CODE = 130; // the run was stopped with "Stop now": no report, nothing saved
+
+// The workspace cookie. HttpOnly: the page never reads it; SameSite=Lax: another site
+// can't start an inspection or delete anything with it.
+const COOKIE = "sitefix_profile";
+const cookieOf = (req) => (String(req.headers.cookie || "").match(/(?:^|;\s*)sitefix_profile=([0-9a-f]{32})(?:;|$)/) || [])[1] || null;
+const cookieFor = (id) => `${COOKIE}=${id}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000`;
+const profileView = (p) => p ? { name: p.name, sites: p.sites, activeSite: p.activeSite } : null;
+// The site an inspection belongs to: the address it was asked for (it may have moved to
+// another one) and the address it ended up checking; either one gives access.
+const inspectionAllowed = (profile, m) => Boolean(m) && (profiles.allows(profile, m.site) || profiles.allows(profile, m.url));
+const inspectionOnSite = (m, site) => sameSite(m.site || m.url, site) || sameSite(m.url, site);
+// The crawl in the project root (issues.json), and the address each run was asked for.
+const askedFor = new Map(); // registry run id -> url asked for
+async function latestAllowed(profile) {
+  try {
+    const run = JSON.parse(await readFile(path.join(ROOT, "issues.json"), "utf8")).run || {};
+    return profiles.allows(profile, run.startUrl) || profiles.allows(profile, askedFor.get(run.id));
+  } catch { return false; }
+}
 
 function makeRunId() {
   return "ui-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
@@ -202,9 +239,9 @@ async function serveFile(res, filePath, cache = false) {
   }
 }
 
-function json(res, status, obj) {
+function json(res, status, obj, headers = {}) {
   const body = JSON.stringify(obj);
-  res.writeHead(status, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
+  res.writeHead(status, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", ...headers });
   res.end(body);
 }
 
@@ -273,6 +310,55 @@ const server = createServer(async (req, res) => {
     return json(res, 200, { ready: true, version: "0.6" });
   }
 
+  // Workspaces: signing in with a name and a website link, adding and switching sites.
+  const profile = await profiles.get(cookieOf(req));
+  if (pathname === "/api/profile" || pathname.startsWith("/api/profile/")) {
+    const sub = pathname.slice("/api/profile".length);
+    const bad = (err) => json(res, 400, { error: err.message === "bad name" ? "Please enter your name." : err.message === "too many sites" ? "This workspace already has the most sites it can hold." : err.message === "last site" ? "A workspace needs at least one site." : "That doesn't look like a website address. Try something like example.com." });
+    if (sub === "" && method === "GET") return json(res, 200, { profile: profileView(profile) });
+    if (sub === "" && method === "POST") {
+      const body = await parseBody(req);
+      try {
+        const p = await profiles.create({ name: body.name, site: body.site });
+        return json(res, 200, { profile: profileView(p) }, { "Set-Cookie": cookieFor(p.id) });
+      } catch (err) { return bad(err); }
+    }
+    if (sub === "/signout" && method === "POST") return json(res, 200, { signedOut: true }, { "Set-Cookie": `${COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0` });
+    if (!profile) return json(res, 401, { error: "Sign in first." });
+    if (sub === "/sites" && method === "POST") {
+      const body = await parseBody(req);
+      try { return json(res, 200, { profile: profileView(await profiles.addSite(profile.id, body.site)) }); } catch (err) { return bad(err); }
+    }
+    if (sub === "/sites" && method === "DELETE") {
+      try { return json(res, 200, { profile: profileView(await profiles.removeSite(profile.id, url.searchParams.get("site"))) }); } catch (err) { return bad(err); }
+    }
+    if (sub === "/active" && method === "PUT") {
+      const p = await profiles.setActive(profile.id, (await parseBody(req)).site);
+      return p ? json(res, 200, { profile: profileView(p) }) : json(res, 403, { error: "That site isn't in your workspace." });
+    }
+    return json(res, 404, { error: "Not found" });
+  }
+  // Everything below works on a site, so it needs a workspace.
+  if (!profile && (pathname.startsWith("/api/") || pathname.startsWith("/report/")) && pathname !== "/api/ai-status") {
+    if (pathname.startsWith("/report/")) {
+      res.writeHead(401, { "Content-Type": "text/html; charset=utf-8" });
+      return res.end(`<!doctype html><meta charset="utf-8"><title>Sign in to SiteFix</title><body style="font-family:system-ui,sans-serif;max-width:560px;margin:80px auto;padding:0 20px;color:#1d1d1f"><h1 style="font-size:22px">Sign in to see this report</h1><p>Reports open for the workspace their site belongs to.</p><p><a href="/">Sign in to SiteFix</a></p>`);
+    }
+    return json(res, 401, { error: "Sign in first.", signedOut: true });
+  }
+
+  // API: the site's score, from its latest inspection with a report
+  if (method === "GET" && pathname === "/api/score") {
+    const site = url.searchParams.get("site") || profile.activeSite;
+    if (!profiles.allows(profile, site)) return json(res, 403, { error: "That site isn't in your workspace." });
+    await history.sync();
+    const m = (await history.list()).find((x) => x.hasReport && inspectionOnSite(x, site));
+    if (!m) return json(res, 200, { score: null });
+    const saved = await history.load(m.id);
+    if (!saved?.report) return json(res, 200, { score: null });
+    return json(res, 200, { ...scoreSummary(saved.report, await history.getProgress(m.id)), id: m.id, startedAt: m.startedAt, url: m.url });
+  }
+
   // API: start a crawl
   if (method === "POST" && pathname === "/api/run") {
     const body = await parseBody(req);
@@ -282,8 +368,12 @@ const server = createServer(async (req, res) => {
     if (!parsed || !["http:", "https:"].includes(parsed.protocol)) {
       return json(res, 400, { error: "A valid http:// or https:// URL is required" });
     }
+    if (!profiles.allows(profile, siteUrl)) {
+      return json(res, 403, { error: `This workspace can only inspect its own sites. Add ${parsed.host.replace(/^www\./, "")} as a site first.` });
+    }
     if (activeRunId) {
-      return json(res, 409, { error: "An inspection is already running. Wait for it to finish." });
+      const other = runs.get(activeRunId);
+      return json(res, 409, { error: other && profiles.allows(profile, other.url) ? "An inspection is already running. Wait for it to finish." : "SiteFix is checking another site right now. Please try again in a minute or two." });
     }
 
     const runId = makeRunId();
@@ -349,7 +439,9 @@ const server = createServer(async (req, res) => {
 
     child.stdout.on("data", lineReader());
     child.stderr.on("data", lineReader());
-    child.on("close", (code) => {
+    child.on("close", async (code) => {
+      // Remember which address this crawl was asked for (it may have moved to another).
+      try { const id = JSON.parse(await readFile(path.join(ROOT, "issues.json"), "utf8")).run?.id; if (id) askedFor.set(id, siteUrl); } catch { /* no crawl written */ }
       if (entry.cancelled) return finish(STOPPED_CODE);
       if (code !== 0) return finish(code);
       // The crawl worked: build the explained report and PDF. A report failure
@@ -365,6 +457,7 @@ const server = createServer(async (req, res) => {
         // Keep this inspection: it stays in the sidebar after a reload or restart.
         try {
           const meta = await history.sync();
+          if (meta?.id) await history.tag(meta.id, { site: siteUrl });
           if (meta?.id) warmShots(meta.id).catch(() => {});
           if (meta) { entry.inspectionId = meta.id; broadcast(`__SAVED__:${meta.id}`); }
         } catch (err) {
@@ -382,6 +475,7 @@ const server = createServer(async (req, res) => {
     const runId = pathname.slice("/api/stream/".length);
     const entry = runs.get(runId);
     if (!entry) return json(res, 404, { error: "Run not found" });
+    if (!profiles.allows(profile, entry.url)) return json(res, 403, { error: "That inspection belongs to another site." });
 
     res.writeHead(200, {
       "Content-Type": "text/event-stream",
@@ -415,6 +509,7 @@ const server = createServer(async (req, res) => {
   if (stopMatch) {
     const entry = runs.get(stopMatch[1]);
     if (!entry || entry.done) return json(res, 409, { error: "That inspection isn't running." });
+    if (!profiles.allows(profile, entry.url)) return json(res, 403, { error: "That inspection belongs to another site." });
     const body = await parseBody(req);
     if (body.now) {
       entry.cancelled = true;
@@ -429,7 +524,8 @@ const server = createServer(async (req, res) => {
   // API: the inspection running now, so a reloaded page can follow it again
   if (method === "GET" && pathname === "/api/run/active") {
     const entry = activeRunId ? runs.get(activeRunId) : null;
-    return json(res, 200, entry ? { runId: entry.id, url: entry.url, startedAt: entry.startedAt } : {});
+    if (!entry) return json(res, 200, {});
+    return json(res, 200, profiles.allows(profile, entry.url) ? { runId: entry.id, url: entry.url, startedAt: entry.startedAt } : { busy: true });
   }
 
   // API: return the current issues.json
@@ -440,6 +536,7 @@ const server = createServer(async (req, res) => {
     if (runId && (!entry || !entry.done || entry.exitCode !== 0)) {
       return json(res, 409, { error: "That run has not finished successfully, so there are no results for it" });
     }
+    if (entry ? !profiles.allows(profile, entry.url) : !(await latestAllowed(profile))) return json(res, 403, { error: "Those results belong to another site." });
     try {
       await access(file);
       const data = await readFile(file, "utf-8");
@@ -460,6 +557,11 @@ const server = createServer(async (req, res) => {
     } catch {
       return null;
     }
+  }
+
+  // The latest crawl's files are only for the workspace whose site it was.
+  if (method === "GET" && (pathname === "/api/report" || pathname === "/api/report.pdf" || pathname.startsWith("/api/shots/")) && !(await latestAllowed(profile))) {
+    return json(res, 403, { error: "That report belongs to another site." });
   }
 
   // API: explained report (priorities, plain-language explanations, fixes)
@@ -501,13 +603,17 @@ const server = createServer(async (req, res) => {
       if (!isRunId(body.inspectionId)) return json(res, 400, { error: "Bad inspection id" });
       const saved = await history.load(body.inspectionId);
       if (!saved) return json(res, 404, { error: "That inspection was deleted" });
+      if (!inspectionAllowed(profile, saved.meta)) return json(res, 403, { error: "That inspection belongs to another site." });
       if (!saved.report) return json(res, 200, { answer: "This inspection has no explained report (the report step did not finish), so I cannot answer questions about it. Run it again to chat about it.", issueIds: [], source: "none" });
       const scope = Array.isArray(body.scope) ? body.scope.filter((t) => typeof t === "string" && /^[a-z0-9-]{2,40}$/.test(t)).slice(0, 20) : undefined;
-      const result = await answerQuestion({ question: body.question, report: saved.report, provider, scope });
+      // The score and how to raise it: exact numbers, counting what was fixed in the report.
+      const result = answerScoreQuestion(body.question, saved.report, await history.getProgress(body.inspectionId)) || await answerQuestion({ question: body.question, report: saved.report, provider, scope });
       if (String(body.question || "").trim()) await history.appendChat(body.inspectionId, { question: String(body.question).trim().slice(0, 500), answer: result.answer, issueIds: result.issueIds || [], source: result.source, ...(result.display ? { display: result.display, lead: result.lead, tail: result.tail, more: result.more, moreIds: result.moreIds || [], reportHash: result.reportHash, moreLabel: result.moreLabel, ...(result.scope ? { scope: result.scope } : {}) } : {}) });
       return json(res, 200, result);
     }
-    const result = await answerQuestion({ question: body.question, report: await currentReport(), provider });
+    if (!(await latestAllowed(profile))) return json(res, 403, { error: "That inspection belongs to another site." });
+    const report = await currentReport();
+    const result = answerScoreQuestion(body.question, report, null) || await answerQuestion({ question: body.question, report, provider });
     return json(res, 200, result);
   }
 
@@ -522,6 +628,7 @@ const server = createServer(async (req, res) => {
     if (!isRunId(id)) return page(400, "Not a valid report link", "This link does not point to a SiteFix inspection.");
     const saved = await history.load(id);
     if (!saved) return page(404, "Report not found", "This inspection was deleted, or the link is wrong.");
+    if (!inspectionAllowed(profile, saved.meta)) return page(403, "This report is for another site", "Reports open for the workspace their site belongs to. Add the site to your workspace to see it.");
     if (!saved.report) return page(404, "No report for this inspection", "The report step did not finish for this inspection, so there are no explanations to show. Run the inspection again to get a full report.");
     const base = `/api/history/${encodeURIComponent(id)}/`;
     if (!download) {
@@ -553,11 +660,22 @@ const server = createServer(async (req, res) => {
     const id = parts[0];
     try {
       if (!id) {
-        if (method === "GET") { await history.sync(); return json(res, 200, { inspections: await history.list() }); }
-        if (method === "DELETE") { if (activeRunId) return json(res, 409, { error: "Wait for the running inspection to finish." }); return json(res, 200, { deleted: await history.removeAll() }); }
+        // Only the workspace's sites; with ?site=, only that one.
+        const site = url.searchParams.get("site");
+        if (site && !profiles.allows(profile, site)) return json(res, 403, { error: "That site isn't in your workspace." });
+        const mine = (m) => inspectionAllowed(profile, m) && (!site || inspectionOnSite(m, site));
+        if (method === "GET") { await history.sync(); return json(res, 200, { inspections: (await history.list()).filter(mine) }); }
+        if (method === "DELETE") {
+          if (!site) return json(res, 400, { error: "Say which site's inspections to delete." });
+          if (activeRunId) return json(res, 409, { error: "Wait for the running inspection to finish." });
+          return json(res, 200, { deleted: await history.removeAll(mine) });
+        }
         return json(res, 405, { error: "Method not allowed" });
       }
       if (!isRunId(id)) return json(res, 400, { error: "Bad inspection id" });
+      const meta = await history.meta(id);
+      if (!meta) return json(res, 404, { error: "Inspection not found" });
+      if (!inspectionAllowed(profile, meta)) return json(res, 403, { error: "That inspection belongs to another site." });
       if (parts.length === 1) {
         if (method === "GET") { const saved = await history.load(id); return saved ? json(res, 200, saved) : json(res, 404, { error: "Inspection not found" }); }
         if (method === "DELETE") return (await history.remove(id)) ? json(res, 200, { deleted: id }) : json(res, 404, { error: "Inspection not found" });
@@ -567,6 +685,12 @@ const server = createServer(async (req, res) => {
         if (method === "GET") { const p = await history.getProgress(id); return p ? json(res, 200, p) : json(res, 404, { error: "Inspection not found" }); }
         if (method === "PUT") return (await history.setProgress(id, await parseBody(req, 200000))) ? json(res, 200, { saved: true }) : json(res, 404, { error: "Inspection not found" });
         return json(res, 405, { error: "Method not allowed" });
+      }
+      if (parts[1] === "score" && parts.length === 2) {
+        if (method !== "GET") return json(res, 405, { error: "Method not allowed" });
+        const saved = await history.load(id);
+        if (!saved?.report) return json(res, 404, { error: "This inspection has no report, so no score" });
+        return json(res, 200, { ...scoreSummary(saved.report, await history.getProgress(id)), id });
       }
       if (parts[1] === "verify" && parts.length === 2) {
         if (method !== "POST") return json(res, 405, { error: "Method not allowed" });

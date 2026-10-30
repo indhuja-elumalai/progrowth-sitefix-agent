@@ -13,3 +13,4 @@ audit-report/
 # local crawl logs and scratch files
 *-run.txt
 history/
+profiles.json
