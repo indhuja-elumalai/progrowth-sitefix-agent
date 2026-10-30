@@ -369,9 +369,119 @@
     .msg-bbl{max-width:85%}
     #empty-state{padding-top:48px}
   }
+
+  /* Sign in: a name and a website link (no password for now) */
+  #signin{position:fixed;inset:0;z-index:20;background:var(--surface-1);display:flex;align-items:center;justify-content:center;padding:24px 16px;overflow-y:auto}
+  #signin[hidden]{display:none}
+  .si-card{width:min(400px,100%);background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-lg);padding:28px 24px 22px;box-shadow:0 10px 40px rgba(0,0,0,.06);display:flex;flex-direction:column}
+  .si-card .empty-av{margin:0 auto 14px}
+  .si-title{font-size:21px;font-weight:600;text-align:center;letter-spacing:-.02em}
+  .si-desc{font-size:14px;color:var(--text-2);text-align:center;line-height:1.5;margin:6px 0 18px}
+  .si-l{font-size:12.5px;font-weight:600;color:var(--text-2);margin:10px 0 5px}
+  .si-card input{height:40px;border:1px solid var(--border-mid);border-radius:10px;padding:0 12px;font-size:15px;background:var(--bg);color:var(--text-1);outline:none}
+  .si-card input:focus{border-color:rgba(60,60,67,.35);box-shadow:0 0 0 3px var(--accent-dim)}
+  .si-card input[aria-invalid="true"]{border-color:var(--high);box-shadow:0 0 0 3px var(--high-bg)}
+  .si-err{min-height:18px;font-size:12.5px;color:var(--high);margin-top:8px}
+  .si-go,.go-btn{height:42px;border:none;border-radius:var(--radius-xl);background:var(--accent);color:var(--accent-dark);font-size:15px;font-weight:600;padding:0 22px;transition:transform var(--t),background var(--t)}
+  .si-go{margin-top:6px}
+  .si-go:hover:not(:disabled),.go-btn:hover:not(:disabled){transform:translateY(-1px)}
+  .si-go:disabled,.go-btn:disabled{background:var(--surface-3);color:var(--text-3);cursor:default;transform:none}
+  .si-note{font-size:12px;color:var(--text-3);text-align:center;margin-top:12px;line-height:1.45}
+
+  /* Topbar: the site (a switcher) and its score */
+  .tb-site{display:flex;align-items:center;gap:7px;border:none;background:none;padding:3px 8px 3px 4px;border-radius:var(--radius-xl);color:var(--text-1);font-size:13.5px;font-weight:600;max-width:100%;min-width:0}
+  .tb-site:hover,.tb-site[aria-expanded="true"]{background:var(--surface-2)}
+  .tb-site .tb-av{margin:0;width:24px;height:24px;flex-shrink:0}
+  .tb-site .tb-av svg{width:12px;height:12px}
+  #site-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .tb-chev{width:12px;height:12px;flex-shrink:0;color:var(--text-3)}
+  #tb-title{margin-top:3px;min-height:20px;display:flex;align-items:center}
+  .tb-pill{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--text-2);text-decoration:none;padding:1px 9px 1px 3px;border-radius:var(--radius-xl);background:var(--surface-1);border:1px solid var(--border);white-space:nowrap}
+  .tb-pill:hover{border-color:var(--border-mid);color:var(--text-1)}
+  .tb-pill b{display:inline-flex;align-items:center;justify-content:center;min-width:24px;height:18px;padding:0 5px;border-radius:9px;font-size:11.5px;color:#fff;font-variant-numeric:tabular-nums}
+  .tb-pill.b1 b{background:var(--high)}.tb-pill.b2 b{background:var(--medium)}.tb-pill.b3 b{background:var(--success)}.tb-pill.b4 b{background:#1f7a3a}
+  .tb-to{color:var(--success);font-weight:600}
+  .tb-none{font-size:11.5px;color:var(--text-3)}
+  .site-menu{position:absolute;top:calc(100% - 4px);left:50%;transform:translateX(-50%);width:min(320px,calc(100vw - 32px));background:var(--bg);border:1px solid var(--border-mid);border-radius:14px;box-shadow:0 12px 36px rgba(0,0,0,.12);padding:6px;z-index:5;text-align:left}
+  .site-menu[hidden]{display:none}
+  .sm-head{font-size:11.5px;font-weight:600;color:var(--text-3);padding:6px 10px 4px}
+  .sm-row{display:flex;align-items:center;border-radius:9px}
+  .sm-row:hover{background:var(--surface-1)}
+  .sm-site{flex:1;min-width:0;display:flex;align-items:center;gap:8px;border:none;background:none;padding:8px 10px;font-size:13.5px;color:var(--text-1);text-align:left}
+  .sm-site span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .sm-site i{width:14px;flex-shrink:0;font-style:normal;color:var(--success);font-weight:700}
+  .sm-del{border:none;background:none;color:var(--text-3);font-size:12px;padding:4px 8px;margin-right:4px;border-radius:7px}
+  .sm-del:hover{color:var(--high);background:var(--high-bg)}
+  .sm-del.confirm{color:#fff;background:var(--high)}
+  .sm-add{display:flex;gap:6px;padding:8px 6px 4px;border-top:1px solid var(--border);margin-top:4px}
+  .sm-add input{flex:1;min-width:0;height:34px;border:1px solid var(--border-mid);border-radius:9px;padding:0 10px;font-size:13.5px;background:var(--bg);color:var(--text-1);outline:none}
+  .sm-add input:focus{box-shadow:0 0 0 3px var(--accent-dim)}
+  .sm-add button{border:none;border-radius:9px;background:var(--accent);color:var(--accent-dark);font-weight:600;font-size:13px;padding:0 12px}
+  .sm-err{font-size:12px;color:var(--high);padding:0 10px 4px}
+  .sm-err:empty{display:none}
+  .sm-foot{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px 4px;border-top:1px solid var(--border);margin-top:4px;font-size:12px;color:var(--text-3)}
+  .sm-foot b{color:var(--text-2);font-weight:600}
+  .sm-out{border:none;background:none;color:var(--text-2);font-size:12px;text-decoration:underline;padding:2px}
+
+  /* Empty state: one button to inspect the site */
+  .go-btn{margin:2px 0 12px}
+  .empty-last{font-size:13px;color:var(--text-2);margin-bottom:20px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:center}
+  .empty-last:empty{display:none}
+  .link-btn{border:none;background:none;color:var(--text-1);font-size:13px;text-decoration:underline;padding:0}
+
+  /* A running inspection stays compact; "Show details" opens the steps, the feed and the log */
+  .prog-card.live:not(.done):not(.more) .steps,.prog-card.live:not(.done):not(.more) .feed,.prog-card.live:not(.done):not(.more) .feed-empty,.prog-card.live:not(.done):not(.more) .li-note,.prog-card.live:not(.done):not(.more) .log-toggle,.prog-card.live:not(.done):not(.more) .prog-log{display:none}
+  .prog-card.live:not(.done):not(.more) .li-head{margin-bottom:0}
+  .prog-card.live:not(.done) .p-more{display:inline}
+  .p-more{margin-left:6px}
+  .prog-title .dim{font-weight:400;color:var(--text-3);font-size:12.5px}
+
+  /* The result: one card with the score, the areas, what to fix first and the report */
+  .sum-card{width:min(480px,100%);margin-top:10px;border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--bg);box-shadow:0 1px 2px rgba(0,0,0,.05);overflow:hidden}
+  .sc-top{display:flex;gap:16px;align-items:center;padding:16px 16px 12px}
+  .sc-num{width:64px;height:64px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--text-1);background:conic-gradient(var(--sc-c,var(--surface-3)) calc(var(--sc,0)*1%),var(--surface-2) 0);position:relative}
+  .sc-num::before{content:"";position:absolute;inset:6px;border-radius:50%;background:var(--bg)}
+  .sc-num span{position:relative}
+  .sum-card.b1{--sc-c:var(--high)}.sum-card.b2{--sc-c:var(--medium)}.sum-card.b3{--sc-c:var(--success)}.sum-card.b4{--sc-c:#1f7a3a}
+  .sc-head{min-width:0;flex:1}
+  .sc-band{font-size:16px;font-weight:600}
+  .sc-meta{font-size:12.5px;color:var(--text-3);margin-top:2px}
+  .sc-sev{display:flex;gap:5px;flex-wrap:wrap;margin-top:6px}
+  .sc-areas{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;padding:0 16px 12px}
+  .sc-area{font-size:12px;color:var(--text-2)}
+  .sc-area b{float:right;color:var(--text-1);font-variant-numeric:tabular-nums}
+  .sc-bar{height:5px;border-radius:5px;background:var(--surface-2);margin-top:5px;overflow:hidden}
+  .sc-bar i{display:block;height:100%;border-radius:5px;background:var(--sc-c,var(--accent))}
+  .sc-first{border-top:1px solid var(--border);padding:12px 16px 4px}
+  .sc-first h4{font-size:12px;font-weight:600;color:var(--text-3);margin-bottom:6px}
+  .sc-first ol{list-style:none;counter-reset:f;display:flex;flex-direction:column;gap:8px}
+  .sc-first li{counter-increment:f;display:flex;gap:10px;font-size:13.5px;line-height:1.35}
+  .sc-first li::before{content:counter(f);width:20px;height:20px;border-radius:50%;background:var(--surface-2);font-size:11.5px;font-weight:600;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+  .sc-first .t{flex:1;min-width:0}
+  .sc-first .t span{display:block;font-size:12.5px;color:var(--text-2);margin-top:1px}
+  .sc-first .g{flex-shrink:0;font-size:12.5px;font-weight:600;color:var(--success);font-variant-numeric:tabular-nums}
+  .sc-goal{font-size:12.5px;color:var(--text-2);padding:8px 16px 0}
+  .sc-note{font-size:12.5px;color:var(--text-2);padding:8px 16px 0;line-height:1.45}
+  .sum-card{padding-bottom:14px}
+  @media(max-width:720px){.sc-areas{gap:8px}.tb-pill{font-size:11.5px}}
+  @media(prefers-color-scheme:dark){.sc-num::before{background:var(--bg)}}
 </style>
 </head>
 <body>
+<div id="signin" hidden>
+  <form class="si-card" id="si-form" novalidate>
+    <div class="empty-av" aria-hidden="true"><svg viewBox="0 0 16 16" fill="none" stroke="#1d1d1f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5l3 3"/></svg></div>
+    <h1 class="si-title">Welcome to SiteFix</h1>
+    <p class="si-desc">Tell me your name and the website to look after. I&rsquo;ll check it page by page and show you what to fix first.</p>
+    <label class="si-l" for="si-name">Your name</label>
+    <input id="si-name" autocomplete="name" maxlength="60" required>
+    <label class="si-l" for="si-site">Your website</label>
+    <input id="si-site" placeholder="example.com" autocomplete="url" autocapitalize="none" autocorrect="off" spellcheck="false" inputmode="url" required>
+    <div class="si-err" id="si-err" role="alert"></div>
+    <button type="submit" class="si-go" id="si-go">Continue</button>
+    <p class="si-note">No password for now. You&rsquo;ll see this website&rsquo;s inspections only, and you can add more sites later.</p>
+  </form>
+</div>
 <div id="app">
   <aside id="sidebar">
     <div class="sidebar-header">
@@ -389,11 +499,11 @@
         </div>
       </div>
     </div>
-    <button class="new-btn" id="new-btn" aria-label="New inspection">
+    <button class="new-btn" id="new-btn">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg>
       New inspection
     </button>
-    <div class="sidebar-section">Inspections <button class="hist-clear" id="hist-clear" type="button" hidden>Delete all</button></div>
+    <div class="sidebar-section"><span id="hist-label">Inspections</span> <button class="hist-clear" id="hist-clear" type="button" hidden>Delete all</button></div>
     <div class="history-list" id="hist" aria-label="Inspection history">
       <div class="hist-empty">Loading&hellip;</div>
     </div>
@@ -405,12 +515,16 @@
         <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M3.5 6h13M3.5 10h13M3.5 14h13"/></svg>
       </button>
       <div class="tb-center">
-        <div class="tb-av" aria-hidden="true"><svg viewBox="0 0 16 16" fill="none" stroke="#1d1d1f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5l3 3"/></svg></div>
-        <div class="tb-name">SiteFix</div>
-        <div id="tb-title">Website audit agent</div>
+        <button type="button" class="tb-site" id="site-btn" aria-haspopup="true" aria-expanded="false" aria-controls="site-menu" title="Your sites">
+          <span class="tb-av" aria-hidden="true"><svg viewBox="0 0 16 16" fill="none" stroke="#1d1d1f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5l3 3"/></svg></span>
+          <span id="site-name">SiteFix</span>
+          <svg class="tb-chev" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 4.5L6 7.5 9 4.5"/></svg>
+        </button>
+        <div id="tb-title"></div>
       </div>
-      <button class="icon-btn" id="clear-btn" title="New inspection" aria-label="New inspection">
-        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3.5H5.5a2 2 0 00-2 2v9a2 2 0 002 2h9a2 2 0 002-2V11"/><path d="M14.6 2.9a1.4 1.4 0 012 2L10 11.5 7.5 12.5l1-2.5z"/></svg>
+      <div class="site-menu" id="site-menu" hidden></div>
+      <button class="icon-btn" id="clear-btn" title="Home" aria-label="Home">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 9.2L10 3.8l6.5 5.4"/><path d="M5.2 8v7.7a.8.8 0 00.8.8h2.8v-4.3h2.4v4.3H14a.8.8 0 00.8-.8V8"/></svg>
       </button>
     </div>
 
@@ -418,8 +532,10 @@
       <div class="chat-inner" id="chat-inner">
         <div id="empty-state">
           <div class="empty-av" aria-hidden="true"><svg viewBox="0 0 16 16" fill="none" stroke="#1d1d1f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5l3 3"/></svg></div>
-          <h1 class="empty-title">SiteFix</h1>
-          <p class="empty-desc">Send a website address and I&rsquo;ll check every page, then show you what to fix first, why it matters and how to fix it.</p>
+          <h1 class="empty-title" id="empty-title">SiteFix</h1>
+          <p class="empty-desc" id="empty-desc">I&rsquo;ll check every page, then show you what to fix first, why it matters and how to fix it.</p>
+          <button type="button" class="go-btn" id="inspect-site">Inspect</button>
+          <div class="empty-last" id="empty-last"></div>
           <div class="cap-row" aria-label="What gets checked">
             <span class="cap-pill">Broken links &amp; HTTP</span>
             <span class="cap-pill">Redirects</span>
@@ -436,17 +552,17 @@
 
     <div id="input-area">
       <div class="inp-wrap">
-        <input type="text" id="url-input" placeholder="Website address, e.g. example.com"
+        <input type="text" id="url-input" placeholder="Ask me anything"
           autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" enterkeyhint="send"
-          aria-label="Website address to inspect, or a question about the report" aria-describedby="inp-hint" autofocus/>
-        <button id="inspect-btn" aria-label="Start inspection" title="Inspect">
+          aria-label="Ask SiteFix a question" aria-describedby="inp-hint" autofocus/>
+        <button id="inspect-btn" aria-label="Send" title="Send">
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13V3M3.5 7.5L8 3l4.5 4.5"/></svg>
-          <span class="sr-only">Inspect site</span>
+          <span class="sr-only">Send</span>
         </button>
       </div>
       <div class="inp-hint" id="inp-hint">
         <span id="inp-err" role="alert"></span>
-        <span id="inp-ok">Paste a website address to inspect it, or ask a question about the report on screen.</span>
+        <span id="inp-ok">Ask about your site&rsquo;s inspection, your score, or what to fix first.</span>
       </div>
     </div>
   </main>
@@ -463,6 +579,7 @@ const store={get(){try{return localStorage.getItem(OPEN_KEY);}catch{return null;
 const urlIn=S('#url-input'),inspBtn=S('#inspect-btn'),chatIn=S('#chat-inner'),
       chatA=S('#chat-area'),empty=S('#empty-state'),hist=S('#hist'),
       tbTitle=S('#tb-title'),inpErr=S('#inp-err'),inpOk=S('#inp-ok');
+let me=null,siteScore_=null; // me = the workspace { name, sites, activeSite }; siteScore_ = the active site's score (GET /api/score)
 
 
 function validateUrl(r){
@@ -527,21 +644,36 @@ function submit(){
   const v=urlIn.value.trim();if(!v)return;
   const c=classifyInput(v);
   if(c.kind==='question'){ask(v);return;}
-  if(c.kind==='url'){
-    if(running){inpErr.textContent='An inspection is already running. You can open past inspections meanwhile.';inpErr.style.display='inline';inpOk.style.display='none';return;}
-    start(c.url);return;
-  }
+  if(c.kind==='url'){routeSite(c.url,v);return;}
   urlIn.value='';syncBtn();
   if(empty.parentNode===chatIn)empty.style.display='none';
   addMsg('user',esc(v));
-  if(c.kind==='not-web'){addMsg('agent','That looks like '+esc(c.what)+'. I can only check websites, like <b>example.com</b> or <b>https://www.example.com</b>.');return;}
-  const pick=(label,url)=>({label,run:()=>{if(running){addMsg('agent','An inspection is already running. I&rsquo;ll be free once it finishes.');return;}start(url);}});
+  if(c.kind==='not-web'){addMsg('agent','That looks like '+esc(c.what)+'. I check websites, like <b>'+esc(siteHost())+'</b>.');return;}
   if(c.kind==='urls'){
-    choiceRow('I can check one website at a time. Which one first?',c.urls.map(u=>pick(hostOf(u).replace(/^www\./,''),u)));
+    const own=c.urls.filter(u=>onSite(u));
+    if(own.length){choiceRow('I&rsquo;ll stick to <b>'+esc(siteHost())+'</b>, the site of this workspace. Check it now?',[{label:'Inspect '+siteHost(),run:()=>inspectSite()}]);return;}
+    choiceRow('This workspace is for <b>'+esc(siteHost())+'</b>. Which one should I add as a site?',c.urls.slice(0,4).map(u=>({label:'Add '+keyOf(u),run:()=>addSiteAndInspect(u)})));
     return;
   }
-  if(c.kind==='near-url')choiceRow('Did you mean <b>'+esc(hostOf(c.suggestion))+'</b>?',[pick('Yes, check '+hostOf(c.suggestion),c.suggestion),{label:'No, it was a question',run:()=>ask(v)}]);
+  if(c.kind==='near-url')choiceRow('Did you mean <b>'+esc(hostOf(c.suggestion))+'</b>?',[{label:'Yes',run:()=>routeSite(c.suggestion,null,true)},{label:'No, it was a question',run:()=>ask(v)}]);
 }
+// A website typed in the box: this workspace's site starts an inspection; another of its
+// sites can be switched to; any other site has to be added first.
+function routeSite(url,typed,echoed){
+  if(onSite(url)){
+    urlIn.value='';syncBtn();
+    if(running){inpErr.textContent='An inspection is already running.';inpErr.style.display='inline';inpOk.style.display='none';return;}
+    inspectSite();return;
+  }
+  urlIn.value='';syncBtn();
+  if(empty.parentNode===chatIn)empty.style.display='none';
+  if(!echoed)addMsg('user',esc(typed||url));
+  const have=me.sites.find(x=>sameSiteC(x,url)),cur=siteHost(),k=keyOf(url);
+  if(have){choiceRow('<b>'+esc(k)+'</b> is another site in your workspace. Switch to it?',[{label:'Switch and inspect',run:async()=>{if(await switchSite(have))inspectSite();}},{label:'Just switch',run:()=>switchSite(have)}]);return;}
+  choiceRow('This workspace is for <b>'+esc(cur)+'</b>, so I only check its pages. Add <b>'+esc(k)+'</b> as a site to check it.',[{label:'Add '+k+' and inspect',run:()=>addSiteAndInspect(url)}]);
+}
+async function addSiteAndInspect(url){if(await addSite(url)&&!running)inspectSite();}
+function inspectSite(){if(!me||running)return;start(me.activeSite);}
 // A short reply with buttons; the buttons go away once one is picked.
 function choiceRow(html,choices){
   const bbl=addMsg('agent',html);
@@ -552,12 +684,13 @@ function choiceRow(html,choices){
   scroll();
 }
 S('#clear-btn').addEventListener('click',()=>clear());
-S('#new-btn').addEventListener('click',()=>{clear();closeSide();urlIn.focus();});
+// The sidebar button inspects the site (or shows the inspection already running).
+S('#new-btn').addEventListener('click',()=>{closeSide();if(live&&!live.done&&onSite(live.url)){showLive();return;}clear();inspectSite();});
 S('#menu-btn').addEventListener('click',()=>document.body.classList.toggle('show-side'));
 function closeSide(){document.body.classList.remove('show-side');}
 document.addEventListener('click',e=>{if(document.body.classList.contains('show-side')&&!e.target.closest('#sidebar,#menu-btn'))closeSide();});
 
-function clear(){current=null;store.set(null);markActive();urlIn.placeholder='Website address, e.g. example.com';chatIn.innerHTML='';chatIn.appendChild(empty);empty.style.display='';tbTitle.textContent='Website audit agent';lastTs=0;urlIn.value='';urlIn.classList.remove('invalid');inpErr.style.display='none';inpOk.style.display='';viewingLive=false;if(typeof renderLiveRow==='function')renderLiveRow();syncBtn();}
+function clear(){current=null;store.set(null);markActive();urlIn.placeholder=idlePlaceholder();chatIn.innerHTML='';chatIn.appendChild(empty);empty.style.display='';renderEmpty();lastTs=0;urlIn.value='';urlIn.classList.remove('invalid');inpErr.style.display='none';inpOk.style.display='';viewingLive=false;if(typeof renderLiveRow==='function')renderLiveRow();syncBtn();}
 
 function addMsg(role,html,ts){
   if(empty.parentNode===chatIn)empty.style.display='none';
@@ -752,22 +885,21 @@ function liveSay(role,html){
   if(viewingLive){if(empty.parentNode===chatIn)empty.style.display='none';chatIn.appendChild(w);keepLast(live.sgEl);scroll();}
   return bbl;
 }
-function narrate(key,html){if(!live||live.said[key])return;live.said[key]=1;liveSay('agent',html);}
 // While an inspection runs: questions about the inspection are answered now; questions
 // about the results are answered as soon as the report is ready.
 function liveChips(){
   const asked=new Set(live.asked.map(x=>x.toLowerCase()));
   const elapsed=Date.now()-live.startedAt,p=live.progress||{};
   const now=['How does the crawl work?',live.findings.length?'What have you found so far?':'What are you checking?','How long is left?',elapsed>20000?'Why is it taking this long?':'Will this change my site?'].filter(q=>!asked.has(q.toLowerCase()));
-  const later=suggestQuestions(live.types,live.asked,2);
-  return {now:now.slice(0,3),later};
+  const later=suggestQuestions(live.types,live.asked,1);
+  return {now:now.slice(0,2),later};
 }
 function refreshLiveSuggest(){
   if(!live||live.done||!viewingLive)return;
   const c=liveChips(),sig=c.now.concat(c.later).join('|');
   if(live.sgEl&&live.sgEl.isConnected&&live.sgSig===sig)return;
   live.sgSig=sig;
-  const row=suggestRow(c.now.concat(c.later),'Ask me anything while I work. I&rsquo;ll answer what I can right away, and questions about the results as soon as the report is ready.',q=>liveAsk(q),'live-sg');
+  const row=suggestRow(c.now.concat(c.later),'',q=>liveAsk(q),'live-sg');
   if(row)row.querySelectorAll('.sq').forEach((b,i)=>{if(i>=c.now.length){b.classList.add('later');b.title='Answered when the report is ready';}});
   if(live.sgEl&&live.sgEl.isConnected){if(row)live.sgEl.replaceWith(row);else live.sgEl.remove();}
   else if(row)chatIn.appendChild(row);
@@ -862,11 +994,13 @@ function buildLiveCard(url){
     '<ol class="steps">'+STEPS.map((x,i)=>'<li data-step="'+i+'"><span class="sdot"></span>'+esc(x.lbl)+'<span class="sval"></span></li>').join('')+'</ol>'+
     '<div class="live-issues"><div class="li-head"><b>Found so far</b><span class="sev-n high">0 high</span><span class="sev-n medium">0 medium</span><span class="sev-n low">0 low</span><span class="li-note">live preview, final list at the end</span></div>'+
     '<ul class="feed" aria-live="off"></ul><div class="feed-empty">Nothing yet. Problems appear here the moment they are found.</div></div>'+
-    '<button class="log-toggle" type="button" aria-expanded="false">Show details</button><div class="prog-log" role="log" hidden></div>';
+    '<button class="log-toggle" type="button" aria-expanded="false">Show the log</button><div class="prog-log" role="log" hidden></div>';
   const more=S('.p-more',c);
   S('.prog-hdr',c).addEventListener('click',()=>{if(!c.classList.contains('done'))return;const o=c.classList.toggle('open');more.textContent=o?'Hide details':'Show details';});
+  // While it runs, the card stays small: progress and the count of problems. Details opens the steps, the feed and the log.
+  more.addEventListener('click',e=>{if(c.classList.contains('done'))return;e.stopPropagation();const o=c.classList.toggle('more');more.textContent=o?'Hide details':'Show details';});
   const tog=S('.log-toggle',c),log=S('.prog-log',c);
-  tog.addEventListener('click',()=>{const open=log.hidden;log.hidden=!open;tog.textContent=open?'Hide details':'Show details';tog.setAttribute('aria-expanded',String(open));if(open)log.scrollTop=log.scrollHeight;});
+  tog.addEventListener('click',()=>{const open=log.hidden;log.hidden=!open;tog.textContent=open?'Hide the log':'Show the log';tog.setAttribute('aria-expanded',String(open));if(open)log.scrollTop=log.scrollHeight;});
   return c;
 }
 function logLine(c,line){
@@ -908,19 +1042,14 @@ function updateLive(p){
   S('.sev-n.high',c).textContent=(iss.high||0)+' high';S('.sev-n.medium',c).textContent=(iss.medium||0)+' medium';S('.sev-n.low',c).textContent=(iss.low||0)+' low';
   if(p.final&&p.phase==='crawled')S('.li-note',c).textContent='final count';
   if(!document.hidden||!live.done)document.title='('+pct+'%) Inspecting '+hostOf(live.url)+' — SiteFix';
-  // Short updates in the conversation at the moments that matter.
-  if(p.movedTo)narrate('moved',esc(hostOf(p.movedTo.from))+' sends visitors to <b>'+esc(hostOf(p.movedTo.to))+'</b>, so that&rsquo;s the site I&rsquo;m checking.');
-  if(pg.sitemap)narrate('sitemap','Found your sitemap: '+pg.sitemap+' page'+(pg.sitemap===1?'':'s')+' listed. I&rsquo;ll check those, plus anything they link to.');
-  if(p.phase==='crawl'&&tot>=40&&pg.done>=tot/2)narrate('half','Halfway through the pages: '+pg.done+' of '+(pg.found>pg.done?'at least ':'')+tot+' read.');
-  if(['links','images','seo','content','spelling','speed'].includes(p.phase))narrate('pages','All '+(pg.done||0)+' pages read. Now comparing pages with each other and checking spelling'+(p.speed&&p.speed.total?', and timing up to '+p.speed.total+' pages the way a visitor on a phone over 4G sees them: how fast the main content shows, whether the layout jumps, and how heavy each page is.':'.'));
-  if(p.phase==='report')narrate('report','Writing up what I found: what to fix first, why it matters and how, with screenshots.');
+  // The card says it all; the conversation stays quiet. A site that moved shows in the title.
+  if(p.movedTo&&!live.said.moved){live.said.moved=1;S('.prog-title',c).innerHTML='Inspecting '+esc(hostOf(p.movedTo.to))+' <span class="dim">(moved from '+esc(hostOf(p.movedTo.from))+')</span>';}
   if(p.phase!==live.lastPhase){live.lastPhase=p.phase;live.sgSig=null;refreshLiveSuggest();}
   renderLiveRow();
 }
 function addFinding(f){
   if(!live)return;
   if(live.findings.length<400)live.findings.push(f);
-  if(f.severity==='high')narrate('first','First problem spotted: '+esc(issueLabel(f.type))+' <span style="font-family:var(--font-mono);font-size:12px">'+esc(shortPath(f.url||''))+'</span>. I&rsquo;ll keep going and put everything in the report.');
   if(!live.types.includes(f.type)){live.types.push(f.type);refreshLiveSuggest();}
   const feed=S('.feed',live.card),li=el('li');
   li.title=f.detail||'';
@@ -936,7 +1065,7 @@ setInterval(tick,1000);
 function renderLiveRow(){
   if(!hist)return;
   let row=hist.querySelector('.live-row');
-  if(!live){if(row){row.previousElementSibling&&row.previousElementSibling.classList.contains('live-day')&&row.previousElementSibling.remove();row.remove();}return;}
+  if(!live||!onSite(live.url)){if(row){row.previousElementSibling&&row.previousElementSibling.classList.contains('live-day')&&row.previousElementSibling.remove();row.remove();}return;}
   if(!row){
     const day=el('div','hist-day live-day','Now');
     row=el('div','hist-row live-row');
@@ -956,9 +1085,8 @@ function showLive(){
   closeSide();
   clear();
   viewingLive=true;
-  tbTitle.textContent=live.url;
-  addMsg('user',esc(live.url),live.startedAt);
-  addMsg('agent','I&rsquo;ll check '+esc(hostOf(live.url))+' the way a visitor would: every page, link and image, plus titles, tags, content and spelling. Nothing on the site gets changed.',live.startedAt);
+  addMsg('user','Inspect '+esc(keyOf(live.url)),live.startedAt);
+  addMsg('agent','Checking <b>'+esc(keyOf(live.url))+'</b> now, every page, link and image. Nothing on your site changes, and you can keep asking me things.',live.startedAt);
   urlIn.placeholder='Ask me anything while I work';
   chatIn.appendChild(live.card);
   for(const w of live.thread)chatIn.appendChild(w);
@@ -991,8 +1119,9 @@ function couldNotOpen(run,f){
   run.done=true;run.failed=true;run.endedAt=Date.now();
   if(run.sgEl){run.sgEl.remove();run.sgEl=null;}
   for(const it of run.queue){it.bubble.innerHTML='<span class="queued missed">I couldn&rsquo;t answer this because the site couldn&rsquo;t be opened.</span>';}
-  if(viewingLive)addMsg('agent','I couldn&rsquo;t open <b>'+esc(host)+'</b>: '+esc(f.message)+'<br><span style="font-size:13px;color:var(--text-2)">Nothing was checked, so there&rsquo;s no report. You can type another address, or the same one to try again.</span>');
-  if(viewingLive){live=null;renderLiveRow();markActive();if(!current)urlIn.placeholder='Website address, e.g. example.com';}else renderLiveRow();
+  if(viewingLive)addMsg('agent','I couldn&rsquo;t open <b>'+esc(host)+'</b>: '+esc(f.message)+'<br><span style="font-size:13px;color:var(--text-2)">Nothing was checked, so there&rsquo;s no report. Check the address in your site list, or try again in a moment.</span>');
+  if(viewingLive){live=null;renderLiveRow();markActive();if(!current)urlIn.placeholder=idlePlaceholder();}else renderLiveRow();
+  renderEmpty();
   document.title=BASE_TITLE;
 }
 // Stop: the first press stops reading pages and the report covers what was read; once
@@ -1019,8 +1148,9 @@ function stoppedNow(run){
   run.done=true;run.endedAt=Date.now();
   if(run.sgEl){run.sgEl.remove();run.sgEl=null;}
   for(const it of run.queue){it.bubble.innerHTML='<span class="queued missed">I couldn&rsquo;t answer this because the inspection was stopped.</span>';}
-  if(viewingLive)addMsg('agent','I stopped the inspection of <b>'+esc(host)+'</b>. Nothing was saved, so there&rsquo;s no report. Type an address to start again.');
-  if(viewingLive){live=null;renderLiveRow();markActive();if(!current)urlIn.placeholder='Website address, e.g. example.com';}else renderLiveRow();
+  if(viewingLive)addMsg('agent','I stopped the inspection of <b>'+esc(host)+'</b>. Nothing was saved, so there&rsquo;s no report. Start again whenever you like.');
+  if(viewingLive){live=null;renderLiveRow();markActive();if(!current)urlIn.placeholder=idlePlaceholder();}else renderLiveRow();
+  renderEmpty();
   document.title=BASE_TITLE;
 }
 function failLive(msg){
@@ -1057,11 +1187,12 @@ async function followRun(){
     c.classList.add('done');
     S('.steps',c).querySelectorAll('li').forEach(li=>li.className='done');
     if(!report&&run.reportCode!==undefined){const l=S('.steps li[data-step="4"]',c);if(l)l.className='failed';}
-    S('.p-eta',c).textContent='';
+    S('.p-eta',c).textContent='';c.classList.remove('more');S('.prog-title',c).innerHTML=S('.prog-title',c).innerHTML.replace(/^Inspecting/,'Inspected');S('.p-more',c).textContent='Show details';
     if(run.sgEl){run.sgEl.remove();run.sgEl=null;} // the "while I work" questions give way to the results
     const shown=viewingLive;
     if(shown){renderResults(reg,run.url,report,run.savedId||null);if(run.savedId)store.set(run.savedId);}
     await loadHistory();
+    refreshScore();
     await answerQueue(run,shown&&viewingLive);
     if(viewingLive){live=null;renderLiveRow();markActive();}
     else renderLiveRow();
@@ -1096,9 +1227,9 @@ async function start(url){
     if(!r.ok||!d.runId)throw new Error(d.error||'Failed to start crawl');
     beginLive(d.runId,siteUrl);
   }catch(e){
-    running=false;syncBtn();
-    addMsg('user',esc(siteUrl));
-    addMsg('agent','<span style="color:var(--high)">&#9888; I couldn&rsquo;t start the inspection: '+esc(e.message)+'</span><br><span style="font-size:12.5px;color:var(--text-2)">Please try again in a moment.</span>');
+    running=false;syncBtn();renderEmpty();
+    addMsg('user','Inspect '+esc(keyOf(siteUrl)));
+    addMsg('agent','<span style="color:var(--high)">&#9888; I couldn&rsquo;t start the inspection: '+esc(e.message)+'</span>');
   }
 }
 
@@ -1113,24 +1244,17 @@ function renderResults(reg,siteUrl,report,id,meta){
   current={id:id||null,byId:new Map(issues.map(i=>[i.id,i])),report,base,hasPdf:meta?meta.hasPdf:Boolean(report),run:reg.run||{}};
   markActive();
   const run=reg.run||{},counts=reg.counts||{};
-  urlIn.placeholder='Ask about this report, or paste another website address';
+  urlIn.placeholder='Ask about this report';
   const pages=run.pagesCrawled||0;
   if(!issues.length){
     addMsg('agent','<span style="color:var(--success)">&#10003; No issues found.</span> I checked '+pages+' page'+(pages===1?'':'s')+' and the site looks clean on every check. Nothing changed on the site.');
-    if(report&&id)chatIn.appendChild(reportCard(siteUrl,run,0,issues,id));
+    if(report&&id)chatIn.appendChild(summaryCard(siteUrl,reg,report,issues,id,meta));
     scroll();return;
   }
   if(report){
-    // Like a person reporting back: what to fix first, what was checked, then the report.
-    const first=fixFirstList(issues);
-    addMsg('agent','Found <strong>'+counts.total+' issue'+(counts.total!==1?'s':'')+'</strong>. I&rsquo;d fix these first:<div class="ans"><ol>'+first.map(i=>'<li><b>'+esc(i._type?i._type.title:issueLabel(i.type))+'</b>: '+esc(firstLine(i))+'</li>').join('')+'</ol></div>');
-    const sm=report.summaries||{},l=sm.links||{},im=sm.images||{};
-    const sp=sm.speed;
-    const speedLine=sp&&sp.pagesTested&&sp.median&&sp.median.lcpMs!=null?' On a phone over 4G, your pages show their main content in about '+(sp.median.lcpMs/1000).toFixed(1)+' s (good is under 2.5 s).':'';
-    if(run.partial&&run.partial.reason==='stopped')addMsg('agent','You stopped the inspection early, so I read '+pages+' of the '+run.partial.pagesFound+' or more pages I found. Everything below is about those pages; run it again to check the whole site.');
-    if(run.partial&&run.partial.reason==='time')addMsg('agent','This is a large site: I found at least '+run.partial.pagesFound+' pages, so I read '+pages+' of them, a share of every section, to keep the inspection to a couple of minutes. Everything below is about those pages.');
-    addMsg('agent','The report includes screenshots and suggested fixes. I checked '+(pages||l.pagesCrawled||0)+' pages'+(l.linksChecked?', '+l.linksChecked+' links':'')+(im.imagesFound?' and '+im.imagesFound+' images':'')+' across the site.'+speedLine+' Nothing changed on the site. Ask me about anything in it.');
-    if(id)chatIn.appendChild(reportCard(siteUrl,run,counts.total,issues,id));
+    // One card says it all: the score, the areas, what to fix first and the report.
+    addMsg('agent',(run.partial?'Here&rsquo;s what I found on the pages I read.':'Done. Here&rsquo;s where <b>'+esc(keyOf(siteUrl))+'</b> stands.'));
+    chatIn.appendChild(summaryCard(siteUrl,reg,report,issues,id,meta));
   }else{
     addMsg('agent','Found <strong>'+counts.total+' issue'+(counts.total!==1?'s':'')+'</strong> on '+pages+' pages. The written report couldn&rsquo;t be created this time, but you can ask me about any of them, or run the inspection again for the full report.');
   }
@@ -1138,6 +1262,69 @@ function renderResults(reg,siteUrl,report,id,meta){
   current.sgTypes=[...new Set(issues.map(i=>i.type))];
   showResultSuggest([]);
 }
+
+const BAND_CLS=s=>s<=49?'b1':s<=69?'b2':s<=84?'b3':'b4';
+const BAND_NAME=s=>s<=49?'Needs work':s<=69?'Fair':s<=84?'Good':'Excellent';
+// The result card. The score comes from the server (GET /api/history/:id/score), so it
+// counts what was confirmed fixed or kept in the report, the same as the report shows.
+function summaryCard(siteUrl,reg,report,issues,id,meta){
+  const run=reg.run||{},counts=reg.counts||{},sev=counts.bySeverity||{},pages=run.pagesCrawled||0;
+  const host=keyOf(siteUrl),first=fixFirstList(issues);
+  const when=run.startedAt?new Date(run.startedAt).toLocaleDateString([],{day:'numeric',month:'short'}):'';
+  const dur=run.startedAt&&run.finishedAt?fmtDur(new Date(run.finishedAt)-new Date(run.startedAt)):'';
+  const sm=report.summaries||{},sp=sm.speed;
+  const c=el('div','sum-card');
+  const pdf=id?'/api/history/'+encodeURIComponent(id)+'/report.pdf':'';
+  const hasPdf=meta?meta.hasPdf:true;
+  let note='';
+  if(run.partial&&run.partial.reason==='stopped')note='You stopped early, so I read '+pages+' of the '+run.partial.pagesFound+'+ pages I found. Run it again for the whole site.';
+  else if(run.partial&&run.partial.reason==='time')note='A large site: I read '+pages+' of at least '+run.partial.pagesFound+' pages, a share of every section.';
+  if(sp&&sp.pagesTested&&sp.median&&sp.median.lcpMs!=null)note+=(note?' ':'')+'On a phone over 4G your pages show their main content in about '+(sp.median.lcpMs/1000).toFixed(1)+' s (good is under 2.5 s).';
+  c.innerHTML='<div class="sc-top"><div class="sc-num" aria-hidden="true"><span>&hellip;</span></div><div class="sc-head"><div class="sc-band">Your score</div>'+
+    '<div class="sc-meta">'+esc(host)+(when?' &middot; '+esc(when):'')+' &middot; '+pages+' page'+(pages===1?'':'s')+(dur?' in '+dur:'')+'</div>'+
+    '<div class="sc-sev"><span class="sev-n high">'+(sev.high||0)+' high</span><span class="sev-n medium">'+(sev.medium||0)+' medium</span><span class="sev-n low">'+(sev.low||0)+' low</span></div></div></div>'+
+    '<div class="sc-areas"></div>'+
+    (first.length?'<div class="sc-first"><h4>Fix these first</h4><ol>'+first.map(i=>'<li data-type="'+esc(i.type)+'"><div class="t"><b>'+esc(i._type?i._type.title:issueLabel(i.type))+'</b><span>'+esc(firstLine(i))+'</span></div><span class="g"></span></li>').join('')+'</ol></div>':'')+
+    '<div class="sc-goal" hidden></div>'+
+    (note?'<div class="sc-note">'+esc(note)+'</div>':'')+
+    '';
+  if(!id)return c;
+  fillScore(c,id);
+  // Then the report itself, as a link preview (like a link shared in Messages), with the PDF and the download under it.
+  const w=el('div','sum-wrap');w.appendChild(c);w.appendChild(reportCard(siteUrl,run,counts.total||issues.length,issues,id,pdf,hasPdf));
+  return w;
+}
+// A link preview to the web report: who it was made for, the site and its issues, a
+// screenshot of the most urgent problem.
+function reportCard(siteUrl,run,total,issues,id,pdf,hasPdf){
+  const shot=issues.find(i=>i.screenshot&&i.priority==='P1')||issues.find(i=>i.screenshot);
+  const when=run.startedAt?new Date(run.startedAt).toLocaleDateString([],{day:'numeric',month:'short'}):'';
+  const host=keyOf(siteUrl),title=esc(host)+': '+total+' issue'+(total!==1?'s':'')+' to fix';
+  const who=me&&me.name?'Made for '+esc(String(me.name).split(' ')[0]):'SiteFix report';
+  const a=el('a','rcard');a.href='/report/'+encodeURIComponent(id);a.target='_blank';a.rel='noopener';
+  a.innerHTML='<div class="rc-top"><div class="rc-txt"><span class="rc-made">'+who+(when?' &middot; '+esc(when):'')+'</span><span class="rc-title">'+title+'</span><span class="rc-brand">SiteFix</span></div>'+(shot?'<div class="rc-shot" style="background-image:url(&quot;'+esc(current.base+shot.screenshot)+'&quot;)"></div>':'')+'</div><div class="rc-bot"><b>'+title+'</b><span>Web report with screenshots and fixes</span></div>';
+  const wrap=el('div','rc-wrap');wrap.appendChild(a);
+  const links=el('div','rc-links');
+  links.innerHTML='<a href="'+pdf+'" target="_blank" rel="noopener"'+(hasPdf?'':' aria-disabled="true"')+'><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2H4.5A1.5 1.5 0 003 3.5v9A1.5 1.5 0 004.5 14h7a1.5 1.5 0 001.5-1.5V6z"/><path d="M9 2v4h4"/></svg>PDF</a>'+
+    '<a href="/report/'+encodeURIComponent(id)+'/download"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2.5v8M4.5 7L8 10.5 11.5 7M3 13.5h10"/></svg>Download</a>';
+  wrap.appendChild(links);
+  return wrap;
+}
+async function fillScore(c,id){
+  let d;
+  try{const r=await fetch('/api/history/'+encodeURIComponent(id)+'/score');d=await r.json();if(!r.ok)throw new Error(d.error);}catch{S('.sc-num span',c).textContent='–';return;}
+  const s=d.score;c.classList.add(BAND_CLS(s));
+  const num=S('.sc-num',c);num.style.setProperty('--sc',s);S('span',num).textContent=s;
+  S('.sc-band',c).textContent=d.band+(d.verified||d.kept?' · counting your fixes':'');
+  const A={'on-page':'On-page',technical:'Technical','off-page':'Off-page'};
+  S('.sc-areas',c).innerHTML=Object.keys(A).map(a=>'<div class="sc-area">'+A[a]+'<b>'+d.areas[a]+'</b><div class="sc-bar"><i style="width:'+d.areas[a]+'%"></i></div></div>').join('');
+  const pts=new Map(d.next.map(t=>[t.type,t.points]));
+  let gain=0;
+  c.querySelectorAll('.sc-first li').forEach(li=>{const g=pts.get(li.dataset.type)||0;gain+=g;S('.g',li).textContent=g?'+'+fmtPts(g):'';});
+  const goal=S('.sc-goal',c);
+  if(gain>0){goal.hidden=false;goal.innerHTML='Fixing these three takes your score to about <b>'+Math.min(100,Math.round(d.exact+gain))+'</b>.';}
+}
+function fmtPts(x){if(x>=10)return String(Math.round(x));const r=Math.round(x*10)/10;return r===0&&x>0?'<0.1':String(r);}
 
 // The three things to fix first: P1 issues, then quick wins; one per kind of problem.
 function fixFirstList(issues){
@@ -1151,21 +1338,6 @@ function firstLine(i){
   let t=String(i.explanation||i.detail||'').replace(/\s*\((https?:\/\/[^)]*)\)\.?$/,'.').trim();
   if(t.length>170)t=t.slice(0,167).replace(/\s+\S*$/,'')+'\u2026';
   return t+(n>1?' ('+n+' found)':'');
-}
-// A link preview to the web report, like a shared link in Messages.
-function reportCard(siteUrl,run,total,issues,id){
-  const shot=issues.find(i=>i.screenshot&&i.priority==='P1')||issues.find(i=>i.screenshot);
-  const when=run.startedAt?new Date(run.startedAt).toLocaleDateString([],{day:'numeric',month:'short'}):'';
-  const host=hostOf(siteUrl).replace(/^www\./,'');
-  const a=el('a','rcard');a.href='/report/'+encodeURIComponent(id);a.target='_blank';a.rel='noopener';
-  const wrap=el('div','rc-wrap');
-  a.innerHTML='<div class="rc-top"><div class="rc-txt"><span class="rc-made">SiteFix report &middot; '+esc(when)+'</span><span class="rc-title">'+esc(host)+': '+total+' issue'+(total!==1?'s':'')+' to fix</span><span class="rc-brand">SiteFix</span></div>'+(shot?'<div class="rc-shot" style="background-image:url(&quot;'+esc(current.base+shot.screenshot)+'&quot;)"></div>':'')+'</div><div class="rc-bot"><b>'+esc(host)+': '+total+' issue'+(total!==1?'s':'')+' to fix</b><span>Web report with screenshots and fixes</span></div>';
-  wrap.appendChild(a);
-  const links=el('div','rc-links');
-  links.innerHTML='<a href="/report/'+encodeURIComponent(id)+'/download"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2.5v8M4.5 7L8 10.5 11.5 7M3 13.5h10"/></svg>Download</a>'+
-    '<a href="'+esc(current.base)+'report.pdf" target="_blank" rel="noopener"'+(current.hasPdf?'':' aria-disabled="true"')+'><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2H4.5A1.5 1.5 0 003 3.5v9A1.5 1.5 0 004.5 14h7a1.5 1.5 0 001.5-1.5V6z"/><path d="M9 2v4h4"/></svg>PDF</a>';
-  wrap.appendChild(links);
-  return wrap;
 }
 function issueLabel(t){
   const m={'http-4xx-internal':'Broken link to your own page','http-4xx-external':'Broken link to another website','link-unreachable':'Link could not be reached','redirect-loop':'Redirect loop','redirect-chain':'Redirect chain','redirect-to-error':'Redirect ends in error','https-missing-redirect':'HTTP \u2192 HTTPS redirect missing','www-variant-not-redirected':'www/non-www not unified','soft-404':'Error page that says it is fine','title-missing':'Missing <title> tag','title-multiple':'Multiple <title> tags','title-too-long':'Title too long','title-too-short':'Title too short','title-duplicate':'Duplicate title','description-missing':'Missing meta description','description-multiple':'Multiple meta descriptions','description-too-long':'Meta description too long','description-too-short':'Meta description too short','description-duplicate':'Duplicate meta description','h1-missing':'Missing H1','h1-multiple':'Multiple H1 tags','metadata-js-only':'Tags only appear after JavaScript runs','canonical-missing':'Missing canonical tag','canonical-multiple':'Multiple canonical tags','canonical-broken-target':'Canonical points to broken URL','canonical-redirect':'Canonical points to redirect','image-broken':'Broken image','image-alt-missing':'Image has no alt text','image-alt-unhelpful':'Alt text does not describe the image','image-alt-too-long':'Alt text too long','image-mixed-content':'HTTP image on an HTTPS page','image-oversized':'Image file too large','heading-skip':'Heading levels skip','robots-noindex':'Hidden from search (noindex)','robots-nofollow':'Links not followed (nofollow)','og-missing':'No Open Graph tags','og-incomplete':'Open Graph tags incomplete','og-image-broken':'Share image broken','viewport-missing':'No viewport tag (not mobile-friendly)','lang-missing':'No page language set','content-thin':'Thin page (little text)','content-duplicate':'Near-duplicate page','content-placeholder':'Placeholder text on a live page','content-repeated-word':'Repeated word','copy-spelling':'Spelling mistakes','copy-grammar':'Grammar mistakes','speed-lcp-slow':'Main content shows slowly','speed-cls-high':'Layout jumps while loading','speed-tbt-high':'Too busy to respond','speed-ttfb-slow':'Server slow to answer','speed-page-heavy':'Page too heavy'};
@@ -1335,7 +1507,11 @@ async function ask(q,opts){
     const instant=answerProcessQuestion(q,doneCtx());
     if(instant){urlIn.value='';syncBtn();addMsg('user',esc(q));addMsg('agent',answerHtml({answer:instant.answer}));showResultSuggest([q]);return;}
   }
-  if(!current){addMsg('user',esc(q));addMsg('agent',viewingLive?'I can answer questions about this site once the inspection finishes. Meanwhile you can open a past inspection from the list and ask about that one.':'Inspect a site first, or open a past inspection from the list, then ask me about it.');urlIn.value='';syncBtn();return;}
+  if(!current){
+    // Nothing open: answer from the site's latest inspection when there is one.
+    if(siteScore_&&siteScore_.id&&!viewingLive){urlIn.value='';syncBtn();await openInspection(siteScore_.id,true);if(current)return ask(q,opts);return;}
+    addMsg('user',esc(q));addMsg('agent',viewingLive?'I can answer that once the inspection finishes, in a minute or two.':'Inspect <b>'+esc(siteHost())+'</b> first, then ask me anything about it.');urlIn.value='';syncBtn();return;
+  }
   urlIn.value='';syncBtn();
   // A general follow-up ("what should I fix first?") right after a list of one kind of
   // problem: ask whether it is about that list or the whole site.
@@ -1379,14 +1555,15 @@ chatIn.addEventListener('click',e=>{
 
 // ---------- past inspections (kept by the server in history/) ----------
 async function loadHistory(){
-  try{const r=await fetch('/api/history');const d=await r.json();if(!r.ok)throw new Error(d.error);history_=d.inspections||[];}
+  if(!me)return;
+  try{const r=await fetch('/api/history?site='+encodeURIComponent(me.activeSite));const d=await r.json();if(r.status===401){showSignin();return;}if(!r.ok)throw new Error(d.error);history_=d.inspections||[];}
   catch(e){hist.innerHTML='<div class="hist-empty">Could not load past inspections: '+esc(e.message)+'</div>';return;}
   renderHist();
 }
 const TRASH='<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 4.5h11M6.5 4.5V3h3v1.5M4 4.5l.7 8.6a1 1 0 001 .9h4.6a1 1 0 001-.9l.7-8.6"/></svg>';
 function renderHist(){
   S('#hist-clear').hidden=history_.length<2;
-  if(!history_.length){hist.innerHTML='<div class="hist-empty">No inspections yet. Finished inspections are kept here, even after a reload.</div>';renderLiveRow();return;}
+  if(!history_.length){hist.innerHTML='<div class="hist-empty">No inspections of '+esc(siteHost())+' yet. Finished inspections are kept here.</div>';renderLiveRow();return;}
   hist.innerHTML='';
   let day='';
   history_.forEach(m=>{
@@ -1420,17 +1597,17 @@ async function removeInspection(id){
   catch(e){alertHist('Could not delete: '+e.message);return;}
   if(current&&current.id===id)clear();
   if(store.get()===id)store.set(null);
-  await loadHistory();
+  await loadHistory();refreshScore();
 }
 S('#hist-clear').addEventListener('click',e=>{const b=e.currentTarget;if(running)return;twoStep(b,'Delete all '+history_.length+'?',async()=>{
-  try{const r=await fetch('/api/history',{method:'DELETE'});if(!r.ok)throw new Error((await r.json()).error);}catch(err){alertHist('Could not delete: '+err.message);return;}
+  try{const r=await fetch('/api/history?site='+encodeURIComponent(me.activeSite),{method:'DELETE'});if(!r.ok)throw new Error((await r.json()).error);}catch(err){alertHist('Could not delete: '+err.message);return;}
   b.classList.remove('confirm');b.textContent='Delete all';
   if(current&&current.id)clear();
-  await loadHistory();
+  await loadHistory();refreshScore();
 });});
 function alertHist(msg){const n=el('div','hist-empty');n.style.color='var(--high)';n.textContent=msg;hist.prepend(n);setTimeout(()=>n.remove(),4000);}
 
-async function openInspection(id){
+async function openInspection(id,quiet){
   closeSide();
   let saved;
   try{const r=await fetch('/api/history/'+encodeURIComponent(id));saved=await r.json();if(!r.ok)throw new Error(saved.error);}
@@ -1438,25 +1615,144 @@ async function openInspection(id){
   clear();
   const{meta,registry,report,chat}=saved,url=meta.url||registry.run?.startUrl||'';
   store.set(id);
-  tbTitle.textContent=url;
-  addMsg('user',esc(url),meta.startedAt);
+  addMsg('user','Inspect '+esc(keyOf(url)),meta.startedAt);
   renderResults(registry,url,report,id,meta);
   for(const c of chat){addMsg('user',esc(c.question),c.at);showAnswer(addMsg('agent','',c.at),c);}
   const lastC=chat[chat.length-1];current.lastScope=lastC&&lastC.display==='cards'&&lastC.scope?lastC.scope:null;
   showResultSuggest(chat.map(c=>c.question));
   // Start at the top of the inspection (addMsg scrolls to the bottom on the next frame).
-  requestAnimationFrame(()=>requestAnimationFrame(()=>{chatA.style.scrollBehavior='auto';chatA.scrollTop=0;chatA.style.scrollBehavior='';}));
+  if(!quiet)requestAnimationFrame(()=>requestAnimationFrame(()=>{chatA.style.scrollBehavior='auto';chatA.scrollTop=0;chatA.style.scrollBehavior='';}));
 }
 function syncHistButtons(){S('#hist-clear').disabled=running;} // "Delete all" waits for the running inspection
 
-// On load: list past inspections; follow an inspection that is still running (the page
-// was reloaded mid-run), else reopen the one that was open before the reload.
-(async()=>{
-  await loadHistory();
+// ---------- the workspace: who is signed in and which site is on screen ----------
+// A site is its host without www. and http/https, the same rule as lib/profiles.js.
+function keyOf(u){try{const x=new URL(/^https?:\/\//i.test(u)?u:'https://'+u);return x.host.toLowerCase().replace(/^www\./,'');}catch{return String(u||'');}}
+function sameSiteC(a,b){return Boolean(a&&b)&&keyOf(a)===keyOf(b);}
+function onSite(u){return Boolean(me)&&sameSiteC(u,me.activeSite);}
+function siteHost(){return me?keyOf(me.activeSite):'your site';}
+function idlePlaceholder(){return me?'Ask me anything about '+siteHost():'Ask me anything';}
+function renderEmpty(){
+  if(!me)return;
+  const first=String(me.name).split(' ')[0];
+  S('#empty-title').textContent='Hi '+first+' \u{1F44B}';
+  const b=S('#inspect-site');
+  const busy=live&&!live.done,here=busy&&onSite(live.url);
+  b.textContent=here?'Inspecting '+siteHost()+'…':'Inspect '+siteHost();
+  b.disabled=Boolean(busy);
+  const last=S('#empty-last');
+  if(here){last.innerHTML='<button type="button" class="link-btn" id="follow-live">Follow the inspection</button>';S('#follow-live').onclick=()=>showLive();}
+  else if(busy)last.textContent='SiteFix is checking '+keyOf(live.url)+' right now. Switch back to follow it.';
+  else if(siteScore_&&siteScore_.id){
+    const d=siteScore_.startedAt?dayLabel(siteScore_.startedAt):'';
+    last.innerHTML='<span>Last checked '+esc(d==='Today'||d==='Yesterday'?d.toLowerCase():d)+' &middot; score <b>'+siteScore_.score+'</b> ('+esc(siteScore_.band)+')</span><button type="button" class="link-btn" id="open-last">Open it</button>';
+    S('#open-last').onclick=()=>openInspection(siteScore_.id);
+  }else last.textContent='';
+  S('#empty-desc').innerHTML=siteScore_&&siteScore_.id?'Run it again to see what changed, or ask me about the last inspection.':'I&rsquo;ll check every page of <b>'+esc(siteHost())+'</b>, then show you what to fix first, why it matters and how. It takes a minute or two.';
+}
+S('#inspect-site').addEventListener('click',()=>inspectSite());
+function renderScore(){
+  const t=S('#tb-title');
+  if(!me){t.innerHTML='';return;}
+  const d=siteScore_;
+  if(!d||d.score==null){t.innerHTML='<span class="tb-none">Not inspected yet</span>';return;}
+  const up=d.withSelected>d.score?' <span class="tb-to">&rarr; '+d.withSelected+'</span>':'';
+  t.innerHTML='<a class="tb-pill '+BAND_CLS(d.score)+'" href="/report/'+encodeURIComponent(d.id)+'" target="_blank" rel="noopener" title="Score from the latest inspection'+(up?', and with the fixes you selected':'')+'. Opens the report."><b>'+d.score+'</b>'+esc(d.band)+up+'</a>';
+}
+let scoreAt=0;
+async function refreshScore(){
+  if(!me)return;
+  scoreAt=Date.now();
+  const site=me.activeSite;
+  try{const r=await fetch('/api/score?site='+encodeURIComponent(site));const d=await r.json();if(!r.ok||!me||me.activeSite!==site)return;siteScore_=d.score==null?null:d;}catch{return;}
+  renderScore();if(empty.parentNode===chatIn&&empty.style.display!=='none')renderEmpty();
+}
+// Back from the report tab (fixes selected or confirmed there): the score follows.
+window.addEventListener('focus',()=>{if(me&&Date.now()-scoreAt>3000)refreshScore();});
+function applyProfile(p){
+  me=p;
+  S('#site-name').textContent=siteHost();
+  S('#new-btn').lastChild.textContent=' Inspect '+siteHost();
+  if(!current&&!viewingLive)urlIn.placeholder=idlePlaceholder();
+  renderSiteMenu();renderEmpty();
+}
+async function profileCall(method,path,body){
+  const r=await fetch(path,{method,headers:{'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});
+  const d=await r.json().catch(()=>({}));
+  if(r.status===401){showSignin();throw new Error('Please sign in again.');}
+  if(!r.ok)throw new Error(d.error||'Something went wrong. Please try again.');
+  return d.profile;
+}
+async function switchSite(site){
+  closeMenu();
+  try{applyProfile(await profileCall('PUT','/api/profile/active',{site}));}catch(e){addMsg('agent','<span style="color:var(--high)">'+esc(e.message)+'</span>');return false;}
+  siteScore_=null;renderScore();clear();
+  await loadHistory();await refreshScore();
+  if(live&&onSite(live.url)&&!live.done)showLive();
+  return true;
+}
+async function addSite(url,errEl){
+  try{applyProfile(await profileCall('POST','/api/profile/sites',{site:url}));}
+  catch(e){if(errEl)errEl.textContent=e.message;else addMsg('agent','<span style="color:var(--high)">'+esc(e.message)+'</span>');return false;}
+  closeMenu();siteScore_=null;renderScore();clear();
+  await loadHistory();await refreshScore();
+  return true;
+}
+// The site switcher: the workspace's sites, add a site link, sign out.
+const menu=S('#site-menu'),siteBtn=S('#site-btn');
+function renderSiteMenu(){
+  if(!me)return;
+  menu.innerHTML='<div class="sm-head">Your sites</div>'+me.sites.map((x,i)=>'<div class="sm-row"><button type="button" class="sm-site" data-i="'+i+'" role="menuitemradio" aria-checked="'+(x===me.activeSite)+'"><i>'+(x===me.activeSite?'&#10003;':'')+'</i><span>'+esc(keyOf(x))+'</span></button>'+(me.sites.length>1?'<button type="button" class="sm-del" data-i="'+i+'" title="Remove from your sites (its inspections are kept)" aria-label="Remove '+esc(keyOf(x))+'">Remove</button>':'')+'</div>').join('')+
+    '<form class="sm-add" novalidate><input type="text" placeholder="Add a site link, e.g. example.org" aria-label="Website to add" autocapitalize="none" autocorrect="off" spellcheck="false" inputmode="url"><button type="submit">Add</button></form><div class="sm-err" role="alert"></div>'+
+    '<div class="sm-foot"><span>Signed in as <b>'+esc(me.name)+'</b></span><button type="button" class="sm-out">Sign out</button></div>';
+  menu.querySelectorAll('.sm-site').forEach(b=>b.addEventListener('click',()=>{const x=me.sites[Number(b.dataset.i)];if(x===me.activeSite){closeMenu();return;}switchSite(x);}));
+  menu.querySelectorAll('.sm-del').forEach(b=>b.addEventListener('click',e=>{e.stopPropagation();const x=me.sites[Number(b.dataset.i)];twoStep(b,'Remove?',async()=>{
+    try{const was=me.activeSite;applyProfile(await profileCall('DELETE','/api/profile/sites?site='+encodeURIComponent(x)));if(me.activeSite!==was){siteScore_=null;renderScore();clear();await loadHistory();await refreshScore();}menu.hidden=false;siteBtn.setAttribute('aria-expanded','true');}
+    catch(err){S('.sm-err',menu).textContent=err.message;}
+  });}));
+  const f=S('.sm-add',menu),inp=S('input',f);
+  f.addEventListener('submit',e=>{e.preventDefault();const v=inp.value.trim();if(!v)return;S('.sm-err',menu).textContent='';addSite(v,S('.sm-err',menu));});
+  S('.sm-out',menu).addEventListener('click',async()=>{try{await fetch('/api/profile/signout',{method:'POST'});}catch{}store.set(null);location.reload();});
+}
+function closeMenu(){menu.hidden=true;siteBtn.setAttribute('aria-expanded','false');}
+siteBtn.addEventListener('click',e=>{e.stopPropagation();const open=menu.hidden;menu.hidden=!open;siteBtn.setAttribute('aria-expanded',String(open));if(open){const i=S('.sm-add input',menu);if(i&&matchMedia('(hover:hover)').matches)i.focus();}});
+document.addEventListener('click',e=>{if(!menu.hidden&&!e.target.closest('#site-menu,#site-btn'))closeMenu();});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!menu.hidden){closeMenu();siteBtn.focus();}});
+// Sign in: a name and a website link. No password for now.
+const signin=S('#signin');
+function showSignin(){me=null;signin.hidden=false;S('#si-name').focus();}
+S('#si-form').addEventListener('submit',async e=>{
+  e.preventDefault();
+  const name=S('#si-name'),site=S('#si-site'),err=S('#si-err'),go=S('#si-go');
+  name.removeAttribute('aria-invalid');site.removeAttribute('aria-invalid');err.textContent='';
+  if(!name.value.trim()){name.setAttribute('aria-invalid','true');err.textContent='Please enter your name.';name.focus();return;}
+  const c=classifyInput(site.value);
+  if(c.kind!=='url'){site.setAttribute('aria-invalid','true');err.textContent=c.kind==='urls'?'One website to start with. You can add more later.':'That doesn’t look like a website address. Try something like example.com.';site.focus();return;}
+  go.disabled=true;
+  try{const p=await profileCall('POST','/api/profile',{name:name.value,site:c.url});signin.hidden=true;store.set(null);await enter(p);}
+  catch(x){err.textContent=x.message;}
+  finally{go.disabled=false;}
+});
+
+// On load: the workspace (or the sign-in screen); then its site's inspections. Follow an
+// inspection that is still running (the page was reloaded mid-run), else reopen the one
+// that was open before the reload.
+async function enter(p){
+  applyProfile(p);
   let act={};
   try{act=await (await fetch('/api/run/active')).json();}catch{}
+  // A running inspection of another of the workspace's sites: switch to it.
+  if(act.runId&&!onSite(act.url)){try{applyProfile(await profileCall('PUT','/api/profile/active',{site:act.url}));}catch{}}
+  await loadHistory();
+  refreshScore();
   if(act.runId){beginLive(act.runId,act.url,act.startedAt);return;}
   const id=store.get();if(id&&history_.some(m=>m.id===id))openInspection(id);
+}
+(async()=>{
+  let p=null;
+  try{p=(await (await fetch('/api/profile')).json()).profile;}catch{}
+  if(!p){showSignin();return;}
+  enter(p);
 })();
 </script>
 </body>
