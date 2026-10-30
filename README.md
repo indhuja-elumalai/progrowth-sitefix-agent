@@ -1838,6 +1838,52 @@ inspection.
   - They use the same functions as the report (`pointsOf`, `projected`), so the
     numbers always match it.
 
+**A chat assistant, not a report reader.** SiteFix answers the way a general AI
+assistant would: it works out what is being asked and takes the data from the
+inspection when the question needs it.
+
+- **Help and general questions** get a real answer. Examples: "hi", "I'm not sure
+  how this works, where do I start?", "what do you check?", "what is a canonical
+  tag?".
+  - With every question the AI gets the guide (`lib/guide.js`): how SiteFix works,
+    what it checks, the limits it checks against, the score and how to use the
+    report. The limits are taken from the checks themselves.
+  - The AI also gets this inspection's data and the last four messages, sent as
+    real turns of the conversation.
+  - **Follow-ups** like "explain it like I'm 10", "simpler please", "why?" or "yes"
+    are answered about what was just discussed, not taken as a new subject. The
+    data for them is picked for the question before as well.
+  - Explanations, definitions and follow-ups don't show issue cards unless the
+    answer is about specific problems.
+  - Help and greetings never get an issue list in reply. Before a site is
+    inspected, the chat still answers from the guide.
+- **Facts about the site** come only from the inspection: pages, links, problems,
+  counts, the score.
+  - An answer with a number, link or page path that is neither in the data nor in
+    the guide is not shown. The AI is asked once more; if it still can't answer, it
+    says so honestly: "I'd rather not guess on that one."
+  - Things SiteFix can't know, like traffic, rankings or sales, are said to be
+    outside what it measures.
+- **Lists aren't repeated.** For "what should I fix first?" or "which images are
+  broken?", one sentence says how many there are, and the most important ones show
+  as cards: three for a list, at most five in an AI answer. The words no longer
+  list the same issues again above the cards. The rest is one click away in the
+  report.
+- **New words each time, same facts.** Answers the code works out (counts, lists,
+  the score) are reworded by AI (`lib/phrasing.js`). The rewording is used only
+  when it keeps every number, link, page path, bold name and list line, and adds
+  nothing.
+  - Otherwise, or when AI is off, slow (over 2.5 s) or fails, the original words
+    are shown.
+  - Earlier answers to the same question are sent along so the next one is
+    worded differently. Questions asked in other words also count as the same
+    question ("What's my score?" and "whats my score").
+- **Writing an answer shows it.** Rolling dots and a line that changes from
+  "Looking at your site" to "Checking the facts" to "Writing". Every answer takes
+  about half a second to a second, so none looks pre-saved.
+- `POST /api/say` rewords the page's own answers, such as "how long is left?" while
+  an inspection runs, keeping every fact. It allows 40 a minute per workspace.
+
 **A calmer inspection.** The conversation stays quiet while the card does the work:
 
 - One message: "Checking example.com now, every page, link and image. Nothing on
@@ -1867,13 +1913,20 @@ Testing settings: `SITEFIX_PROFILES` (the workspace file) and `SITEFIX_HISTORY_D
 
 Checked in a browser on the fixture: sign in, inspect, the result card, score
 questions, adding and switching sites, and a phone-width layout. A report with fixes
-selected shows "74 Good → 80" in the topbar. Fixture: 34/34. Tests: 352 (16 new):
+selected shows "74 Good → 80" in the topbar. Fixture: 34/34. Tests: 363 (27 new):
 
 - `profiles.test.js`
 - `site-score.test.js`
 - `server-access.test.js`, which starts the server with two workspaces and checks
   every 401 and 403
 - history `tag` and filtered delete
+- `phrasing.test.js`:
+  - rewordings that change, add or drop a fact are refused;
+  - an AI answer with a number the data doesn't have is asked again, then honestly
+    declined;
+  - general questions get the guide and the conversation;
+  - a follow-up is read with the conversation before it;
+  - at most five issues per answer.
 
 ## 13. Security principles
 
