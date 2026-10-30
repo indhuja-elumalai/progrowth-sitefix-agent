@@ -199,3 +199,29 @@ test("issues kept as is are saved, and stop being selected", () => {
     assert.deepEqual(p.selected, { "ISS-abcdefabcd": true });
     assert.deepEqual(cleanProgress({ kept: { "ISS-ffffffffff": 1 }, verified: { "ISS-ffffffffff": 1 } }).kept, {}, "a confirmed fix isn't also kept");
 });
+
+test("tag records the site an inspection was asked for, and it survives the report arriving later", async () => {
+    const root = await project({ withReport: false });
+    const h = createHistory({ root });
+    const id = (await h.sync()).id;
+    assert.equal(await h.tag(id, { site: "https://example.org/" }), true);
+    await writeReport(root, id);
+    const meta = await h.sync();
+    assert.equal(meta.hasReport, true);
+    assert.equal(meta.site, "https://example.org/");
+    assert.equal((await h.meta(id)).site, "https://example.org/");
+    assert.equal(await h.meta("run-20991231T000000"), null);
+});
+
+test("removeAll with a filter deletes only the inspections it picks", async () => {
+    const root = await project();
+    const h = createHistory({ root });
+    await h.sync();
+    await writeCrawl(root, { id: "run-20261020T080000", startedAt: "2026-10-20T08:00:00.000Z", url: "https://other.org/" });
+    await h.sync();
+    assert.equal((await h.list()).length, 2);
+    assert.equal(await h.removeAll((m) => m.host === "other.org"), 1);
+    assert.deepEqual((await h.list()).map((m) => m.host), ["example.com"]);
+    await h.sync(); // the deleted crawl, still in the project root, is not imported again
+    assert.deepEqual((await h.list()).map((m) => m.host), ["example.com"]);
+});
