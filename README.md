@@ -205,6 +205,8 @@ progrowth-sitefix-agent/
 │   ├── report-html.js                 the printable report (HTML that report.js turns into the PDF)
 │   ├── web-report.js                  the live web report: score, On-page / Technical / Off-page, select fixes, Fix button; also one downloadable file
 │   ├── score.js                       the site score (0-100, on-page / technical / off-page), points per fix, levels
+│   ├── site-score.js                  the score for the chat: today's, with the selection, how to reach a target
+│   ├── profiles.js                    workspaces: a name and site links; every request is limited to them
 │   ├── coach.js                       the live report's messages: AI wording, checked; numbers are placeholders
 │   ├── verify.js                      Check it now: the crawl's rules run again on the live site for chosen issues
 │   ├── ai-provider.js                 the only code that talks to an AI: OpenAI or the mock, from .env
@@ -1765,6 +1767,113 @@ How it works:
 On the bench site with 600 pages, Stop after 12 seconds gave the full report for
 the 62 pages read, 15 seconds later. "Stop now" ended it in 3 seconds, with no
 browser left running. Tests: 286 (4 new).
+
+### Day 30: a workspace per site, the score in the chat, a calmer inspection
+
+The chat now works the way the final agent will: someone signs in, and everything
+they see and do is about their own site. There is no real email sign-in yet, on
+purpose. For testing against many sites, a workspace can hold several site links.
+
+**Sign in.** The first screen asks for a name and a website link, then Continue.
+
+- No password or email for now.
+- The browser keeps the workspace in a cookie (`sitefix_profile`: HttpOnly,
+  SameSite=Lax). **Sign out** is in the site menu.
+- Workspaces are kept in `profiles.json` (gitignored), by `lib/profiles.js`.
+
+**Your sites.** The topbar shows the site you are on. Click it to:
+
+- switch to another of your sites;
+- **Add a site link** (up to 50 sites);
+- remove a site (its inspections are kept);
+- sign out.
+
+A site is its host: `www.`, http/https, the path and upper or lower case don't
+matter. Two workspaces that add the same site share its inspections.
+
+**Everything is limited to your sites,** in the server and not just on the page:
+
+- The page shows only your site's inspections. **Delete all** deletes only that
+  site's inspections.
+- The server checks every request: starting an inspection, following or stopping
+  it, results, history, the web report and its download, the PDF, screenshots,
+  progress, Check it now, and questions in the chat.
+  - Signed out: `401`.
+  - Another site: `403`, and the report page says "This report is for another site".
+- An inspection belongs to the address it was asked for and to the address it
+  ended up checking (a site can move), so either one gives access.
+- Typing another site's address in the chat doesn't start anything:
+  - one of your other sites gives **Switch and inspect**;
+  - any other site gives "This workspace is for example.com. Add example.org as a
+    site to check it", with **Add example.org and inspect**.
+
+**One button to inspect.** The home screen says hello, and its one button is
+**Inspect example.com**. It also shows when the site was last checked and its
+score, with **Open it**. The sidebar button does the same. The chat box is for
+questions: one about the site when nothing is open is answered from its latest
+inspection.
+
+**The score in the chat:**
+
+- **In the topbar,** for the site you're on: for example "74 Good → 80".
+  - The first number is today's score, from the latest inspection. It counts the
+    fixes confirmed on the live site and the pages kept as they are.
+  - The arrow shows the score with the fixes selected in the report.
+  - It updates when you come back from the report tab. Clicking it opens the report.
+- **At the end of an inspection,** one card replaces the three or four messages
+  that came before it. It has:
+  - the score ring and its band;
+  - High / medium / low counts and On-page / Technical / Off-page bars;
+  - the three fixes to make first, with the points each one gives and the score
+    they lead to;
+  - a note when the inspection was stopped or the site was too large to read in full.
+- **The report under the card,** shared the way a link is shared in Messages:
+  - a preview with "Made for <name>" and the date, "example.com: 34 issues to fix",
+    and a screenshot of the most urgent problem; it opens the web report;
+  - PDF and Download under the preview.
+- **Exact answers** to "what's my score?", "how is my site doing?" and "how do I
+  get to 80?", from `lib/site-score.js`:
+  - the score and its three areas;
+  - the fewest kinds of problem, biggest gain first, that reach the target.
+  - They use the same functions as the report (`pointsOf`, `projected`), so the
+    numbers always match it.
+
+**A calmer inspection.** The conversation stays quiet while the card does the work:
+
+- One message: "Checking example.com now, every page, link and image. Nothing on
+  your site changes, and you can keep asking me things."
+- The six progress messages are gone: the moved site, the sitemap, halfway, all
+  pages read, writing the report, and the first problem. A site that moved now
+  shows in the card's title.
+- The card shows the progress bar, the page count and one line: "Found so far:
+  5 high, 4 medium, 6 low". **Show details** opens the steps, the live feed and
+  the log.
+- Questions while it runs still work, with fewer suggestions (three instead of five).
+
+New endpoints:
+
+| Endpoint | What it does |
+|---|---|
+| `GET /api/profile`, `POST /api/profile` | The workspace, or `{ name, site }` to create one and sign in |
+| `POST /api/profile/sites`, `DELETE /api/profile/sites?site=` | Add a site (it becomes the active one), remove one |
+| `PUT /api/profile/active` | Switch to another site |
+| `POST /api/profile/signout` | Sign out of this browser |
+| `GET /api/score?site=` | The site's score from its latest inspection |
+| `GET /api/history/:id/score` | One inspection's score, with what to fix to raise it |
+| `GET /api/history?site=` | One site's inspections; `DELETE` with `?site=` deletes only those |
+
+Testing settings: `SITEFIX_PROFILES` (the workspace file) and `SITEFIX_HISTORY_DIR`
+(the history folder) let the server run on its own data.
+
+Checked in a browser on the fixture: sign in, inspect, the result card, score
+questions, adding and switching sites, and a phone-width layout. A report with fixes
+selected shows "74 Good → 80" in the topbar. Fixture: 34/34. Tests: 352 (16 new):
+
+- `profiles.test.js`
+- `site-score.test.js`
+- `server-access.test.js`, which starts the server with two workspaces and checks
+  every 401 and 403
+- history `tag` and filtered delete
 
 ## 13. Security principles
 
