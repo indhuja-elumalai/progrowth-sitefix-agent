@@ -1,5 +1,6 @@
 // The UI server keeps every workspace to its own sites (lib/profiles.js): it is started
-// here with its own history and workspaces in a temp folder.
+// here with its own history and workspaces in a temp folder, and AI off (a key in .env
+// is never used by the tests, and answers keep their exact words).
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
@@ -28,7 +29,7 @@ before(async () => {
     await inspection(hist, COM, "https://www.example.com/");
     await inspection(hist, ORG, "https://example.org/");
     const port = 3900 + Math.floor(Math.random() * 500);
-    server = spawn("node", ["ui/server.js", "--port", String(port)], { cwd: ROOT, env: { ...process.env, SITEFIX_HISTORY_DIR: hist, SITEFIX_PROFILES: path.join(dir, "profiles.json") }, stdio: ["ignore", "pipe", "pipe"] });
+    server = spawn("node", ["ui/server.js", "--port", String(port)], { cwd: ROOT, env: { ...process.env, AI_PROVIDER: "none", OPENAI_API_KEY: "", SITEFIX_HISTORY_DIR: hist, SITEFIX_PROFILES: path.join(dir, "profiles.json") }, stdio: ["ignore", "pipe", "pipe"] });
     base = `http://127.0.0.1:${port}`;
     await new Promise((resolve, reject) => {
         const t = setTimeout(() => reject(new Error("server did not start")), 15000);
