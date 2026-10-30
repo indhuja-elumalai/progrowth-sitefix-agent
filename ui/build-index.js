@@ -331,6 +331,18 @@ const CSS = `
   #shot-view{position:fixed;inset:0;z-index:50;background:rgba(0,0,0,.72);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;gap:10px;cursor:zoom-out}
   #shot-view img{max-width:min(1100px,100%);max-height:calc(100% - 40px);border-radius:10px;box-shadow:0 10px 40px rgba(0,0,0,.4)}
   #shot-view span{color:#fff;font-size:13px;opacity:.85;text-align:center}
+  /* Writing an answer: dots that roll in a wave, and a line that says what is happening */
+  .thinking{display:inline-flex;align-items:center;gap:10px;min-height:20px}
+  .th-dots{display:inline-flex;gap:4px;align-items:center}
+  .th-dots i{width:7px;height:7px;border-radius:50%;background:var(--text-2);animation:thdot 1.2s ease-in-out infinite}
+  .th-dots i:nth-child(2){animation-delay:.15s}.th-dots i:nth-child(3){animation-delay:.3s}
+  @keyframes thdot{0%,60%,100%{transform:translateY(0);opacity:.35}30%{transform:translateY(-4px);opacity:1}}
+  .th-txt{display:inline-grid;font-size:13px;color:var(--text-2)}
+  .th-txt b{grid-area:1/1;font-weight:500;white-space:nowrap;opacity:0;background:linear-gradient(90deg,var(--text-3) 0%,var(--text-1) 50%,var(--text-3) 100%);background-size:200% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:thtxt 4.5s infinite,thshine 1.6s linear infinite}
+  .th-txt b:nth-child(1){opacity:1}
+  .th-txt b:nth-child(2){animation-delay:1.5s,0s}.th-txt b:nth-child(3){animation-delay:3s,0s}
+  @keyframes thtxt{0%{opacity:0;transform:translateY(3px)}6%,30%{opacity:1;transform:none}36%,100%{opacity:0;transform:translateY(-3px)}}
+  @keyframes thshine{from{background-position:100% 0}to{background-position:-100% 0}}
   .typing{display:inline-flex;gap:4px}.typing i{width:6px;height:6px;border-radius:50%;background:var(--text-3);animation:pulse 1s infinite}
   .typing i:nth-child(2){animation-delay:.2s}.typing i:nth-child(3){animation-delay:.4s}
   .fix-row{border:1px solid var(--border);border-radius:8px;padding:7px 10px;margin-top:6px;background:var(--bg);font-size:13px}
@@ -578,7 +590,7 @@ const HTML = String.raw`<!DOCTYPE html>
       </div>
       <div class="inp-hint" id="inp-hint">
         <span id="inp-err" role="alert"></span>
-        <span id="inp-ok">Ask about your site&rsquo;s inspection, your score, or what to fix first.</span>
+        <span id="inp-ok">Ask me anything: your site, your score, what to fix first, or how SiteFix works.</span>
       </div>
     </div>
   </main>
@@ -732,13 +744,27 @@ function refreshLiveSuggest(){
   else if(row)chatIn.appendChild(row);
   live.sgEl=row;
 }
-function liveAsk(q){
+// Every answer takes a moment and shows it is being written: the facts are worked out
+// here or on the server, the words come from AI (POST /api/say, /api/ask), so the same
+// question isn't answered word for word the same way twice.
+const TYPING='<span class="thinking" role="status" aria-label="Writing an answer"><span class="th-dots" aria-hidden="true"><i></i><i></i><i></i></span><span class="th-txt" aria-hidden="true"><b>Looking at your site</b><b>Checking the facts</b><b>Writing</b></span></span>';
+const think=()=>new Promise(r=>setTimeout(r,450+Math.random()*450));
+async function sayIt(text,q){
+  try{const r=await fetch('/api/say',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text,question:q})});const d=await r.json();return r.ok&&d.text?d.text:text;}
+  catch{return text;}
+}
+async function liveAsk(q){
   live.asked.push(q);
   liveSay('user',esc(q));
   const instant=answerProcessQuestion(q,liveCtx());
-  if(instant)liveSay('agent',answerHtml({answer:instant.answer}));
+  if(instant){
+    const run=live,b=liveSay('agent',TYPING);
+    const [t]=await Promise.all([sayIt(instant.answer,q),think()]);
+    b.innerHTML=answerHtml({answer:t});
+    if(viewingLive&&live===run)scroll();
+  }
   else{const b=liveSay('agent','<span class="queued">Good question. I&rsquo;ll answer it as soon as the report is ready.</span>');live.queue.push({q,bubble:b});}
-  live.sgSig=null;refreshLiveSuggest();keepLast(live.sgEl);
+  if(live){live.sgSig=null;refreshLiveSuggest();keepLast(live.sgEl);}
 }
 // After a finished inspection: suggestions based on what it found.
 function showResultSuggest(asked){
@@ -746,7 +772,7 @@ function showResultSuggest(asked){
   if(current.sgEl)current.sgEl.remove();
   current.asked=(current.asked||[]).concat(asked||[]);
   const cur=current;
-  const row=suggestRow(suggestQuestions(cur.sgTypes,cur.asked,4),'Ask me about this report:',(q,b,w)=>{b.remove();if(!w.querySelector('.sq'))w.remove();ask(q).then(()=>keepLast(w));},'after');
+  const row=suggestRow(suggestQuestions(cur.sgTypes,cur.asked,4),'You could ask:',(q,b,w)=>{b.remove();if(!w.querySelector('.sq'))w.remove();ask(q).then(()=>keepLast(w));},'after');
   if(row)chatIn.appendChild(row);
   cur.sgEl=row;
 }
@@ -761,7 +787,7 @@ async function answerQueue(run,show){
   }
   for(const it of run.queue){
     let bbl=null;
-    if(show){addMsg('user',esc(it.q));bbl=addMsg('agent','<span class="typing" aria-label="Thinking"><i></i><i></i><i></i></span>');}
+    if(show){addMsg('user',esc(it.q));bbl=addMsg('agent',TYPING);}
     try{
       const r=await fetch('/api/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(id?{question:it.q,inspectionId:id}:{question:it.q})});
       const d=await r.json();
@@ -1071,7 +1097,7 @@ function renderResults(reg,siteUrl,report,id,meta){
   current={id:id||null,byId:new Map(issues.map(i=>[i.id,i])),report,base,hasPdf:meta?meta.hasPdf:Boolean(report),run:reg.run||{}};
   markActive();
   const run=reg.run||{},counts=reg.counts||{};
-  urlIn.placeholder='Ask about this report';
+  urlIn.placeholder='Ask me anything';
   const pages=run.pagesCrawled||0;
   if(!issues.length){
     addMsg('agent','<span style="color:var(--success)">&#10003; No issues found.</span> I checked '+pages+' page'+(pages===1?'':'s')+' and the site looks clean on every check. Nothing changed on the site.');
@@ -1207,15 +1233,11 @@ function showAnswer(bbl,d){
     const list=el('div','ev-list');list.appendChild(evCard(current.byId.get(ids[0])));
     at.after(list);at=list;
   }else if(ids.length>1){
-    // Two or more: short numbered points, then every card at once.
-    const all=ids.slice(0,6),mixed=new Set(all.concat(rest).map(id=>current.byId.get(id).type)).size>1;
-    const pts=el('ol','crisp-list');
-    all.forEach(id=>{const li=el('li');li.innerHTML=crispLine(current.byId.get(id),mixed);pts.appendChild(li);});
-    const box=el('div','pt-box');box.appendChild(pts);
+    // Two or more: the cards say what and where, so the words above them don't list them again.
+    const all=ids.slice(0,6);
     const view=el('div','ev-list');
     all.forEach(id=>view.appendChild(evCard(current.byId.get(id))));
     if(rest.length&&!cards)view.appendChild(moreButton(view,rest));
-    bbl.appendChild(box);
     at.after(view);at=view;
   }
   // The rest of a list: a link card to the web report, filtered to exactly that list.
@@ -1323,24 +1345,34 @@ async function ask(q,opts){
   opts=opts||{};
   if(!current&&live&&!live.done&&viewingLive){urlIn.value='';syncBtn();liveAsk(q);return;}
   if(current){
+    // Timings of this inspection are known here; "how does it work" goes to the assistant.
     const instant=answerProcessQuestion(q,doneCtx());
-    if(instant){urlIn.value='';syncBtn();addMsg('user',esc(q));addMsg('agent',answerHtml({answer:instant.answer}));showResultSuggest([q]);return;}
+    if(instant&&instant.kind!=='how'&&instant.kind!=='what'){
+      urlIn.value='';syncBtn();addMsg('user',esc(q));const b=addMsg('agent',TYPING);
+      const [t]=await Promise.all([sayIt(instant.answer,q),think()]);
+      b.innerHTML=answerHtml({answer:t});showResultSuggest([q]);scroll();return;
+    }
   }
   if(!current){
     // Nothing open: answer from the site's latest inspection when there is one.
     if(siteScore_&&siteScore_.id&&!viewingLive){urlIn.value='';syncBtn();await openInspection(siteScore_.id,true);if(current)return ask(q,opts);return;}
-    addMsg('user',esc(q));addMsg('agent',viewingLive?'I can answer that once the inspection finishes, in a minute or two.':'Inspect <b>'+esc(siteHost())+'</b> first, then ask me anything about it.');urlIn.value='';syncBtn();return;
+    if(viewingLive){addMsg('user',esc(q));addMsg('agent','I can answer that once the inspection finishes, in a minute or two.');urlIn.value='';syncBtn();return;}
+    // Not inspected yet: still a real answer (how SiteFix works, websites in general).
+    urlIn.value='';syncBtn();addMsg('user',esc(q));const b=addMsg('agent',TYPING);
+    try{const [r]=await Promise.all([fetch('/api/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:q})}),think()]);const d=await r.json();b.innerHTML=answerHtml(d);}
+    catch{b.innerHTML='<span style="color:var(--high)">I couldn&rsquo;t get an answer just now. Please try again.</span>';}
+    scroll();return;
   }
   urlIn.value='';syncBtn();
   // A general follow-up ("what should I fix first?") right after a list of one kind of
   // problem: ask whether it is about that list or the whole site.
   if(!opts.decided&&current.lastScope&&FOLLOW_UP.test(q)&&!WHOLE_SITE.test(q)){chooseScope(q,current.lastScope);return;}
   addMsg('user',esc(opts.echo||q));
-  const bbl=addMsg('agent','<span class="typing" aria-label="Thinking"><i></i><i></i><i></i></span>');
+  const bbl=addMsg('agent',TYPING);
   try{
     const body={question:q,inspectionId:current.id};
     if(opts.scope)body.scope=opts.scope.types;
-    const r=await fetch('/api/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const [r]=await Promise.all([fetch('/api/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}),think()]);
     const d=await r.json();
     showAnswer(bbl,d);
     // The topic of this answer is what the next follow-up may be about.

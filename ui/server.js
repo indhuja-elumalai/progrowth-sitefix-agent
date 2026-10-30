@@ -15,7 +15,9 @@
 //   GET  /api/report.pdf → the PDF report
 //   GET  /api/shots/:id  → one screenshot from the report
 //   GET  /api/ai-status  → whether AI is on, which provider and model
-//   POST /api/ask        → { question, inspectionId?, scope? } → an answer from that inspection only
+//   POST /api/ask        → { question, inspectionId?, scope? } → an answer from that inspection only;
+//                          asked again, the same facts in other words (lib/phrasing.js)
+//   POST /api/say        → { text, question } → the page's own answer in new words, every fact kept
 //                          (scope: issue types a follow-up stays within, e.g. the broken images)
 //
 // History (lib/history.js): every finished inspection is kept in history/<run-id>/.
@@ -62,7 +64,8 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { loadEnv } from "../lib/env.js";
 import { aiConfig, providerFromConfig } from "../lib/ai-provider.js";
-import { answerQuestion } from "../lib/chat.js";
+import { answerQuestion, varyAnswer } from "../lib/chat.js";
+import { rephrase, sameQuestion, MAX_PHRASE } from "../lib/phrasing.js";
 import { createHistory, isRunId } from "../lib/history.js";
 import { buildWebReport, reportFileName } from "../lib/web-report.js";
 import { buildReportHtml, MAX_INSTANCES_IN_PDF } from "../lib/report-html.js";
@@ -117,6 +120,20 @@ async function latestAllowed(profile) {
     const run = JSON.parse(await readFile(path.join(ROOT, "issues.json"), "utf8")).run || {};
     return profiles.allows(profile, run.startUrl) || profiles.allows(profile, askedFor.get(run.id));
   } catch { return false; }
+}
+
+// Answers: facts from the inspection, new words for the code's answers (counts, lists).
+async function answerAndVary({ question, report, scope, previous = [], conversation = [] }) {
+  const result = await answerQuestion({ question, report, provider, scope, previous, conversation });
+  return result.source === "report data" ? varyAnswer(result, { question, provider, previous }) : result;
+}
+// /api/say: the last few wordings per question (so the next is different), and at most
+// 40 a minute per workspace.
+const said = new Map(), sayCount = new Map();
+function sayAllowed(id) {
+  const now = Date.now(), c = sayCount.get(id);
+  if (!c || now - c.at > 60000) { sayCount.set(id, { at: now, n: 1 }); return true; }
+  return ++c.n <= 40;
 }
 
 function makeRunId() {
@@ -606,15 +623,36 @@ const server = createServer(async (req, res) => {
       if (!inspectionAllowed(profile, saved.meta)) return json(res, 403, { error: "That inspection belongs to another site." });
       if (!saved.report) return json(res, 200, { answer: "This inspection has no explained report (the report step did not finish), so I cannot answer questions about it. Run it again to chat about it.", issueIds: [], source: "none" });
       const scope = Array.isArray(body.scope) ? body.scope.filter((t) => typeof t === "string" && /^[a-z0-9-]{2,40}$/.test(t)).slice(0, 20) : undefined;
+      // The same question asked before: the facts stay the same, the words don't.
+      const previous = saved.chat.filter((c) => sameQuestion(c.question, body.question)).map((c) => c.answer).slice(-3);
       // The score and how to raise it: exact numbers, counting what was fixed in the report.
-      const result = answerScoreQuestion(body.question, saved.report, await history.getProgress(body.inspectionId)) || await answerQuestion({ question: body.question, report: saved.report, provider, scope });
+      const fixed = answerScoreQuestion(body.question, saved.report, await history.getProgress(body.inspectionId));
+      const result = fixed ? await varyAnswer(fixed, { question: body.question, provider, previous }) : await answerAndVary({ question: body.question, report: saved.report, scope, previous, conversation: saved.chat.slice(-4) });
       if (String(body.question || "").trim()) await history.appendChat(body.inspectionId, { question: String(body.question).trim().slice(0, 500), answer: result.answer, issueIds: result.issueIds || [], source: result.source, ...(result.display ? { display: result.display, lead: result.lead, tail: result.tail, more: result.more, moreIds: result.moreIds || [], reportHash: result.reportHash, moreLabel: result.moreLabel, ...(result.scope ? { scope: result.scope } : {}) } : {}) });
       return json(res, 200, result);
     }
-    if (!(await latestAllowed(profile))) return json(res, 403, { error: "That inspection belongs to another site." });
+    // No inspection of this workspace's site to answer from: a general answer (how SiteFix
+    // works, websites in general), never another site's report.
+    if (!(await latestAllowed(profile))) return json(res, 200, await answerQuestion({ question: body.question, report: null, provider, site: profile.activeSite }));
     const report = await currentReport();
-    const result = answerScoreQuestion(body.question, report, null) || await answerQuestion({ question: body.question, report, provider });
+    const fixed = answerScoreQuestion(body.question, report, null);
+    const result = fixed ? await varyAnswer(fixed, { question: body.question, provider }) : await answerAndVary({ question: body.question, report });
     return json(res, 200, result);
+  }
+
+  // API: an answer the page worked out itself (how far the inspection is, how long is
+  // left), said in new words. Only the words change: lib/phrasing.js keeps every fact.
+  if (method === "POST" && pathname === "/api/say") {
+    const body = await parseBody(req);
+    const text = String(body.text || "").slice(0, MAX_PHRASE), question = String(body.question || "").slice(0, 500);
+    if (!text.trim()) return json(res, 400, { error: "Nothing to say" });
+    if (!sayAllowed(profile.id)) return json(res, 200, { text, varied: false });
+    const key = `${profile.id}|${question.toLowerCase()}`;
+    const avoid = said.get(key) || [];
+    const r = await rephrase({ text, question, provider, avoid });
+    said.delete(key); said.set(key, [...avoid, r.text].slice(-3));
+    if (said.size > 2000) said.delete(said.keys().next().value);
+    return json(res, 200, r);
   }
 
   // Web report: /report/:id opens in the browser, /report/:id/download saves one file.
